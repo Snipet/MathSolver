@@ -70,7 +70,7 @@ Interactive REPL (like `python` with no arguments):
 
 ```console
 $ mathsolver
-MathSolver 0.1.0 — type "help" for commands, "quit" to exit
+MathSolver 0.2.0 — type "help" for commands, "quit" to exit
 >>> 2x + 3x
 5*x
 >>> solve x^2 - 4 = 0, x
