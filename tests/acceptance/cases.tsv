@@ -152,3 +152,15 @@ err-05	simplify	2^200	-	contains	-	1
 # usage errors exit 2: --range missing its HI argument; malformed eval binding
 err-06	solve	x = 1	x --range 5	contains	-	2
 err-07	eval	x	x=abc	contains	-	2
+#
+# ---------- linear systems (DESIGN.md section 9b) ----------
+sys-01	solve	x + y = 3; x - y = 1	x y	regex	(?=.*^x = 2$)(?=.*^y = 1$)	0
+sys-02	solve	x + y = 3; x - y = 1	-	regex	(?=.*^x = 2$)(?=.*^y = 1$)	0
+sys-03	solve	x + y = 3; x - y = 1	x y	contains	method: gaussian elimination	0
+sys-04	solve	x + y = 1; x + y = 2	x y	contains	no solution (inconsistent system)	0
+sys-05	solve	x + y = 3; 2x + 2y = 6	x y	regex	(?=.*^x = .*y.*$)(?=.*^free: y$)	0
+sys-06	solve	x*y = 1; x - y = 0	x y	contains	system is not linear in the requested variables	0
+sys-07	solve	2x + 3y + 4z = 3; 6y - 4z = 1; 8x + 3y - 4z = 4	x y z	regex	(?=.*^x = 1/2$)(?=.*^y = 1/3$)(?=.*^z = 1/4$)	0
+sys-08	solve	y = 1; x + y = 2	x y	regex	(?=.*^x = 1$)(?=.*^y = 1$)	0
+sys-09	solve	a*x + y = 1; x - y = b	x y	contains	valid only when	0
+sys-10	solve	x + y + z = 1; x - y = 2	-	contains	usage error	2

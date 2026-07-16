@@ -549,8 +549,16 @@ variables"`.
 nonzero Number pivots; a *symbolic* pivot is allowed but adds the warning
 `"valid only when <pivot> ≠ 0"` (same doctrine as the §9 quadratic leading
 coefficient). Row `0 = c` with numeric nonzero `c` → `NoSolution`
-("inconsistent system"); with symbolic `c` → keep, but warn
-`"inconsistent unless <c> = 0"`.
+("inconsistent system") — for an exact `Number` this is decided exactly (no
+float epsilon; `x = 1; x = 1.0000000000001` is inconsistent), and a
+constant-bearing symbol-free `c` (pi/e shapes) is `NoSolution` only when it
+evaluates clearly nonzero; near-zero or non-evaluating constant shapes are
+kept with the warning below, never silently accepted. With symbolic `c` →
+keep, but warn `"inconsistent unless <c> = 0"`. If exact coefficient
+arithmetic overflows the 64-bit rational anywhere (extraction, elimination,
+back-substitution, or verification), the result is `Unsolved` with the
+warning `"coefficient arithmetic overflowed 64-bit rationals"` — an
+`OverflowError` never escapes `solve_system`.
 
 **Shape of the answer.**
 - Pivot count = #symbols → `Solved`; `values` maps every requested symbol to

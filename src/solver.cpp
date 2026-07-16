@@ -1359,4 +1359,314 @@ SolveResult solve_numeric(const Equation& eq, std::string_view symbol,
     return numeric_core(*f_opt, eq, symbol, opts);
 }
 
+// ---------------------------------------------------------------------------
+// Linear systems (DESIGN.md §9b)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// Joint-linearity extraction for one equation: peel the requested symbols in
+/// order via polynomial_coefficients. Returns the augmented row
+/// [a_1, ..., a_n, rhs] meaning a_1*x_1 + ... + a_n*x_n = rhs, or nullopt when
+/// the equation is not jointly linear in the requested symbols (degree > 1 in
+/// any of them, a non-polynomial shape, or a cross-term like x*y whose linear
+/// coefficient still contains a requested symbol).
+std::optional<std::vector<Expr>> linear_row(const Equation& eq,
+                                            const std::vector<std::string>& symbols) {
+    const std::size_t n = symbols.size();
+    std::vector<Expr> row(n + 1);
+    Expr rest = simplify(expand(make_sub(eq.lhs, eq.rhs)));
+    for (std::size_t i = 0; i < n; ++i) {
+        const auto coeffs = polynomial_coefficients(rest, symbols[i]);
+        if (!coeffs || coeffs->size() > 2) {
+            return std::nullopt;  // non-polynomial or degree >= 2
+        }
+        Expr lin = coeffs->size() == 2 ? (*coeffs)[1] : make_num(0);
+        // The linear coefficient must be free of *all* requested symbols;
+        // this rejects cross-terms like x*y (degree 1 in each variable
+        // separately, but not jointly linear).
+        for (const std::string& s : symbols) {
+            if (contains_symbol(lin, s)) {
+                return std::nullopt;
+            }
+        }
+        row[i] = std::move(lin);
+        rest = (*coeffs)[0];  // constant term: free of symbols[i]
+    }
+    // rest is the symbol-free constant term c of (lhs - rhs), so the row
+    // reads  sum a_i * x_i = -c.
+    row[n] = simplify(make_neg(rest));
+    return row;
+}
+
+/// §9.5 verification doctrine, adapted to systems: substitute `values` into
+/// every input equation and simplify(lhs - rhs). Residuals that do not reduce
+/// to 0 are checked numerically with fixed test values for parameters and
+/// free variables. An EvalError at every sample keeps the solution with a
+/// domain warning; a residual that is clearly nonzero at every sample where
+/// it evaluates demotes the result to Unsolved, naming the equation.
+/// `has_conditional_row` is true when elimination produced a symbolic
+/// "0 = c" row (kept with an "inconsistent unless c = 0" warning): the
+/// solution is then valid only under that condition, so a residual that is
+/// nonzero at the fixed test values is expected and must not demote it.
+void verify_system(SystemSolveResult& res, const std::vector<Equation>& eqs,
+                   bool has_conditional_row) {
+    for (const Equation& eq : eqs) {
+        const std::string eq_text = std::format("{} = {}", pretty(eq.lhs), pretty(eq.rhs));
+
+        Expr lhs_sub;
+        Expr rhs_sub;
+        Expr residual;
+        try {
+            lhs_sub = eq.lhs;
+            rhs_sub = eq.rhs;
+            for (const auto& [name, value] : res.values) {
+                lhs_sub = substitute(lhs_sub, name, value);
+                rhs_sub = substitute(rhs_sub, name, value);
+            }
+            residual = simplify(make_sub(lhs_sub, rhs_sub));
+        } catch (const Error&) {
+            res.warnings.push_back(std::format(
+                "solution may be valid only under domain conditions ({})", eq_text));
+            continue;
+        }
+        if (is_num_zero(residual)) {
+            continue;  // reduces to 0 symbolically: verified
+        }
+
+        // Numeric check with fixed test values for any remaining free
+        // symbols (symbolic parameters and free variables).
+        const std::set<std::string> extras = free_symbols(residual);
+        std::vector<Bindings> samples;
+        if (extras.empty()) {
+            samples.emplace_back();
+        } else {
+            for (const double test_value : {1.7320508, 0.3141593}) {
+                Bindings b;
+                for (const std::string& name : extras) {
+                    b[name] = test_value;
+                }
+                samples.push_back(std::move(b));
+            }
+        }
+
+        int evaluated = 0;
+        int nonzero = 0;
+        for (const Bindings& b : samples) {
+            double scale = 1.0;
+            const auto lv = try_eval(lhs_sub, b);
+            const auto rv = try_eval(rhs_sub, b);
+            if (lv && rv) {
+                scale = std::max({1.0, std::abs(*lv), std::abs(*rv)});
+            }
+            const auto value = try_eval(residual, b);
+            if (!value) {
+                continue;
+            }
+            ++evaluated;
+            if (std::abs(*value) > 1e-6 * scale) {
+                ++nonzero;
+            }
+        }
+
+        if (evaluated == 0) {
+            // EvalError at every sample: keep, with a domain warning.
+            res.warnings.push_back(std::format(
+                "solution may be valid only under domain conditions ({})", eq_text));
+            continue;
+        }
+        if (nonzero == evaluated) {
+            if (has_conditional_row && !extras.empty()) {
+                // The residual carries parameters and the system only holds
+                // under an already-reported "inconsistent unless ... = 0"
+                // condition: keep (conditional solutions survive, §9.5).
+                res.warnings.push_back(std::format(
+                    "solution may be valid only under domain conditions ({})", eq_text));
+                continue;
+            }
+            // Clearly nonzero everywhere it evaluates: demote.
+            res.status = SystemSolveResult::Status::Unsolved;
+            res.values.clear();
+            res.free_variables.clear();
+            res.warnings.push_back(
+                std::format("solution failed verification for equation {}", eq_text));
+            return;
+        }
+        if (nonzero == 0 && evaluated == static_cast<int>(samples.size())) {
+            continue;  // ~0 at every sample: verified numerically
+        }
+        // Vanishes at some samples but not others (or some samples failed
+        // to evaluate): keep with a warning.
+        res.warnings.push_back(std::format(
+            "solution may be valid only under domain conditions ({})", eq_text));
+    }
+}
+
+/// solve_system minus the overflow guard: an OverflowError thrown by exact
+/// coefficient arithmetic anywhere in extraction, elimination,
+/// back-substitution, or verification escapes to the wrapper below.
+SystemSolveResult solve_system_impl(const std::vector<Equation>& eqs,
+                                    const std::vector<std::string>& symbols) {
+    SystemSolveResult res;
+    res.method = "gaussian elimination";
+
+    // Requested symbols, deduplicated with the first occurrence winning
+    // (a duplicate column would spuriously look like a free variable).
+    std::vector<std::string> syms;
+    for (const std::string& s : symbols) {
+        if (std::find(syms.begin(), syms.end(), s) == syms.end()) {
+            syms.push_back(s);
+        }
+    }
+    const std::size_t n = syms.size();
+    const std::size_t m = eqs.size();
+
+    // Joint-linearity extraction: one augmented row per equation.
+    std::vector<std::vector<Expr>> rows;
+    rows.reserve(m);
+    for (const Equation& eq : eqs) {
+        auto row = linear_row(eq, syms);
+        if (!row) {
+            res.warnings.emplace_back("system is not linear in the requested variables");
+            return res;  // Unsolved
+        }
+        rows.push_back(std::move(*row));
+    }
+
+    // Gauss-Jordan elimination over exact Expr arithmetic; every touched
+    // entry is simplify()ed. Pivot choice prefers nonzero Number pivots; a
+    // symbolic pivot is allowed with a "valid only when ... != 0" warning.
+    std::size_t pivot_rows = 0;
+    std::vector<std::size_t> pivot_col_of_row;  // column of row r's pivot, r < pivot_rows
+    for (std::size_t col = 0; col < n && pivot_rows < m; ++col) {
+        std::size_t chosen = m;
+        for (std::size_t r = pivot_rows; r < m; ++r) {
+            const Expr& entry = rows[r][col];
+            if (is_num_zero(entry)) {
+                continue;
+            }
+            if (entry->kind() == Kind::Number) {
+                chosen = r;  // nonzero Number pivot: best choice, stop looking
+                break;
+            }
+            if (chosen == m) {
+                chosen = r;  // first symbolic candidate; keep scanning for a Number
+            }
+        }
+        if (chosen == m) {
+            continue;  // no pivot in this column: the symbol stays free
+        }
+        std::swap(rows[pivot_rows], rows[chosen]);
+        const Expr pivot = rows[pivot_rows][col];
+        if (!free_symbols(pivot).empty()) {
+            res.warnings.push_back(
+                std::format("valid only when {} != 0", pretty(pivot)));
+        }
+        // Normalize the pivot row, then eliminate the column everywhere else.
+        // Entries left of `col` are already zero in every involved row.
+        for (std::size_t k = col; k <= n; ++k) {
+            rows[pivot_rows][k] = simplify(make_div(rows[pivot_rows][k], pivot));
+        }
+        for (std::size_t r = 0; r < m; ++r) {
+            if (r == pivot_rows || is_num_zero(rows[r][col])) {
+                continue;
+            }
+            const Expr factor = rows[r][col];
+            for (std::size_t k = col; k <= n; ++k) {
+                // expand() before simplify(): simplify alone does not
+                // distribute a numeric factor over an Add, so a
+                // mathematically-zero entry like -2*(c + 1) + 2*c + 2 would
+                // survive the zero test and be chosen as a bogus symbolic
+                // pivot (turning underdetermined/inconsistent systems into
+                // "Solved") or leak unsimplified into "inconsistent unless"
+                // warnings.
+                rows[r][k] = simplify(expand(
+                    make_sub(rows[r][k], make_mul({factor, rows[pivot_rows][k]}))));
+            }
+        }
+        pivot_col_of_row.push_back(col);
+        ++pivot_rows;
+    }
+
+    // Leftover rows have all-zero coefficients: each reads 0 = c.
+    bool has_conditional_row = false;
+    for (std::size_t r = pivot_rows; r < m; ++r) {
+        const Expr& c = rows[r][n];
+        if (is_num_zero(c)) {
+            continue;
+        }
+        if (free_symbols(c).empty()) {
+            if (c->kind() == Kind::Number) {
+                // An exact rational that survived is_num_zero above is
+                // exactly nonzero: inconsistent, no epsilon involved
+                // (x = 1; x = 1.0000000000001 has no solution).
+                res.status = SystemSolveResult::Status::NoSolution;
+                return res;
+            }
+            // Constant-bearing shapes (pi, e): decide numerically when the
+            // value is clearly nonzero; a near-zero residual (below eval
+            // precision, e.g. pi - 3.14159265358979) is NOT silently
+            // accepted — fall through to the conditional warning. An
+            // EvalError also keeps the row with a warning.
+            const auto value = try_eval(c);
+            if (value && std::abs(*value) > 1e-12) {
+                res.status = SystemSolveResult::Status::NoSolution;
+                return res;
+            }
+        }
+        has_conditional_row = true;
+        res.warnings.push_back(std::format("inconsistent unless {} = 0", pretty(c)));
+    }
+
+    // Assemble the answer.
+    if (pivot_rows == n) {
+        res.status = SystemSolveResult::Status::Solved;
+        for (std::size_t r = 0; r < pivot_rows; ++r) {
+            res.values[syms[pivot_col_of_row[r]]] = rows[r][n];
+        }
+    } else {
+        res.status = SystemSolveResult::Status::Underdetermined;
+        std::vector<bool> is_pivot_col(n, false);
+        for (const std::size_t col : pivot_col_of_row) {
+            is_pivot_col[col] = true;
+        }
+        for (std::size_t col = 0; col < n; ++col) {
+            if (!is_pivot_col[col]) {
+                res.free_variables.push_back(syms[col]);
+            }
+        }
+        for (std::size_t r = 0; r < pivot_rows; ++r) {
+            // x_pivot = rhs - sum over free columns k of a_k * x_k.
+            std::vector<Expr> terms{rows[r][n]};
+            for (std::size_t k = 0; k < n; ++k) {
+                if (!is_pivot_col[k] && !is_num_zero(rows[r][k])) {
+                    terms.push_back(make_neg(make_mul({rows[r][k], make_sym(syms[k])})));
+                }
+            }
+            res.values[syms[pivot_col_of_row[r]]] = simplify(make_add(std::move(terms)));
+        }
+    }
+
+    verify_system(res, eqs, has_conditional_row);
+    return res;
+}
+
+} // namespace
+
+SystemSolveResult solve_system(const std::vector<Equation>& eqs,
+                               const std::vector<std::string>& symbols) {
+    try {
+        return solve_system_impl(eqs, symbols);
+    } catch (const OverflowError&) {
+        // Exact coefficient arithmetic left 64-bit rationals (§9b): report,
+        // never throw — mirroring the single-equation path, which degrades
+        // gracefully instead of surfacing a bare error.
+        SystemSolveResult res;
+        res.method = "gaussian elimination";
+        res.warnings.emplace_back(
+            "coefficient arithmetic overflowed 64-bit rationals");
+        return res;  // status defaults to Unsolved
+    }
+}
+
 } // namespace mathsolver

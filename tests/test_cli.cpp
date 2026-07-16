@@ -431,6 +431,101 @@ TEST_CASE("cli: caret diagnostic stays aligned across tabs and newlines") {
     CHECK(contains(newlined.output, "    a\\n@\n       ^"));
 }
 
+// ---------------------------------------------------------------------------
+// Linear systems (DESIGN.md §9b): solve with a top-level ';' in the input
+// ---------------------------------------------------------------------------
+
+TEST_CASE("cli: solve routes a ';'-separated system to the system solver") {
+    const RunResult r = run_cli({"solve", "x + y = 3; x - y = 1", "x", "y"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "x = 2\n"));
+    CHECK(contains(r.output, "y = 1\n"));
+    CHECK(contains(r.output, "method: gaussian elimination"));
+}
+
+TEST_CASE("cli: system variables are inferred from the free symbols") {
+    // Two equations, two free symbols: the union {x, y} is the default.
+    const RunResult r = run_cli({"solve", "x + y = 3; x - y = 1"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "x = 2\n"));
+    CHECK(contains(r.output, "y = 1\n"));
+}
+
+TEST_CASE("cli: underdetermined system prints pivot values and a free line") {
+    const RunResult r = run_cli({"solve", "x + y = 3; 2x + 2y = 6", "x", "y"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "x = -y + 3\n"));  // pivot references the free var
+    CHECK(contains(r.output, "free: y\n"));
+    CHECK(contains(r.output, "method: gaussian elimination"));
+}
+
+TEST_CASE("cli: inconsistent system is an answer, not an error") {
+    const RunResult r = run_cli({"solve", "x + y = 1; x + y = 2", "x", "y"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);  // a definitive "no solution" IS an answer
+    CHECK(contains(r.output, "no solution (inconsistent system)"));
+}
+
+TEST_CASE("cli: nonlinear system reports the linearity warning") {
+    const RunResult r = run_cli({"solve", "x*y = 1; x - y = 0", "x", "y"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "unable to solve the system"));
+    CHECK(contains(r.output,
+                   "warning: system is not linear in the requested variables"));
+}
+
+TEST_CASE("cli: ambiguous system variables exit 2 and list the symbols") {
+    // Three free symbols but only two equations: inference must refuse.
+    const RunResult r =
+        run_cli({"solve", "x + y + z = 1; x - y = 2"}, "2>&1 1>/dev/null");
+    INFO(r.output);
+    CHECK(r.exit_code == 2);
+    CHECK(contains(r.output, "usage error:"));
+    CHECK(contains(r.output, "x"));
+    CHECK(contains(r.output, "y"));
+    CHECK(contains(r.output, "z"));
+}
+
+TEST_CASE("cli: constants and function names are rejected as system variables") {
+    // Regression: `solve "x=1; y=2" pi` used to pass the constant through as
+    // a variable (free: pi plus baffling warnings). Same doctrine as eval
+    // bindings: exit 2 with a usage error.
+    const RunResult r1 = run_cli({"solve", "x=1; y=2", "pi"}, "2>&1 1>/dev/null");
+    INFO(r1.output);
+    CHECK(r1.exit_code == 2);
+    CHECK(contains(r1.output, "usage error:"));
+    CHECK(contains(r1.output, "'pi' is a constant"));
+
+    const RunResult r2 = run_cli({"solve", "x=1; y=2", "sin"}, "2>&1 1>/dev/null");
+    INFO(r2.output);
+    CHECK(r2.exit_code == 2);
+    CHECK(contains(r2.output, "usage error:"));
+    CHECK(contains(r2.output, "'sin' is not a valid variable name"));
+}
+
+TEST_CASE("cli: single-equation solve is unaffected by system routing") {
+    // No ';' in the input: the §9 single-equation path, byte for byte.
+    const RunResult r = run_cli({"solve", "x + y = 3", "x"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "x = -y + 3\n"));
+    CHECK(contains(r.output, "method: linear"));
+    CHECK(!contains(r.output, "gaussian"));
+}
+
+TEST_CASE("cli: REPL solves a system with comma-separated variables") {
+    const RunResult r = run_repl("solve x+y=3; x-y=1, x, y\nquit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "x = 2"));
+    CHECK(contains(r.output, "y = 1"));
+    CHECK(contains(r.output, "method: gaussian elimination"));
+}
+
 TEST_CASE("cli: '--' ends option parsing so '--x' can be passed as input") {
     const RunResult escaped = run_cli({"simplify", "--", "--x"});
     INFO(escaped.output);

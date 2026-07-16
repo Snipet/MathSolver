@@ -21,6 +21,7 @@ add_executable(mathsolver_tests
     test_derivative.cpp
     test_solver.cpp
     test_solver_review.cpp
+    test_system.cpp
     test_cli.cpp
 )
 target_link_libraries(mathsolver_tests PRIVATE mathsolver_core Catch2::Catch2WithMain)

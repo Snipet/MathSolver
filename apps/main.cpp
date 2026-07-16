@@ -327,6 +327,144 @@ void run_solve(const std::string& input, const std::string& explicit_var,
     print_solve_result(solve(eq, var, opts), var, style);
 }
 
+// ---------------------------------------------------------------------------
+// Linear systems (DESIGN.md §9b): the solve subcommand routes here when the
+// expression argument contains a top-level ';'.
+// ---------------------------------------------------------------------------
+
+/// Split at `delim` characters that are not nested inside (), {}, or [].
+std::vector<std::string> split_top_level(const std::string& s, char delim) {
+    std::vector<std::string> parts;
+    int depth = 0;
+    std::string current;
+    for (const char c : s) {
+        if (c == '(' || c == '{' || c == '[') {
+            ++depth;
+        } else if (c == ')' || c == '}' || c == ']') {
+            --depth;
+        }
+        if (c == delim && depth <= 0) {
+            parts.push_back(trim(current));
+            current.clear();
+        } else {
+            current.push_back(c);
+        }
+    }
+    parts.push_back(trim(current));
+    return parts;
+}
+
+bool has_top_level_semicolon(const std::string& s) {
+    return split_top_level(s, ';').size() > 1;
+}
+
+void print_system_result(const SystemSolveResult& res,
+                         const std::vector<std::string>& vars, PrintStyle style) {
+    switch (res.status) {
+    case SystemSolveResult::Status::Solved:
+    case SystemSolveResult::Status::Underdetermined:
+        for (const std::string& v : vars) {
+            const auto it = res.values.find(v);
+            if (it != res.values.end()) {
+                std::println("{} = {}", v, to_string(it->second, style));
+            }
+        }
+        if (!res.free_variables.empty()) {
+            std::string list;
+            for (const std::string& f : res.free_variables) {
+                if (!list.empty()) {
+                    list += ", ";
+                }
+                list += f;
+            }
+            std::println("free: {}", list);
+        }
+        break;
+    case SystemSolveResult::Status::NoSolution:
+        std::println("no solution (inconsistent system)");
+        break;
+    case SystemSolveResult::Status::Unsolved:
+        std::println("unable to solve the system");
+        break;
+    }
+    if (!res.method.empty()) {
+        std::println("method: {}", res.method);
+    }
+    for (const std::string& w : res.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
+void run_solve_system(const std::string& input,
+                      const std::vector<std::string>& explicit_vars,
+                      PrintStyle style) {
+    std::vector<Equation> eqs;
+    for (const std::string& piece : split_top_level(input, ';')) {
+        if (piece.empty()) {
+            throw UsageError{"empty equation in the system (check the ';' separators)"};
+        }
+        eqs.push_back(parse_equation_diag(piece));
+    }
+
+    std::vector<std::string> vars;
+    for (const std::string& v : explicit_vars) {
+        if (!is_symbol_name(v)) {
+            throw UsageError{std::format("'{}' is not a valid variable name", v)};
+        }
+        // Same doctrine as eval bindings: a system variable must parse to a
+        // single Symbol equal to itself. Constants (pi, e) and function
+        // names (sin) can never be solved for.
+        Expr parsed_name;
+        try {
+            parsed_name = parse_expression(v);
+        } catch (const ParseError&) {
+            parsed_name = nullptr;
+        }
+        if (parsed_name && parsed_name->kind() == Kind::Constant) {
+            throw UsageError{
+                std::format("'{}' is a constant and cannot be a system variable", v)};
+        }
+        if (!parsed_name || parsed_name->kind() != Kind::Symbol ||
+            parsed_name->symbol_name() != v) {
+            throw UsageError{std::format("'{}' is not a valid variable name", v)};
+        }
+        if (std::find(vars.begin(), vars.end(), v) == vars.end()) {
+            vars.push_back(v);
+        }
+    }
+    if (vars.empty()) {
+        // Default: the union of free symbols, but only when that cannot
+        // exceed what the equations can determine.
+        std::set<std::string> syms;
+        for (const Equation& eq : eqs) {
+            std::set<std::string> s = equation_symbols(eq);
+            syms.merge(s);
+        }
+        if (syms.empty()) {
+            throw UsageError{
+                "cannot infer the variables for solve: the system has no free "
+                "symbols; pass the variables explicitly"};
+        }
+        if (syms.size() > eqs.size()) {
+            std::string list;
+            for (const std::string& s : syms) {
+                if (!list.empty()) {
+                    list += ", ";
+                }
+                list += s;
+            }
+            throw UsageError{std::format(
+                "cannot infer the variables for solve: the system has {} free "
+                "symbols ({}) but only {} equation(s); pass the variables "
+                "explicitly",
+                syms.size(), list, eqs.size())};
+        }
+        vars.assign(syms.begin(), syms.end());
+    }
+
+    print_system_result(solve_system(eqs, vars), vars, style);
+}
+
 void run_debug(const std::string& input) {
     const auto parsed = parse_input_diag(input);
     if (std::holds_alternative<Expr>(parsed)) {
@@ -351,6 +489,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver expand   \"(x+1)^3\"\n"
                "  mathsolver factor   \"x^2 - 5x + 6\"\n"
                "  mathsolver solve    \"x^2 = 4\" [x] [--range LO HI]\n"
+               "  mathsolver solve    \"x + y = 3; x - y = 1\" [x y ...]\n"
                "  mathsolver diff     \"sin(x^2)\" [x]\n"
                "  mathsolver eval     \"x^2 + y\" x=3 y=0.5\n"
                "  mathsolver latex    \"sqrt(x)/2\"\n"
@@ -439,7 +578,13 @@ int run_one_shot(const std::vector<std::string>& args) {
         const std::string& input = positionals[0];
         const PrintStyle style = latex ? PrintStyle::LaTeX : PrintStyle::Plain;
 
-        if (sub == "solve" || sub == "diff") {
+        if (sub == "solve" && has_top_level_semicolon(input)) {
+            // System of equations: the positional args after the expression
+            // are the variables (optional).
+            const std::vector<std::string> vars(positionals.begin() + 1,
+                                                positionals.end());
+            run_solve_system(input, vars, style);
+        } else if (sub == "solve" || sub == "diff") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (usage: mathsolver {} \"<input>\" [var])",
@@ -501,6 +646,7 @@ void print_repl_help() {
         "Enter a bare expression to simplify it, or an equation to solve it.\n"
         "Commands (arguments separated by top-level commas):\n"
         "  solve <equation>[, <variable>]\n"
+        "  solve <eq>; <eq>[; ...][, <var>, <var>, ...]   (linear system)\n"
         "  diff <expression>[, <variable>]\n"
         "  eval <expression>, x=1[, y=2 ...]\n"
         "  simplify <expression>      expand <expression>\n"
@@ -511,24 +657,7 @@ void print_repl_help() {
 
 /// Split at commas that are not nested inside (), {}, or [].
 std::vector<std::string> split_top_level_commas(const std::string& s) {
-    std::vector<std::string> parts;
-    int depth = 0;
-    std::string current;
-    for (const char c : s) {
-        if (c == '(' || c == '{' || c == '[') {
-            ++depth;
-        } else if (c == ')' || c == '}' || c == ']') {
-            --depth;
-        }
-        if (c == ',' && depth <= 0) {
-            parts.push_back(trim(current));
-            current.clear();
-        } else {
-            current.push_back(c);
-        }
-    }
-    parts.push_back(trim(current));
-    return parts;
+    return split_top_level(s, ',');
 }
 
 bool is_repl_command(std::string_view word) {
@@ -547,7 +676,12 @@ void repl_command(const std::string& command, const std::string& rest) {
     }
     const std::string& input = parts[0];
 
-    if (command == "solve" || command == "diff") {
+    if (command == "solve" && has_top_level_semicolon(input)) {
+        // System of equations: the first comma segment holds the ';'-separated
+        // equations, the remaining segments are the variables.
+        const std::vector<std::string> vars(parts.begin() + 1, parts.end());
+        run_solve_system(input, vars, PrintStyle::Plain);
+    } else if (command == "solve" || command == "diff") {
         if (parts.size() > 2) {
             throw UsageError{std::format(
                 "too many arguments: usage: {} <input>[, <variable>]", command)};

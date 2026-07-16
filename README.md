@@ -42,6 +42,23 @@ method: numeric (Newton/bisection)
 warning: numeric search covered [-100, 100]; roots outside this interval are not reported
 ```
 
+Systems of equations — separate the equations with `;` inside one argument
+(the variables after it are optional when they can be inferred):
+
+```console
+$ mathsolver solve "x + y = 3; x - y = 1" x y
+x = 2
+y = 1
+method: gaussian elimination
+$ mathsolver solve "x + y = 3; 2x + 2y = 6" x y
+x = -y + 3
+free: y
+method: gaussian elimination
+$ mathsolver solve "x + y = 1; x + y = 2" x y
+no solution (inconsistent system)
+method: gaussian elimination
+```
+
 The `solve`/`diff` variable is optional when the input has exactly one free
 symbol. `--latex` switches any command's output to LaTeX,
 `solve ... --range LO HI` sets the numeric search interval, and
@@ -85,6 +102,10 @@ multiplication (`2x`, `(x+1)(x-2)`).
   rational-root peeling for higher degrees, isolation through invertible
   layers (`ln(x+1)=2` → `x = e^2 - 1`), and a Newton/bisection numeric
   fallback for the rest (`cos(x) = x`).
+- **Linear systems** — Gaussian elimination over exact expression
+  arithmetic (`solve "x + y = 3; x - y = 1"`): symbolic parameters as
+  coefficients, underdetermined systems with free variables, and
+  inconsistency detection.
 
 ## Limitations (by design, v0.1)
 
