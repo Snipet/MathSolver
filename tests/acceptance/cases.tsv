@@ -108,7 +108,7 @@ sol-13	solve	ln(x+1) = 2	x	regex	x = e\^2 - 1|x = -1 \+ e\^2	0
 sol-14	solve	abs(x) = 3	x	regex	(?=.*^x = -3$)(?=.*^x = 3$)	0
 sol-15	solve	abs(x) = -2	x	contains	no real solutions	0
 sol-16	solve	sin(x) = 1/2	x	regex	asin\(1/2\)|pi/6	0
-sol-17	solve	sin(x) = 1/2	x	contains	periodic	0
+sol-17	solve	sin(x) = 1/2	x	contains	+ 2*pi*n	0
 sol-18	solve	e^x = 5	x	contains	ln(5)	0
 sol-19	solve	2^x = 8	x	regex	ln\(8\)/ln\(2\)|^x = 3$	0
 sol-20	solve	sqrt(x) = 5	x	contains	x = 25	0

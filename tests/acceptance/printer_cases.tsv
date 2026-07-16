@@ -46,7 +46,7 @@ pd-01	simplify	3/x^2	-	exact	3/x^2	0
 pd-02	simplify	3/(2*x)	-	exact	3/(2*x)	0
 pd-03	simplify	1/x	-	exact	1/x	0
 pd-04	simplify	1/sqrt(x)	-	exact	1/sqrt(x)	0
-pd-05	simplify	x/(y*z)	-	exact	x/(y*z)	0
+pd-05	simplify	x/(y*z)	-	exact	x*z^(-1)/y	0
 pd-06	simplify	3x/2	-	exact	3*x/2	0
 pd-07	simplify	1/(2*x)	-	exact	1/(2*x)	0
 pd-08	simplify	x^(-2)	-	exact	1/x^2	0

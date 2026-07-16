@@ -335,3 +335,110 @@ TEST_CASE("cli: REPL asks for a variable when the equation has several") {
     CHECK(contains(r.output, "solve <equation>, <variable>"));
     CHECK(contains(r.output, "x = 2")); // session stayed alive and solved
 }
+
+// ---------------------------------------------------------------------------
+// Regression tests for the reviewed CLI/parser defects (findings 5-10)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("cli: deeply nested input fails cleanly and keeps the REPL alive") {
+    // Field reproducer: thousands of nested parens used to SIGSEGV (exit 139)
+    // and take the whole session down. Now: a clean exit-1 diagnostic one-shot,
+    // and a REPL that survives and recovers on the next line.
+    const std::string deep = std::string(7000, '(') + "x" + std::string(7000, ')');
+
+    const RunResult one_shot = run_cli({"simplify", deep}, "2>&1 1>/dev/null");
+    CHECK(one_shot.exit_code == 1); // clean error, not 139 (SIGSEGV)
+    CHECK(contains(one_shot.output, "too deeply nested"));
+
+    const RunResult session = run_repl(deep + "\n6 * 7\nquit\n");
+    INFO(session.output);
+    CHECK(session.exit_code == 0);
+    CHECK(contains(session.output, "too deeply nested"));
+    CHECK(contains(session.output, "42")); // recovered and evaluated 6*7
+}
+
+TEST_CASE("cli: --range rejects non-finite and overflowing bounds") {
+    const RunResult infinite =
+        run_cli({"solve", "cos(x) = x", "--range", "-inf", "inf"}, "2>&1 1>/dev/null");
+    INFO(infinite.output);
+    CHECK(infinite.exit_code == 2);
+    CHECK(contains(infinite.output, "finite"));
+
+    // -1e308 .. 1e308: both bounds are finite, but their difference is inf.
+    const RunResult wide =
+        run_cli({"solve", "cos(x) = x", "--range", "-1e308", "1e308"}, "2>&1 1>/dev/null");
+    INFO(wide.output);
+    CHECK(wide.exit_code == 2);
+    CHECK(contains(wide.output, "finite"));
+
+    // NaN gets its own "must be numbers" message, not "LO must be less than HI".
+    const RunResult nan =
+        run_cli({"solve", "cos(x) = x", "--range", "nan", "5"}, "2>&1 1>/dev/null");
+    INFO(nan.output);
+    CHECK(nan.exit_code == 2);
+    CHECK(contains(nan.output, "must be numbers"));
+    CHECK(!contains(nan.output, "less than"));
+
+    // A valid finite window still solves the same equation.
+    const RunResult ok = run_cli({"solve", "cos(x) = x", "--range", "-10", "10"});
+    INFO(ok.output);
+    CHECK(ok.exit_code == 0);
+    CHECK(contains(ok.output, "x ≈ "));
+}
+
+TEST_CASE("cli: eval rejects names that can never lex as a bound variable") {
+    const RunResult constant = run_cli({"eval", "pi", "pi=3"}, "2>&1 1>/dev/null");
+    INFO(constant.output);
+    CHECK(constant.exit_code == 2);
+    CHECK(contains(constant.output, "constant"));
+
+    const RunResult euler = run_cli({"eval", "e", "e=3"}, "2>&1 1>/dev/null");
+    CHECK(euler.exit_code == 2);
+    CHECK(contains(euler.output, "constant"));
+
+    const RunResult multi = run_cli({"eval", "foo", "foo=3"}, "2>&1 1>/dev/null");
+    INFO(multi.output);
+    CHECK(multi.exit_code == 2);
+    CHECK(contains(multi.output, "not a bindable variable"));
+
+    // Valid bindings still work: single letters, subscripts, greek names.
+    CHECK(run_cli({"eval", "x", "x=3"}).output == "3\n");
+    CHECK(run_cli({"eval", "x_1", "x_1=2"}).output == "2\n");
+    CHECK(run_cli({"eval", "alpha", "alpha=1"}).output == "1\n");
+}
+
+TEST_CASE("cli: unexpected non-ASCII byte reports a valid, whole-character error") {
+    // 'α' (U+03B1 = 0xCE 0xB1) must be reported as the full two-byte sequence
+    // (as a hex escape, so stderr stays valid UTF-8) with a span covering both.
+    const RunResult r = run_cli({"simplify", "\xCE\xB1"}, "2>&1 1>/dev/null");
+    INFO(r.output);
+    CHECK(r.exit_code == 1);
+    CHECK(contains(r.output, "\\xCE\\xB1")); // whole character, not a lone 0xCE
+    CHECK(contains(r.output, "\n    ^~"));    // caret spans both bytes
+}
+
+TEST_CASE("cli: caret diagnostic stays aligned across tabs and newlines") {
+    // A tab must collapse to one column so the caret lands under the offender.
+    const RunResult tabbed = run_cli({"simplify", "a\t@"}, "2>&1 1>/dev/null");
+    INFO(tabbed.output);
+    CHECK(tabbed.exit_code == 1);
+    CHECK(contains(tabbed.output, "    a @\n      ^"));
+
+    // A newline must not split the echoed line; it renders as a visible "\n".
+    const RunResult newlined = run_cli({"simplify", "a\n@"}, "2>&1 1>/dev/null");
+    INFO(newlined.output);
+    CHECK(newlined.exit_code == 1);
+    CHECK(contains(newlined.output, "    a\\n@\n       ^"));
+}
+
+TEST_CASE("cli: '--' ends option parsing so '--x' can be passed as input") {
+    const RunResult escaped = run_cli({"simplify", "--", "--x"});
+    INFO(escaped.output);
+    CHECK(escaped.exit_code == 0);
+    CHECK(escaped.output == "x\n"); // '--x' is a double unary minus of x
+
+    // Without the escape hatch, a leading '--' remains a usage error.
+    const RunResult rejected = run_cli({"simplify", "--x"}, "2>&1 1>/dev/null");
+    CHECK(rejected.exit_code == 2);
+    CHECK(contains(rejected.output, "unknown option"));
+}

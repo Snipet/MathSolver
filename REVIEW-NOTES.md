@@ -1,88 +1,78 @@
-# Review-phase inputs (accumulated during the build)
+# Review & verification record
 
-Working notes for the final adversarial-review/verification phase. Not part
-of the library docs.
+History of the adversarial-review/fix phase. Not part of the library docs;
+kept as a project record of what was checked and repaired.
 
-## Ready-to-run verification assets
+## Verification assets (reusable)
 
 - `tools/run_fuzz.sh [seed] [count]` — round-trip + differential-eval fuzzer.
-  FULL mode ran clean against the implemented printer/evaluator on
-  2026-07-15: seeds 42/5000, 7/20000, 987654321/20000 — 45k expressions,
-  0 failures. Re-run after any printer/evaluator/parser/factory change.
-- `tests/acceptance/cases.tsv` — 120 CLI cases (all subcommands), math
-  cross-checked in Python (129/129).
-- `tests/acceptance/printer_cases.tsv` — 69 printer torture cases
-  (division rendering, e^x precedence, parenthesization, \cdot digit rule).
-- `tests/acceptance/eval_cases.tsv` — evaluator reference corpus with
-  high-precision expected values (note: bindings like x=0.1 are exact 1/10).
-- `tests/acceptance/README.md` — TSV format + tolerance conventions.
-  A harness for these TSVs still needs to be written/wired (CLI stage or
-  review phase).
+  Clean at 45k+ expressions across multiple seeds. Re-run after any
+  printer/evaluator/parser/factory change.
+- `tools/run_acceptance.py --binary <bin> <tsv...>` — runs the acceptance
+  TSVs (exact/regex/contains/approx + exit-code checks) against a built
+  binary; exits nonzero on any failure.
+- `tests/acceptance/cases.tsv` (CLI cases, all subcommands),
+  `printer_cases.tsv` (printer torture), `eval_cases.tsv` (evaluator
+  reference, high-precision) — all Python-cross-checked.
 
-## Confirmed fix items for the review/fix phase
+## Independent fuzz verdicts (clean)
 
-1. **expand() performance (robustness, confirmed by measurement).**
-   `distribute()` (src/simplify.cpp:681) materializes all q^n cross-terms
-   before any like-term collection, and `apply_add_rules`
-   (src/simplify.cpp:392) groups terms by linear scan with
-   `structurally_equal` — O(raw·distinct) deep compares. Measured:
-   `(x+y)^20` 3.3 s; `(a+..+j)^6` 19 s; `(a+..+j)^7` 448 s / 11,440 terms;
-   one fuzz case ~15 min at 2.3 GB. The `kMaxExpandExponent = 512` cap
-   (src/simplify.cpp:20) is not an effective resource guard. Fix: group via
-   `hash_expr` buckets (near-linear) and/or collect like terms during
-   distribution to bound memory; add perf regression tests
-   ((x+y)^20 well under 1 s; (a+..+j)^7 in seconds, correct term count 11440).
-2. **simplify() overflow-rollback stuck states (MANDATORY, confirmed by
-   execution — found by the derivative differential fuzz 2026-07-15).**
-   `guarded()` (src/simplify.cpp:52-60, used at :653-670) rolls back the
-   ENTIRE node — discarding the children's completed simplifications —
-   whenever an exact numeric fold of the rebuilt node throws OverflowError,
-   identically every pass. Result: sticky, path-dependent stuck states where
-   explicit §7 rules never fire; simplify stays idempotent and value-correct
-   but non-confluent. One-line reproducer (verified):
-   `simplify(4000000000*(3000000000+ln(e)))` returns its input VERBATIM —
-   `ln(e)` is never folded to 1 because 4e9 × 3000000001 overflows int64
-   downstream — while `3*(3000000000+ln(e))` folds fine to 9000000003.
-   Fix: on rebuild overflow, fall back to a node rebuilt from the
-   already-simplified children with the offending numeric fold suppressed,
-   rather than reverting to the pre-pass subtree. Add the reproducer (assert
-   the `ln(e)` inside is folded) plus a differing-association variant as
-   regression tests.
-3. Missed simplification (spec-consistent, optional): `(x^6)^(1/3)` stays
-   unchanged; value-preserving `x^2` exists. §7's parity rule doesn't cover
-   even-p/odd-q — consider extending rule + spec together if done at all.
+- printer/evaluator round-trip: 45k expressions, 0 failures.
+- simplify/expand differential: 40,000 random + 112 directed, 0 idempotence /
+  0 round-trip / 0 genuine value-preservation failures (117 flagged diffs all
+  double-precision artifacts where the exact fold beats float residue).
+- derivative differential: 30,000 random + 24 directed §8-table (24/24 exact),
+  0 genuine failures. Caller note: `differentiate` can propagate
+  OverflowError/DivisionByZeroError from factory folds during construction
+  (74 in 30k) — inherent to the factory contract.
 
-## Independent verification verdicts (clean)
+## Fixed (regression-guarded in the suite)
 
-- simplify/expand differential fuzz: 40,000 random + 112 directed cases,
-  0 idempotence / 0 round-trip / 0 genuine value-preservation failures;
-  all 117 flagged diffs triaged to double-precision artifacts (exact folds
-  beating floating-point residue). No OverflowError escapes in 40k inputs.
-- derivative differential fuzz: 30,000 random cases + 24-case directed §8
-  table (24/24 exact) — 0 numeric-agreement failures after triage, 0
-  round-trip failures, 0 soft-contract (simplify(d)==d) failures, 0 genuine
-  linearity failures. The single linearity flag traced to the simplify
-  overflow-rollback defect (fix item 2 above), not to differentiate().
-  Caller note: differentiate can propagate OverflowError/DivisionByZeroError
-  from factory folds during construction (74 in 30k) — document in §8.
+- **Core overflow edge cases** (spurious OverflowError family) — Core Fixes
+  stage.
+- **expand() performance** (was O(raw·distinct); `(a..j)^7` took 448 s) —
+  regrouping made near-linear; now 0.09 s / 11,440 terms. Perf regression
+  tests added.
+- **simplify() overflow-rollback non-confluence** — `guarded()` no longer
+  discards children's simplifications on a fold overflow;
+  `simplify(4000000000*(3000000000+ln(e)))` folds `ln(e)` again. Regression
+  tested.
+- **Solver finding 1** — inverse-function range checks compare exact rational
+  constants exactly (`abs(x) = -1e-12` → no real solutions, not phantom
+  roots).
+- **Solver finding 2** — numeric-identity detection (`sin(2x)=2sinxcosx` no
+  longer dumps thousands of grid-point roots).
+- **Simplify finding 3** — degree-accumulation overflow (UB) guarded before
+  the add; `polynomial_coefficients`/`collect` no longer misclassify.
+- **Simplify finding 4** — Pythagorean rule matches every sin²/cos² factor
+  (no order-dependent miss).
+- **Spec tension 1 (Add tie-break)** — DESIGN §5 corrected: descending
+  display-degree, ties by *ascending* `compare_expr` of the whole term
+  (matches the shipped printer; the coefficient-stripped proposal was wrong).
+  No printer change.
+- **Spec tension 2 (latex no-simplify)** — pinned in DESIGN §10.
+- **Spec tension 3 (exit-code classification)** — pinned in DESIGN §10
+  (usage=2, parse/math=1); battery err-06/err-07 already conformant.
+- **Battery pd-05** — spec-gap resolved: DESIGN §5 now specifies only the
+  first negative-Number-exponent factor moves below the bar (round-trip
+  constraint); printer_cases.tsv expectation corrected to `x*z^(-1)/y`.
+- **Battery sol-17** — wrong-expectation: cases.tsv now checks `+ 2*pi*n`
+  (DESIGN §9's pinned family) instead of the never-pinned word "periodic".
 
-## Open spec tensions to resolve in review
+## CLI/parser findings (in progress this session)
 
-1. DESIGN §5 Add display tie-break ("reverse compare_expr") contradicts the
-   §5 worked example `x + (-2)*y -> x - 2*y` (tie at degree 1; reverse kind
-   rank puts the Mul first, i.e. `-2*y + x`). printer_cases.tsv pins the
-   worked example (pm-02) and tolerates either order elsewhere (po-06/07).
-   Proposed fix: tie-break by compare_expr of the *coefficient-stripped*
-   term, ascending (x vs y -> x first), matching the example. Align DESIGN +
-   printer implementation + tests.
-2. Whether the `latex` subcommand simplifies before printing is not pinned
-   by DESIGN §10 (printer_cases inputs are simplify-fixpoints, so its cases
-   don't depend on this — but pin it and document).
-3. Two battery exit-code cases (err-06 missing --range HI, err-07 malformed
-   binding x=abc) assume usage-error exit 2 — reconcile with the CLI
-   implementation.
+Finding 5 (recursion-depth segfault → clean exit 1), 6 (--range non-finite
+bounds), 7 (unbindable eval names), 8 (UTF-8 in lexer errors), 9 (caret
+alignment with tabs/newlines), 10 (`--` end-of-options). Being applied +
+regression-tested against parser.cpp/main.cpp.
 
-## Already fixed (regression-guarded in the suite; no review action)
+## Open / optional (not blocking)
 
-- Four core overflow edge cases (spurious OverflowError family) — fixed in
-  the Core Fixes stage with regression tests.
+- Missed simplification (spec-consistent): `(x^6)^(1/3)` stays unchanged;
+  §7's parity rule doesn't cover even-p/odd-q. Extend rule + spec together
+  only if desired.
+- Plausible-but-unconfirmed: tangency false roots — a near-miss local minimum
+  of |f| below the fixed 1e-7 threshold can be reported as a numeric root
+  (`e^x + e^-x = 2 - 1e-9`). Borderline spec-tolerance choice; being assessed
+  in the solver fix (attach a distinguishing note only if genuine double
+  roots don't regress).

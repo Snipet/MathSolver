@@ -452,3 +452,43 @@ TEST_CASE("parser: assorted malformed input", "[parser][error]") {
     REQUIRE_THROWS_AS(parse_input("x ="), ParseError);
     REQUIRE_THROWS_AS(parse_input("= x"), ParseError);
 }
+
+TEST_CASE("parser: deeply nested input throws instead of overflowing the stack",
+          "[parser][error]") {
+    // Field reproducer: 7000 nested parens crashed the process with SIGSEGV
+    // before the recursion-depth guard existed. It must now throw a clean
+    // ParseError well before the native call stack is exhausted.
+    const std::string deep = std::string(7000, '(') + "x" + std::string(7000, ')');
+    ParseError e = capture_error([&] { parse_expression(deep); });
+    CHECK(message_contains(e, "too deeply nested"));
+
+    // The guard sits in parse_unary, so it also bounds unary-sign chains and
+    // right-associative power towers, which recurse without nesting parens.
+    REQUIRE_THROWS_AS(parse_expression("1" + std::string(7000, '-') + "x"), ParseError);
+    std::string tower;
+    for (int i = 0; i < 5000; ++i) {
+        tower += "2^";
+    }
+    tower += "2";
+    REQUIRE_THROWS_AS(parse_expression(tower), ParseError);
+
+    // Modest nesting well under the limit still parses fine.
+    REQUIRE_NOTHROW(parse_expression(std::string(64, '(') + "x" + std::string(64, ')')));
+}
+
+TEST_CASE("parser: unexpected non-ASCII byte reports the whole character",
+          "[parser][error]") {
+    // A bare greek letter 'α' (U+03B1 = 0xCE 0xB1) is not a valid token. The
+    // error must cover BOTH bytes of the UTF-8 sequence (not a lone 0xCE byte)
+    // and spell it out as a hex escape so the message is itself valid UTF-8.
+    ParseError e = capture_error([] { parse_expression("\xCE\xB1"); });
+    CHECK(message_contains(e, "\\xCE\\xB1"));
+    CHECK(e.begin() == 0);
+    CHECK(e.end() == 2); // span covers the full two-byte character
+
+    // A plain ASCII unexpected byte still spans a single byte, printed as-is.
+    ParseError ascii = capture_error([] { parse_expression("@"); });
+    CHECK(message_contains(ascii, "'@'"));
+    CHECK(ascii.begin() == 0);
+    CHECK(ascii.end() == 1);
+}

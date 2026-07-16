@@ -363,8 +363,40 @@ private:
         case ']': push(Tok::RBracket, begin, ++pos_); return;
         case ',': push(Tok::Comma, begin, ++pos_); return;
         default:
-            throw ParseError(std::format("unexpected character '{}'", c), begin, begin + 1);
+            throw unexpected_character(begin);
         }
+    }
+
+    // Build the diagnostic for an unexpected byte. Consumes the whole UTF-8
+    // sequence (lead byte + continuation bytes 0x80-0xBF) so the span covers
+    // the entire character rather than a single byte, and renders non-ASCII
+    // bytes as \xNN escapes so the message is always valid UTF-8 on stderr
+    // (a lone 0xCE byte from e.g. an unhandled greek letter would not be).
+    ParseError unexpected_character(std::size_t begin) {
+        const auto lead = static_cast<unsigned char>(src_[begin]);
+        std::size_t expected = 1;
+        if (lead >= 0xF0 && lead <= 0xF7) {
+            expected = 4;
+        } else if (lead >= 0xE0 && lead <= 0xEF) {
+            expected = 3;
+        } else if (lead >= 0xC0 && lead <= 0xDF) {
+            expected = 2;
+        }
+        std::size_t end = begin + 1;
+        while (end < src_.size() && end < begin + expected &&
+               (static_cast<unsigned char>(src_[end]) & 0xC0) == 0x80) {
+            ++end;
+        }
+        std::string shown;
+        for (std::size_t i = begin; i < end; ++i) {
+            const auto b = static_cast<unsigned char>(src_[i]);
+            if (b >= 0x20 && b < 0x7F) {
+                shown += static_cast<char>(b);
+            } else {
+                shown += std::format("\\x{:02X}", static_cast<unsigned>(b));
+            }
+        }
+        return ParseError(std::format("unexpected character '{}'", shown), begin, end);
     }
 
     std::string_view src_;
@@ -375,6 +407,33 @@ private:
 // ---------------------------------------------------------------------------
 // Recursive-descent parser (grammar in DESIGN.md §4)
 // ---------------------------------------------------------------------------
+
+// Maximum recursive-descent nesting depth. Input nested deeper than this
+// throws a ParseError instead of overflowing the stack (DESIGN.md §10: a
+// clean exit-1 diagnostic, and the REPL session survives). Far below the
+// point at which the native call stack overflows; no hand-written
+// expression nests anywhere near this deep.
+constexpr std::size_t k_max_parse_depth = 256;
+
+// RAII nesting-depth counter for the recursive descent. Incremented on entry
+// to each recursion level and decremented on exit; throws once the fixed
+// limit is exceeded so the deep AST is never built (which also protects the
+// downstream simplify/print recursion).
+class DepthGuard {
+public:
+    DepthGuard(std::size_t& depth, const Token& tok) : depth_(depth) {
+        if (++depth_ > k_max_parse_depth) {
+            --depth_;
+            throw ParseError("expression too deeply nested", tok.begin, tok.end);
+        }
+    }
+    ~DepthGuard() { --depth_; }
+    DepthGuard(const DepthGuard&) = delete;
+    DepthGuard& operator=(const DepthGuard&) = delete;
+
+private:
+    std::size_t& depth_;
+};
 
 class Parser {
 public:
@@ -456,6 +515,10 @@ private:
 
     // unary := ('-' | '+') unary | postfix     (below ^: -x^2 == -(x^2))
     Expr parse_unary() {
+        // Every recursion cycle (paren/group nesting, unary-sign chains, and
+        // right-associative power towers) passes through parse_unary exactly
+        // once per level, so guarding here bounds the whole descent.
+        DepthGuard guard(depth_, peek());
         if (peek().kind == Tok::Minus) {
             advance();
             return make_neg(parse_unary());
@@ -691,6 +754,7 @@ private:
     std::string_view src_;
     std::vector<Token> tokens_;
     std::size_t idx_ = 0;
+    std::size_t depth_ = 0;
 };
 
 } // namespace

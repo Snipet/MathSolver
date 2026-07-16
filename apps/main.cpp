@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -63,11 +64,39 @@ std::string trim(std::string_view s) {
 std::string caret_diagnostic(std::string_view src, const ParseError& err) {
     const std::size_t begin = std::min(err.begin(), src.size());
     const std::size_t end = std::min(std::max(err.end(), begin), src.size());
-    std::string out = std::format("error: {}\n    {}\n    ", err.what(), src);
-    out.append(begin, ' ');
-    out.push_back('^');
-    if (end > begin + 1) {
-        out.append(end - begin - 1, '~');
+
+    // Render each source byte to a fixed display cell so that byte offsets in
+    // the span map to display columns: a tab collapses to one space and a
+    // newline/return/other control byte becomes a visible escape, all on a
+    // single line. The caret padding is built from the same cells, so it lines
+    // up with the offending region regardless of whitespace in the source.
+    auto cell = [](unsigned char b) -> std::string {
+        switch (b) {
+        case '\t': return " ";
+        case '\n': return "\\n";
+        case '\r': return "\\r";
+        case '\v': return "\\v";
+        case '\f': return "\\f";
+        default: return std::string(1, static_cast<char>(b));
+        }
+    };
+
+    std::string echoed;
+    std::string pad;               // spaces spanning the display width of [0, begin)
+    std::size_t marker_width = 0;  // display width of the offending region [begin, end)
+    for (std::size_t i = 0; i < src.size(); ++i) {
+        const std::string c = cell(static_cast<unsigned char>(src[i]));
+        echoed += c;
+        if (i < begin) {
+            pad.append(c.size(), ' ');
+        } else if (i < end) {
+            marker_width += c.size();
+        }
+    }
+
+    std::string out = std::format("error: {}\n    {}\n    {}^", err.what(), echoed, pad);
+    if (marker_width > 1) {
+        out.append(marker_width - 1, '~');
     }
     return out;
 }
@@ -128,10 +157,29 @@ void add_binding(Bindings& bindings, const std::string& arg) {
     }
     const std::string name = trim(arg.substr(0, eq));
     const std::string value_text = trim(arg.substr(eq + 1));
-    if (!is_symbol_name(name)) {
-        throw UsageError{std::format(
-            "malformed binding '{}': '{}' is not a variable name", arg, name)};
+
+    // Reject names that can never lex as a single bound variable. A bindable
+    // name parses to exactly one Symbol equal to itself — a single letter, a
+    // greek name, or a subscripted form (DESIGN §4). Constants (pi, e) parse to
+    // a Constant and multi-letter runs (`foo` -> f*o*o) to a Mul; neither can
+    // be bound, and they get distinct diagnostics.
+    Expr parsed_name;
+    try {
+        parsed_name = parse_expression(name);
+    } catch (const ParseError&) {
+        parsed_name = nullptr;
     }
+    if (parsed_name && parsed_name->kind() == Kind::Constant) {
+        throw UsageError{std::format("'{}' is a constant and cannot be bound", name)};
+    }
+    if (!parsed_name || parsed_name->kind() != Kind::Symbol ||
+        parsed_name->symbol_name() != name) {
+        throw UsageError{std::format(
+            "'{}' is not a bindable variable (variables are single letters or greek "
+            "names)",
+            name)};
+    }
+
     const std::optional<double> value = parse_double(value_text);
     if (!value) {
         throw UsageError{std::format(
@@ -334,16 +382,19 @@ int run_one_shot(const std::vector<std::string>& args) {
         }
 
         bool latex = false;
+        bool end_of_options = false;
         NumericOptions opts;
         std::vector<std::string> positionals;
         for (std::size_t i = 1; i < args.size(); ++i) {
             const std::string& a = args[i];
-            if (a == "--latex") {
+            if (!end_of_options && a == "--") {
+                end_of_options = true;  // subsequent args are positionals ("--x")
+            } else if (!end_of_options && a == "--latex") {
                 latex = true;
-            } else if (a == "--help") {
+            } else if (!end_of_options && a == "--help") {
                 print_usage(stdout);
                 return k_exit_ok;
-            } else if (a == "--range") {
+            } else if (!end_of_options && a == "--range") {
                 if (sub != "solve") {
                     throw UsageError{"--range is only valid for 'solve'"};
                 }
@@ -352,9 +403,21 @@ int run_one_shot(const std::vector<std::string>& args) {
                 }
                 const std::optional<double> lo = parse_double(args[i + 1]);
                 const std::optional<double> hi = parse_double(args[i + 2]);
-                if (!lo || !hi) {
+                // strtod accepts "nan"/"inf"; treat NaN as "not a number" (its
+                // own message, checked before the ordering test so it never
+                // reports the misleading "LO must be less than HI").
+                if (!lo || !hi || std::isnan(*lo) || std::isnan(*hi)) {
                     throw UsageError{std::format(
                         "--range arguments must be numbers (got '{}' '{}')",
+                        args[i + 1], args[i + 2])};
+                }
+                // Reject infinite bounds and an interval whose width overflows
+                // to infinity (e.g. -1e308 1e308): the scan would silently find
+                // nothing and falsely report the interval as covered.
+                if (!std::isfinite(*lo) || !std::isfinite(*hi) ||
+                    !std::isfinite(*hi - *lo)) {
+                    throw UsageError{std::format(
+                        "--range bounds must be finite (got '{}' '{}')",
                         args[i + 1], args[i + 2])};
                 }
                 if (!(*lo < *hi)) {
@@ -363,7 +426,7 @@ int run_one_shot(const std::vector<std::string>& args) {
                 opts.lo = *lo;
                 opts.hi = *hi;
                 i += 2;
-            } else if (a.starts_with("--")) {
+            } else if (!end_of_options && a.starts_with("--")) {
                 throw UsageError{std::format("unknown option '{}'", a)};
             } else {
                 positionals.push_back(a);

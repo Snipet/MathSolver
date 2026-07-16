@@ -243,11 +243,18 @@ numbers as `5`, `-3/2`; `pi`, `e`; functions as `sin(...)`, natural log as
 `ln(...)`; `Mul(-1, x)` → `-x`; Add renders subtractions
 (`x + (-2)*y` → `x - 2*y`).
 
-Division rendering (Plain): within a Mul, factors whose exponent is a
-**negative Number** move to a denominator with the exponent negated, and a
-non-integer rational coefficient contributes its numerator/denominator, e.g.
-`Mul(3/2, Pow(x,-1))` → `3/(2*x)`, `Mul(3, Pow(x,-2))` → `3/x^2`, a bare
-`Pow(x,-1)` → `1/x`. `Pow(u, 1/2)` → `sqrt(u)` and `Pow(u, -1/2)` →
+Division rendering (Plain): within a Mul, **only the first factor (in
+canonical arg order) with a negative Number exponent** moves to a denominator
+with the exponent negated, together with a non-integer rational coefficient's
+denominator; any *further* negative-exponent factors stay in the numerator as
+explicit negative powers. This single-factor rule is deliberate: the §2
+`make_pow` folds recover only one denominator factor on re-parse (Number
+extraction from an integer power of a Mul, never distribution over two
+symbolic factors), so moving more than one below the bar would break the
+§5/§11 round-trip invariant. Examples: `Mul(3/2, Pow(x,-1))` → `3/(2*x)`,
+`Mul(3, Pow(x,-2))` → `3/x^2`, a bare `Pow(x,-1)` → `1/x`, and
+`Mul(x, Pow(y,-1), Pow(z,-1))` → `x*z^(-1)/y` (only `y^(-1)` moves; `z^(-1)`
+stays as a negative power). `Pow(u, 1/2)` → `sqrt(u)` and `Pow(u, -1/2)` →
 `1/sqrt(u)`. These re-parse to the original AST **because of** the §2
 make_pow folds (Pow-of-Pow with integer outer exponent; Number extraction
 from an integer power of a Mul) — printer tests must cover exactly these
@@ -258,8 +265,12 @@ sqrt/division reconstruction whatever the exponent (`Pow(E, 1/2)` → `e^(1/2)`,
 Add display ordering: the printer displays Add terms sorted by **descending
 total degree**, where a term's total degree is the sum of the rational
 exponents of its non-Number factors (a bare symbol or function counts 1, a
-Number term counts 0); ties break by reverse `compare_expr`. This is a
-print-time ordering only — the AST keeps its canonical §2 arg order. Example:
+Number term counts 0); ties break by **ascending `compare_expr` of the whole
+term** — i.e. equal-degree terms keep their canonical §2 relative order. So
+`Add(x, Mul(-2, y))` → `x - 2*y` (Symbol x < Mul), `Add(Mul(2, x), y)` →
+`y + 2*x` (Symbol y < Mul), and `Add(Mul(2, y), Mul(3, x))` → `2*y + 3*x`
+(the two Muls compare elementwise, coefficient `2 < 3`). This is a print-time
+ordering only — the AST keeps its canonical §2 arg order. Example:
 `x^2 + 2*x + 3`.
 
 LaTeX style: same structure but `\frac{...}{...}` for the division rendering,
@@ -508,6 +519,20 @@ mathsolver latex    "sqrt(x)/2"                       # print LaTeX form
 mathsolver --help | --version
 mathsolver          # no args → REPL
 ```
+
+The `latex` command prints the parsed expression in LaTeX **without
+simplifying** — only the §2 factory canonicalization inherent in parsing
+applies (e.g. `2/4` → `\frac{1}{2}`); use `simplify --latex` for the
+simplified LaTeX form (`2x+3x` → `5x`). The REPL `latex` command behaves the
+same. A literal `--` argument ends option parsing (so an expression like
+`-- "--x"` can be passed positionally).
+
+Exit codes: **2 (usage error, `usage error:` prefix on stderr)** for a
+malformed command line — unknown subcommand or flag, missing/extra arguments,
+`--range` without two finite numeric bounds, or a malformed `eval` binding
+such as `x=abc` or binding a constant (`pi=3`). **1** for errors thrown while
+parsing or computing the expression itself — parse diagnostics (with a
+caret), unbound symbols, and domain/overflow errors. **0** on success.
 
 `solve` output: one line per solution (`x = 2`, `x ≈ 1.8955`), then
 `method:` and any warnings. `NoRealSolution` → `no real solutions`;
