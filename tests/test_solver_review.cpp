@@ -2,6 +2,7 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include "mathsolver/evaluator.hpp"
 #include "mathsolver/parser.hpp"
 #include "mathsolver/solver.hpp"
 
@@ -72,4 +73,39 @@ TEST_CASE("solve: cos(x) = x is still a genuine single numeric root") {
     const SolveResult res = solve(eq("cos(x) = x"), "x");
     CHECK(res.status == Status::NumericOnly);
     CHECK(res.solutions.size() == 1);
+}
+
+// ---------------------------------------------------------------------------
+// DESIGN §9 step 4: roots harvested from the no-sign-change (|f| minimum)
+// branch carry a tangency note; sign-change roots do not.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("solve: near-miss tangency root carries the tangency note") {
+    // f = e^x + e^-x - 2 + 1e-9 has minimum exactly 1e-9 > 0 at x = 0: the
+    // reported root is a numerical near-miss and must say so.
+    const SolveResult res = solve(eq("e^(x) + e^(-x) = 2 - 1/1000000000"), "x");
+    REQUIRE(res.status == SolveResult::Status::NumericOnly);
+    REQUIRE_FALSE(res.solutions.empty());
+    for (const Solution& s : res.solutions) {
+        CHECK(s.note.find("tangency-type root") != std::string::npos);
+        CHECK(s.note.find("no sign change observed") != std::string::npos);
+    }
+}
+
+TEST_CASE("solve: genuine double root still reported, with the tangency note") {
+    NumericOptions opts;
+    opts.lo = -1.0;
+    opts.hi = 1.0;
+    const SolveResult res = solve_numeric(eq("sin(x)^2 = 0"), "x", opts);
+    REQUIRE(res.status == SolveResult::Status::NumericOnly);
+    REQUIRE(res.solutions.size() == 1);
+    CHECK(std::abs(evaluate(res.solutions[0].value)) < 1e-6);
+    CHECK(res.solutions[0].note.find("tangency-type root") != std::string::npos);
+}
+
+TEST_CASE("solve: sign-change numeric root carries no tangency note") {
+    const SolveResult res = solve(eq("cos(x) = x"), "x");
+    REQUIRE(res.status == SolveResult::Status::NumericOnly);
+    REQUIRE(res.solutions.size() == 1);
+    CHECK(res.solutions[0].note.empty());
 }

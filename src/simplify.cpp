@@ -543,22 +543,37 @@ Expr apply_pow_rules(const Expr& e) {
     if (is_function(b, FunctionId::Abs) && xr->is_integer() && !odd(xr->num())) {
         return make_pow(b->arg(0), x);
     }
-    // (u^a)^b for Number a, b (integer b is already a factory fold):
-    //   - a = p/q, b = m/n with p, q, n all odd -> u^(a*b)  (amended parity rule)
-    //   - a an even integer, n even -> abs(u)^(a*b)         (sqrt(u^2) -> abs(u))
-    if (b->kind() == Kind::Pow) {
+    // Generalized (u^a)^b for rational Numbers a, b (DESIGN.md §7; integer b
+    // is already a §2 factory fold, so b is non-integer here). The fold fires
+    // exactly when it cannot restrict the real domain or change the value
+    // under the §6 evaluator (domain extensions are acceptable):
+    //   - a non-integer or an odd integer -> u^(a*b)  (u^a is already
+    //     undefined for u < 0 when a is non-integer, and for odd integer a
+    //     the sign survives, so equality holds wherever both are defined)
+    //   - a an even integer: (u^a)^b == |u|^(a*b), so
+    //       * a*b an even integer -> u^(a*b)      (abs is absorbed)
+    //       * a*b an odd integer  -> abs(u)^(a*b) (sqrt(u^2) -> abs(u) is the
+    //                                              a=2, b=1/2 instance)
+    //       * a*b not an integer  -> no fold (u^(a*b) would restrict the
+    //                                domain, e.g. (x^2)^(1/3))
+    // On Rational overflow of a*b the node is left unchanged.
+    if (b->kind() == Kind::Pow && !xr->is_integer()) {
         if (const Rational* a = as_number(b->arg(1))) {
-            const long long p = a->num();
-            const long long q = a->den();
-            const long long n = xr->den();
-            if (n != 1) {
-                if (odd(p) && odd(q) && odd(n)) {
-                    return make_pow(b->arg(0), make_num(*a * *xr));
+            try {
+                const Rational ab = *a * *xr;
+                if (!a->is_integer() || odd(a->num())) {
+                    return make_pow(b->arg(0), make_num(ab));
                 }
-                if (q == 1 && !odd(p) && !odd(n)) {
-                    return make_pow(make_fn(FunctionId::Abs, b->arg(0)),
-                                    make_num(*a * *xr));
+                // a is an even integer.
+                if (ab.is_integer()) {
+                    if (odd(ab.num())) {
+                        return make_pow(make_fn(FunctionId::Abs, b->arg(0)),
+                                        make_num(ab));
+                    }
+                    return make_pow(b->arg(0), make_num(ab));
                 }
+            } catch (const OverflowError&) {
+                // a*b unrepresentable: leave the node unchanged.
             }
         }
     }

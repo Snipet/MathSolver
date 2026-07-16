@@ -54,7 +54,8 @@ pd-09	simplify	1/(x + 1)	-	exact	1/(x + 1)	0
 # ---------- sqrt reconstruction, plain (Pow(u,1/2) -> sqrt, others stay ^) ----------
 ps-01	simplify	sqrt(x)	-	exact	sqrt(x)	0
 ps-02	simplify	sqrt(x + 1)	-	exact	sqrt(x + 1)	0
-ps-03	simplify	sqrt(x^3)	-	exact	sqrt(x^3)	0
+ps-03	simplify	sqrt(y*x^3)	-	exact	sqrt(y*x^3)	0
+ps-04	simplify	sqrt(x^3)	-	exact	x^(3/2)	0
 # ---------- Pow(E, ...) wins over sqrt/division reconstruction ----------
 pe-01	simplify	exp(1/2)	-	exact	e^(1/2)	0
 pe-02	simplify	exp(-2)	-	exact	e^(-2)	0

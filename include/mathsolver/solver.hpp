@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -55,5 +56,34 @@ SolveResult solve(const Equation& eq, std::string_view symbol,
 /// Roots are reported sorted ascending, exact = false.
 SolveResult solve_numeric(const Equation& eq, std::string_view symbol,
                           const NumericOptions& opts = {});
+
+/// Result of solving a system of equations linear in the requested symbols
+/// (DESIGN.md §9b). Other free symbols act as symbolic parameters.
+struct SystemSolveResult {
+    enum class Status {
+        Solved,           ///< Unique solution for every requested symbol.
+        NoSolution,       ///< Inconsistent system (a row reduces to 0 = c, c != 0).
+        Underdetermined,  ///< Consistent; some requested symbols are free.
+        Unsolved          ///< Not linear in the requested symbols, or verification failed.
+    };
+
+    Status status = Status::Unsolved;
+    /// Solved: one simplified Expr per requested symbol, free of all
+    /// requested symbols. Underdetermined: entries only for pivot symbols;
+    /// they may reference the free symbols.
+    std::map<std::string, Expr> values;
+    /// Underdetermined only: requested symbols with no pivot (absent from
+    /// `values`).
+    std::vector<std::string> free_variables;
+    std::string method;  ///< "gaussian elimination"
+    std::vector<std::string> warnings;
+};
+
+/// Solve `eqs` for `symbols` by Gaussian elimination over exact Expr
+/// arithmetic: joint-linearity extraction (rejects cross-terms like x*y),
+/// symbolic pivots allowed with a "valid only when ... != 0" warning,
+/// solutions verified by substitution per the §9.5 doctrine.
+SystemSolveResult solve_system(const std::vector<Equation>& eqs,
+                               const std::vector<std::string>& symbols);
 
 } // namespace mathsolver

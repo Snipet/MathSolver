@@ -1040,7 +1040,13 @@ SolveResult numeric_core(const Expr& f, const Equation& eq, std::string_view sym
         }
     }
 
-    std::vector<double> roots;
+    // Provenance matters: a root found without a sign change is numerically
+    // indistinguishable from a near-miss tangency, so it carries a note.
+    struct NumericRoot {
+        double x;
+        bool tangency;
+    };
+    std::vector<NumericRoot> roots;
 
     const auto refine = [&](double a, double b, double fa) -> double {
         double x = 0.5 * (a + b);
@@ -1075,7 +1081,7 @@ SolveResult numeric_core(const Expr& f, const Equation& eq, std::string_view sym
     // Exact grid hits and sign-change brackets.
     for (int i = 0; i < n; ++i) {
         if (vs[i] && *vs[i] == 0.0) {
-            roots.push_back(ts[i]);
+            roots.push_back({ts[i], false});
         }
     }
     for (int i = 0; i + 1 < n; ++i) {
@@ -1088,7 +1094,7 @@ SolveResult numeric_core(const Expr& f, const Equation& eq, std::string_view sym
             continue;
         }
         if ((va > 0.0) != (vb > 0.0)) {
-            roots.push_back(refine(ts[i], ts[i + 1], va));
+            roots.push_back({refine(ts[i], ts[i + 1], va), false});
         }
     }
 
@@ -1144,34 +1150,43 @@ SolveResult numeric_core(const Expr& f, const Equation& eq, std::string_view sym
         }
         const auto fx = feval(x_star);
         if (fx && std::abs(*fx) < 1e-7 * std::max(1.0, std::abs(x_star))) {
-            roots.push_back(x_star);
+            roots.push_back({x_star, true});
         }
     }
 
-    // Dedup, verify by substitution, sort ascending.
-    std::sort(roots.begin(), roots.end());
-    std::vector<double> unique;
-    for (const double r : roots) {
-        if (!unique.empty() && r - unique.back() < 1e-8 * std::max(1.0, std::abs(r))) {
+    // Dedup, verify by substitution, sort ascending. When a tangency root
+    // coincides with a sign-change root, the sign-change observation wins.
+    std::sort(roots.begin(), roots.end(),
+              [](const NumericRoot& a, const NumericRoot& b) { return a.x < b.x; });
+    std::vector<NumericRoot> unique;
+    for (const NumericRoot& r : roots) {
+        if (!unique.empty() && r.x - unique.back().x < 1e-8 * std::max(1.0, std::abs(r.x))) {
+            unique.back().tangency = unique.back().tangency && r.tangency;
             continue;
         }
         unique.push_back(r);
     }
-    for (const double r : unique) {
-        const auto fr = feval(r);
+    for (const NumericRoot& r : unique) {
+        const auto fr = feval(r.x);
         if (!fr) {
             continue;
         }
         double scale = 1.0;
-        const auto lv = try_eval(eq.lhs, Bindings{{symbol_name, r}});
-        const auto rv = try_eval(eq.rhs, Bindings{{symbol_name, r}});
+        const auto lv = try_eval(eq.lhs, Bindings{{symbol_name, r.x}});
+        const auto rv = try_eval(eq.rhs, Bindings{{symbol_name, r.x}});
         if (lv && rv) {
             scale = std::max({1.0, std::abs(*lv), std::abs(*rv)});
         }
         if (std::abs(*fr) >= 1e-6 * scale) {
             continue;
         }
-        res.solutions.push_back(Solution{make_num(rational_from_double(r)), false, ""});
+        std::string note;
+        if (r.tangency) {
+            note = "tangency-type root: |f| has a near-zero minimum here; "
+                   "no sign change observed";
+        }
+        res.solutions.push_back(
+            Solution{make_num(rational_from_double(r.x)), false, std::move(note)});
     }
 
     res.warnings.push_back(std::format(

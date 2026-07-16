@@ -68,11 +68,15 @@ regression-tested against parser.cpp/main.cpp.
 
 ## Open / optional (not blocking)
 
-- Missed simplification (spec-consistent): `(x^6)^(1/3)` stays unchanged;
-  §7's parity rule doesn't cover even-p/odd-q. Extend rule + spec together
-  only if desired.
-- Plausible-but-unconfirmed: tangency false roots — a near-miss local minimum
-  of |f| below the fixed 1e-7 threshold can be reported as a numeric root
-  (`e^x + e^-x = 2 - 1e-9`). Borderline spec-tolerance choice; being assessed
-  in the solver fix (attach a distinguishing note only if genuine double
-  roots don't regress).
+(none — both former items closed:)
+
+- **Generalized (u^a)^b power rule** — DESIGN §7 amended and implemented:
+  fold when `a` is non-integer or odd; for even `a` fold to `u^(ab)` only
+  when `ab` is an even integer, to `abs(u)^(ab)` when odd (subsumes
+  sqrt-of-square), never otherwise. `(x^6)^(1/3) → x^2` now works; the old
+  over-fire `(x^2)^(1/4) → abs(x)^(1/2)` is now correctly a guard.
+  Verified by a 4,000-pair differential fuzz (0 failures) + 40k round-trip.
+- **Tangency-root note** — numeric roots harvested with no sign change carry
+  "tangency-type root: |f| has a near-zero minimum here; no sign change
+  observed" (DESIGN §9.4); genuine double roots keep working (noted),
+  sign-change roots unaffected. Regression-tested.

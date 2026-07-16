@@ -116,21 +116,26 @@ TEST_CASE("simplify: like-factor guards") {
 // Power rules
 // ---------------------------------------------------------------------------
 
-TEST_CASE("simplify: power parity rule (amended)") {
+TEST_CASE("simplify: generalized power rule (amended)") {
     // integer outer exponent is a factory fold already
     expect_simplifies("(x^2)^3", "x^6");
     expect_simplifies("(x^(1/2))^2", "x"); // domain extension, documented
-    // p, q, and b's denominator all odd
+    // inner exponent a non-integer or an odd integer -> u^(a*b)
     expect_simplifies("(x^(1/3))^(5/3)", "x^(5/9)");
     expect_simplifies("(x^3)^(1/3)", "x");
     expect_simplifies("(x^(3/5))^(1/3)", "x^(1/5)");
     expect_simplifies("(x^(-1/3))^(1/3)", "x^(-1/9)");
+    expect_simplifies("(x^(1/2))^(1/3)", "x^(1/6)");
+    expect_simplifies("(x^(2/3))^(1/2)", "x^(1/3)");
+    expect_simplifies("(x^3)^(1/2)", "x^(3/2)");
+    // inner exponent even integer, a*b an even integer -> u^(a*b)
+    expect_simplifies("(x^6)^(1/3)", "x^2");
 }
 
-TEST_CASE("simplify: power parity guards") {
-    expect_unchanged("(x^2)^(1/3)"); // even p: would restrict the domain
-    expect_unchanged("(x^(1/2))^(1/3)"); // even q
-    expect_unchanged("(x^(2/3))^(1/2)"); // even p and even n but q != 1
+TEST_CASE("simplify: generalized power rule guards") {
+    // even inner exponent with non-integer a*b would restrict the domain
+    expect_unchanged("(x^2)^(1/3)");
+    expect_unchanged("(x^2)^(1/4)");
     expect_unchanged("x^(2/3)");
 }
 
@@ -146,10 +151,10 @@ TEST_CASE("simplify: sqrt of even powers respects abs") {
     expect_simplifies("sqrt(x^2)", "abs(x)");
     expect_simplifies("sqrt(x^4)", "x^2");      // abs(x)^2 -> x^2
     expect_simplifies("sqrt(x^6)", "abs(x)^3");
-    expect_simplifies("(x^2)^(1/4)", "abs(x)^(1/2)");
     expect_simplifies("(x^(-2))^(1/2)", "abs(x)^(-1)");
+    // Odd inner exponent folds without abs (left side undefined for x < 0)
+    expect_simplifies("sqrt(x^3)", "x^(3/2)");
     // Guards
-    expect_unchanged("sqrt(x^3)");
     expect_unchanged("sqrt(x)");
     const Expr out = simplify(parse("sqrt(x^2)"));
     INFO(debug_string(out));

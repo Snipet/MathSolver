@@ -338,14 +338,24 @@ except formal cancellations, which are standard CAS behavior and documented):
   part fold coefficients (`x*y + 2*x*y → 3*x*y`).
 - Like factors: `x * x^2 → x^3`; equal bases with numeric exponents combine;
   `x/x → 1` (formal; assumes `x ≠ 0`).
-- Power rules: `(x^a)^b → x^(a*b)` only when `b` is an integer Number
-  (already a §2 factory fold when `a` is a Number too), or when `a = p/q` and
-  `b` are rational Numbers with `p`, `q`, and `b`'s denominator all **odd**
-  (this parity restriction keeps the rule from turning an expression that is
-  defined at negative `x` under §6's evaluator — e.g. `(x^2)^(1/3)` — into
-  one that is not — `x^(2/3)`; domain *extensions* like `(x^(1/2))^2 → x`
-  are acceptable, domain *restrictions* are not); `x^a * y^a` is NOT
-  combined; `(x*y)^n → x^n * y^n` for integer `n`.
+- Power rules — `(u^a)^b → u^(a*b)` for rational Numbers `a`, `b`. `b`
+  integer is already a §2 factory fold. For non-integer `b` the rule fires
+  exactly when it cannot *restrict* the real domain or change the value
+  under §6's evaluator (domain *extensions* are acceptable, restrictions and
+  value changes are not). Since `u^a` with non-integer `a` is undefined for
+  `u < 0` under §6, the case analysis is:
+  - `a` non-integer, or `a` an **odd** integer → fold (the left side is
+    undefined at `u < 0` anyway, so equality holds everywhere both are
+    defined; e.g. `(x^(1/3))^(1/5) → x^(1/15)`, `(x^3)^(1/2) → x^(3/2)`,
+    `(x^(2/3))^(3/2) → x` — the last extends the domain, which is fine).
+  - `a` an **even** integer → `(u^a)^b = |u|^(a*b)`, so fold to `u^(a*b)`
+    only when `a*b` is an **even integer** (`(x^6)^(1/3) → x^2`,
+    `(x^4)^(1/2) → x^2`); when `a*b` is an **odd** integer fold to
+    `abs(u)^(a*b)` (`(x^2)^(1/2) → abs(x)` — this generalizes the
+    sqrt-of-square rule; `(x^6)^(1/2) → abs(x)^3`); otherwise (`a*b` not an
+    integer, e.g. `(x^2)^(1/3)`) do NOT fold — `x^(2/3)` would be undefined
+    at `x < 0` where the input is defined.
+  `x^a * y^a` is NOT combined; `(x*y)^n → x^n * y^n` for integer `n`.
 - `Pow(E, Ln(x)) → x`; `Ln(Pow(E, x)) → x`; `Ln(1) → 0`; `Ln(E) → 1`.
 - `ln(a*b) → ln a + ln b` is NOT applied (domain); `ln(x^n)` for odd integer
   `n` → `n·ln(x)` is NOT applied either — log expansion is out of scope for
@@ -475,7 +485,14 @@ SolveResult solve_numeric(const Equation&, std::string_view symbol,
    bisection tightened by Newton (derivative from §8, falling back to
    bisection when Newton leaves the bracket or derivative vanishes); where
    `|f|` is locally tiny without a sign change (grid minimum below 1e-7 of
-   local scale) → Newton polish to catch even-multiplicity roots; skip
+   local scale) → Newton polish to catch even-multiplicity roots — every
+   root harvested from this no-sign-change branch carries the per-root
+   `Solution.note` `"tangency-type root: |f| has a near-zero minimum here;
+   no sign change observed"`, because at these tolerances a genuine double
+   root is numerically indistinguishable from a near-miss where the two
+   sides approach within ~1e-7 but never touch (e.g.
+   `e^x + e^-x = 2 - 1e-9`), and the note lets callers treat such roots
+   with appropriate suspicion; skip
    non-finite regions (domain gaps); dedupe roots within
    `1e-8·max(1,|root|)`; verify every root by substitution
    (`|f(root)| < 1e-6` relative); sort ascending. Roots found → status
@@ -499,6 +516,69 @@ SolveResult solve_numeric(const Equation&, std::string_view symbol,
 `solve` fills `method` with a short human label (`"linear"`,
 `"quadratic formula"`, `"rational roots + quadratic"`, `"isolation"`,
 `"numeric (Newton/bisection)"`).
+
+## 9b. Linear systems (`solver.hpp`, v0.2)
+
+```cpp
+struct SystemSolveResult {
+    enum class Status { Solved, NoSolution, Underdetermined, Unsolved };
+    Status status = Status::Unsolved;
+    std::map<std::string, Expr> values;  // Solved/Underdetermined: per symbol
+    std::vector<std::string> free_variables;  // Underdetermined only
+    std::string method;                  // "gaussian elimination"
+    std::vector<std::string> warnings;
+};
+SystemSolveResult solve_system(const std::vector<Equation>& eqs,
+                               const std::vector<std::string>& symbols);
+```
+
+Solves a system of equations **linear in the requested symbols**; any other
+free symbols are treated as symbolic parameters (coefficients).
+
+**Joint-linearity extraction.** For each equation, form
+`f = simplify(expand(lhs - rhs))` and peel the requested symbols in order:
+`polynomial_coefficients(f, x1)` must yield degree ≤ 1 with the linear
+coefficient free of *all* requested symbols (this rejects cross-terms like
+`x*y`, which are degree-1 in each variable separately but not jointly
+linear); recurse on the constant term with `x2`, etc. Any violation →
+`Unsolved` with the warning `"system is not linear in the requested
+variables"`.
+
+**Elimination.** Gaussian elimination over exact `Expr` arithmetic,
+`simplify()` applied to every entry after each step. Pivot choice prefers
+nonzero Number pivots; a *symbolic* pivot is allowed but adds the warning
+`"valid only when <pivot> ≠ 0"` (same doctrine as the §9 quadratic leading
+coefficient). Row `0 = c` with numeric nonzero `c` → `NoSolution`
+("inconsistent system"); with symbolic `c` → keep, but warn
+`"inconsistent unless <c> = 0"`.
+
+**Shape of the answer.**
+- Pivot count = #symbols → `Solved`; `values` maps every requested symbol to
+  a simplified Expr free of all requested symbols.
+- Fewer pivots → `Underdetermined`; non-pivot requested symbols are **free**
+  (listed in `free_variables`, absent from `values`), and each pivot
+  symbol's `values` entry may reference the free symbols
+  (`x + y = 3` for `{x, y}` → `x = 3 - y`, free: `y`).
+- More independent equations than symbols can still be `Solved` (consistent
+  overdetermined) or `NoSolution`.
+
+**Verification.** Substitute `values` into every input equation and
+`simplify(lhs - rhs)`; anything that does not reduce to `0` is checked
+numerically per the §9.5 doctrine (fixed test values for parameters and free
+variables; EvalError → keep with a domain warning; clear nonzero → demote to
+`Unsolved` with a warning naming the equation).
+
+**CLI / REPL.** One-shot: `mathsolver solve "x + y = 3; x - y = 1" [x y]` —
+equations separated by top-level `;` inside the single argument (the parser
+itself is unchanged; the CLI splits). Variables optional: default is the
+union of free symbols if its size is ≤ the number of equations, else usage
+error (exit 2) listing the symbols. Output: one `x = ...` line per symbol
+(pivot expressions may reference free variables), `free: y` line when
+underdetermined, then `method:` and warnings; `NoSolution` → `no solution
+(inconsistent system)`. REPL: `solve x+y=3; x-y=1, x, y` — the existing
+top-level-comma split supplies the variables; `;` needs no new REPL logic.
+A single equation with `;`-free input keeps the §9 single-equation path
+untouched.
 
 ---
 

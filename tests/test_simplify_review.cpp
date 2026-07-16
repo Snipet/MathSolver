@@ -168,3 +168,123 @@ TEST_CASE("expand perf: (a+..+j)^7 has exactly 11440 terms, completes fast") {
     CHECK_THAT(evaluate(out, b), WithinRel(evaluate(in, b), 1e-9));
     CHECK(std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() < 30);
 }
+
+// ---------------------------------------------------------------------------
+// AMENDED DESIGN.md section 7: generalized (u^a)^b power rule for rational
+// Number exponents (non-integer outer b; integer b is a factory fold).
+//   - a non-integer or an odd integer      -> u^(a*b)
+//   - a even integer, a*b an even integer  -> u^(a*b)
+//   - a even integer, a*b an odd integer   -> abs(u)^(a*b)
+//   - a even integer, a*b not an integer   -> unchanged (domain restriction)
+// On Rational overflow of a*b the node is left unchanged.
+// ---------------------------------------------------------------------------
+
+#include "mathsolver/errors.hpp"
+
+namespace {
+
+void expect_folds(std::string_view input, std::string_view expected) {
+    const Expr out = simplify(parse(input));
+    INFO(input << " simplified to " << debug_string(out));
+    CHECK(structurally_equal(out, parse(expected)));
+    // Idempotence on the new output.
+    CHECK(structurally_equal(simplify(out), out));
+}
+
+void expect_unchanged_shape(std::string_view input) {
+    const Expr in = parse(input);
+    const Expr out = simplify(in);
+    INFO(input << " simplified to " << debug_string(out));
+    CHECK(structurally_equal(out, in));
+}
+
+struct EvalOutcome {
+    bool defined;
+    double value;
+};
+
+EvalOutcome try_eval(const Expr& e, double x) {
+    try {
+        return {true, evaluate(e, Bindings{{"x", x}})};
+    } catch (const EvalError&) {
+        return {false, 0.0};
+    }
+}
+
+// Section 7 doctrine: the fold may EXTEND the real domain (EvalError on the
+// original only) but must never restrict it (EvalError on the simplified
+// form where the original evaluates is a failure), and values must agree
+// wherever both sides are defined.
+void expect_value_preserving(std::string_view input) {
+    const Expr in = parse(input);
+    const Expr out = simplify(in);
+    REQUIRE_FALSE(structurally_equal(out, in)); // the rule must have fired
+    for (const double x : {2.3, -1.7, 0.5}) {
+        const EvalOutcome orig = try_eval(in, x);
+        const EvalOutcome simp = try_eval(out, x);
+        INFO(input << " -> " << debug_string(out) << " at x = " << x);
+        if (orig.defined) {
+            REQUIRE(simp.defined); // domain restriction: forbidden
+            CHECK_THAT(simp.value, WithinRel(orig.value, 1e-9));
+        }
+        // orig undefined: a defined simplified value is an acceptable
+        // domain extension; both undefined is trivially fine.
+    }
+}
+
+} // namespace
+
+TEST_CASE("generalized power rule: a non-integer or odd integer folds") {
+    expect_folds("(x^(1/3))^(1/5)", "x^(1/15)");
+    expect_folds("(x^3)^(1/2)", "x^(3/2)");
+    expect_folds("(x^(2/3))^(3/2)", "x");
+    expect_folds("(x^(1/2))^(1/3)", "x^(1/6)"); // even q: now folds
+    expect_folds("(x^(2/3))^(1/2)", "x^(1/3)"); // even p, q != 1: now folds
+}
+
+TEST_CASE("generalized power rule: even a with even integer a*b folds plain") {
+    expect_folds("(x^6)^(1/3)", "x^2");
+    expect_folds("(x^4)^(1/2)", "x^2");
+}
+
+TEST_CASE("generalized power rule: even a with odd integer a*b folds to abs") {
+    expect_folds("(x^2)^(1/2)", "abs(x)");
+    expect_folds("(x^6)^(1/2)", "abs(x)^3");
+    expect_folds("(x^(-2))^(1/2)", "abs(x)^(-1)");
+}
+
+TEST_CASE("generalized power rule: old odd/odd parity cases still fold") {
+    expect_folds("(x^(1/3))^(5/3)", "x^(5/9)");
+    expect_folds("(x^3)^(1/3)", "x");
+    expect_folds("(x^(3/5))^(1/3)", "x^(1/5)");
+    expect_folds("(x^(-1/3))^(1/3)", "x^(-1/9)");
+}
+
+TEST_CASE("generalized power rule: sqrt(x^2) -> abs(x) still holds") {
+    expect_folds("sqrt(x^2)", "abs(x)");
+    // and never plain x
+    CHECK_FALSE(structurally_equal(simplify(parse("sqrt(x^2)")), parse("x")));
+}
+
+TEST_CASE("generalized power rule: guards") {
+    // even a, a*b not an integer: folding would restrict the real domain.
+    expect_unchanged_shape("(x^2)^(1/3)");
+    expect_unchanged_shape("(x^2)^(1/4)");
+    expect_unchanged_shape("(x^4)^(1/8)");
+}
+
+TEST_CASE("generalized power rule: a*b overflow leaves the node unchanged") {
+    // a = 1/INT64_MAX, b = 1/7: the product's denominator does not fit
+    // 64 bits, so the checked Rational multiply throws and the rule bails.
+    expect_unchanged_shape("(x^(1/9223372036854775807))^(1/7)");
+}
+
+TEST_CASE("generalized power rule: value preservation at sample points") {
+    for (const std::string_view input :
+         {"(x^(1/3))^(1/5)", "(x^3)^(1/2)", "(x^(2/3))^(3/2)",
+          "(x^(1/2))^(1/3)", "(x^(2/3))^(1/2)", "(x^6)^(1/3)", "(x^4)^(1/2)",
+          "(x^2)^(1/2)", "(x^6)^(1/2)", "(x^(1/3))^(5/3)", "(x^3)^(1/3)",
+          "sqrt(x^2)"}) {
+        expect_value_preserving(input);
+    }
+}
