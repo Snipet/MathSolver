@@ -23,6 +23,7 @@ disagree, fix whichever is wrong and note it in the commit/summary.
 | evaluator       | `evaluator.hpp/.cpp`                    | expr                     |
 | simplify        | `simplify.hpp/.cpp`                     | expr                     |
 | derivative      | `derivative.hpp/.cpp`                   | expr, simplify           |
+| integrate       | `integrate.hpp/.cpp`                    | expr, simplify, derivative, evaluator, solver (partial fractions) |
 | solver          | `solver.hpp/.cpp`                       | expr, simplify, derivative, evaluator |
 | CLI/REPL        | `apps/main.cpp`                         | everything               |
 
@@ -409,6 +410,113 @@ clean; chain rule through every FunctionId:
 | abs    | u·abs(u)^(-1)  (note: undefined at 0) |
 
 Symbols other than `symbol`, constants, numbers → 0.
+
+## 8b. Integration (`integrate.hpp`, v0.3)
+
+```cpp
+struct IntegrateResult {
+    enum class Status { Integrated, Unsolved };
+    Status status = Status::Unsolved;
+    Expr antiderivative;            // Integrated only; the "+ C" is implicit
+    std::string method;             // see labels below
+    std::vector<std::string> warnings;
+};
+IntegrateResult integrate(const Expr& e, std::string_view symbol);
+
+struct DefiniteIntegralResult {
+    enum class Status { Exact, Numeric, Unsolved };
+    Status status = Status::Unsolved;
+    Expr value;                     // Exact: symbolic; Numeric: a Number
+    std::string method;             // "FTC" or "numeric (adaptive Simpson)"
+    std::vector<std::string> warnings;
+};
+DefiniteIntegralResult integrate_definite(const Expr& e, std::string_view symbol,
+                                          const Expr& lo, const Expr& hi);
+```
+
+Rule-based indefinite integration; an integrator that cannot integrate says
+`Unsolved` honestly (warning `"no applicable integration rule"`) — it never
+guesses. Real domain; antiderivatives of `1/u` use `ln(abs(u))`.
+
+**Strategy pipeline** over `simplify(e)`, first applicable technique wins;
+`method` records which (labels: `"table"`, `"power rule"`, `"linearity"`,
+`"u-substitution"`, `"integration by parts"`, `"partial fractions"`,
+`"trig identity"` — combinations join with `" + "`):
+
+1. **Linearity.** Integrate `Add` term-wise; pull out factors free of
+   `symbol` (numbers, constants, parameter symbols). Any term `Unsolved` →
+   whole integral `Unsolved`.
+2. **Table with linear inner argument.** For `u = a*x + b` (`a ≠ 0`, `a`, `b`
+   free of `x`, including plain `u = x`):
+   `u^r` (rational `r ≠ -1`) → `u^(r+1)/((r+1)·a)`; `u^(-1)` →
+   `ln(abs(u))/a`; `sin u` → `-cos(u)/a`; `cos u` → `sin(u)/a`; `tan u` →
+   `-ln(abs(cos u))/a`; `e^u` → `e^u/a`; `c^u` for numeric `c > 0`, `c ≠ 1`
+   → `c^u/(a·ln c)`; `sinh u` → `cosh(u)/a`; `cosh u` → `sinh(u)/a`;
+   `tanh u` → `ln(cosh u)/a`; `ln u` → `(u·ln u - u)/a`; `asin u` →
+   `(u·asin u + sqrt(1-u^2))/a`; `acos u` → `(u·acos u - sqrt(1-u^2))/a`;
+   `atan u` → `(u·atan u - ln(1+u^2)/2)/a`; `cos(u)^(-2)` → `tan(u)/a`;
+   `sin(u)^(-2)` → `-cos(u)/(a·sin(u))`; `1/(u^2 + c)` for numeric/param
+   `c > 0` → `atan(u/sqrt(c))/(a·sqrt(c))`; `1/sqrt(c - u^2)` for `c > 0` →
+   `asin(u/sqrt(c))/a`. `abs(u)` → `Unsolved` (piecewise result; out of
+   scope, warn).
+3. **Polynomial / expansion.** If `expand(e)` is a polynomial in `x` →
+   term-wise power rule. Otherwise, if `expand(e) ≠ e` structurally, retry
+   the whole pipeline ONCE on the expanded form (guards against loops).
+4. **u-substitution (derivative-divides).** Enumerate candidate inner
+   subexpressions `u` containing `x` (function arguments, `Pow` bases and
+   exponents); compute `w = simplify(e / differentiate(u, x))`; substitute
+   `u → t` (fresh symbol) in `w`; if the result is free of `x`, recursively
+   integrate in `t` (bounded recursion depth 8) and substitute back.
+5. **Integration by parts**, total depth ≤ 3, patterns only (no blind
+   search): `poly(x) · {sin, cos, sinh, cosh, e^}(linear u)` — parts
+   reducing the polynomial degree; `poly(x) · {ln, atan, asin, acos}(...)`
+   — parts with `dv = poly`; the cyclic `e^(a*x) · {sin, cos}(b*x)` →
+   closed form directly (`e^(ax)(a·sin(bx) - b·cos(bx))/(a²+b²)` and
+   `e^(ax)(a·cos(bx) + b·sin(bx))/(a²+b²)`).
+6. **Rational functions** `P(x)/Q(x)` (both polynomials with **rational
+   Number** coefficients; symbolic-parameter coefficients → `Unsolved`):
+   polynomial division first; factor `Q` by the §9 rational-root machinery
+   into linear factors (with multiplicity) and at most ONE irreducible
+   quadratic; decompose by **partial fractions with unknown coefficients
+   solved via `solve_system`** (§9b) after coefficient matching through
+   `polynomial_coefficients`; integrate the pieces (`A/(x-r)^k`, and
+   `(Bx+C)/(x²+px+q)` by completing the square → `ln` + `atan`). Denominator
+   degree ≤ 6; anything else `Unsolved`.
+7. **Trig powers**: rewrite `sin(u)^2 → (1 - cos(2u))/2`,
+   `cos(u)^2 → (1 + cos(2u))/2` (linear `u`) and retry; odd powers
+   `sin(u)^(2k+1)`, `cos(u)^(2k+1)` for small k (≤ 5): peel one factor and
+   substitute (Pythagorean rewrite + stage 4 handles it).
+8. Give up: `Unsolved` + warning.
+
+**Self-verification doctrine (mandatory).** Every candidate antiderivative
+`F` is checked before being returned: numerically compare
+`evaluate(differentiate(F, x))` with `evaluate(e)` at ~5 sample points
+(spread over positives/negatives/fractions; skip points where either side
+throws EvalError; non-finite → skip). A clear mismatch (> 1e-6 relative) at
+any clean point → internal-rule bug: return `Unsolved` with warning
+`"a candidate antiderivative failed verification"` (never return an
+unverified wrong answer). All points skipped → return it with a
+`"could not verify numerically"` warning.
+
+**Definite integrals.** Bounds must be symbol-free (constants like `pi`
+fine); non-finite or symbol-bearing bounds → `Unsolved` with a warning.
+Path: (a) indefinite succeeds → check the *integrand* evaluates finitely on
+a ~64-point grid over `[lo, hi]` (a domain gap or non-finite value → FTC
+unsafe: warn and go numeric); value = `simplify(F(hi) - F(lo))`, status
+`Exact`, method `"FTC"`, cross-checked against the numeric quadrature
+(disagreement > 1e-6 relative → prefer numeric with a warning — FTC across
+an undetected discontinuity loses). (b) Otherwise adaptive Simpson
+(tolerance 1e-10 relative, max depth 40) on the evaluable integrand; status
+`Numeric`, value a decimal-converted Number; integrand not evaluable on the
+interval → `Unsolved`.
+
+**CLI / REPL.** `mathsolver integrate "x*sin(x)" [x]` (variable optional
+when unique) prints `F(x) + C` (the literal ` + C`), then `method:` and
+warnings; `Unsolved` → `unable to integrate` (exit 0 — it is an answer).
+Definite: `mathsolver integrate "sin(x)" x --from 0 --to pi` (both flags or
+neither; bounds parsed as expressions) prints `value = 2` / `value ≈ ...`.
+REPL: `integrate <expr>[, <var>[, <lo>, <hi>]]`. LaTeX mode renders the
+antiderivative only (no `+ C` gymnastics: append `+ C` in math text).
 
 ---
 

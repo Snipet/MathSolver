@@ -35,6 +35,7 @@ add_library(mathsolver_core STATIC
     src/evaluator.cpp
     src/simplify.cpp
     src/derivative.cpp
+    src/integrate.cpp
     src/solver.cpp
 )
 target_include_directories(mathsolver_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
