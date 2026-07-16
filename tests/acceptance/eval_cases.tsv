@@ -1,0 +1,183 @@
+# MathSolver evaluator reference corpus — `mathsolver eval` end-to-end cases.
+# Same format and matching semantics as cases.tsv; see README.md in this
+# directory. Columns (tab-separated):
+# id	subcommand	input	extra_args	expected_kind	expected	expects_exit
+#
+# Reference values were computed with mpmath at 50 significant digits from the
+# EXACT rational arguments (MathSolver parses decimal literals as exact
+# Rationals: 0.999999 -> 999999/1000000, 0.1 -> 1/10 — DESIGN.md section 2),
+# then independently cross-checked against double-precision math-module
+# computations (agreement required to 1e-12 relative, far tighter than the
+# harness tolerance |actual - expected| <= 1e-6 * max(1, |expected|)).
+# The python used is reproduced in the comment block at the bottom.
+# Ids start at ev-20 / err-20 so they stay unique even if merged with cases.tsv.
+#
+# ---------- direct FunctionId coverage (DESIGN.md section 6) ----------
+ev-20	eval	sin(1)	-	approx	0.84147098480789651	0
+ev-21	eval	sin(-2)	-	approx	-0.9092974268256817	0
+ev-22	eval	cos(2)	-	approx	-0.41614683654714239	0
+ev-23	eval	cos(pi/3)	-	approx	0.5	0
+ev-24	eval	tan(1)	-	approx	1.5574077246549022	0
+ev-25	eval	tan(-0.5)	-	approx	-0.54630248984379051	0
+# near-but-not-at domain edge: asin argument is exactly 999999/1000000
+ev-26	eval	asin(0.999999)	-	approx	1.5693821131146724	0
+ev-27	eval	asin(-1)	-	approx	-1.5707963267948966	0
+ev-28	eval	acos(0.5)	-	approx	1.0471975511965977	0
+ev-29	eval	acos(-0.999999)	-	approx	3.140178439909569	0
+ev-30	eval	atan(1000000)	-	approx	1.5707953267948966	0
+ev-31	eval	sinh(-2)	-	approx	-3.6268604078470188	0
+ev-32	eval	sinh(0.5)	-	approx	0.52109530549374736	0
+ev-33	eval	cosh(10)	-	approx	11013.232920103323	0
+ev-34	eval	tanh(0.5)	-	approx	0.46211715726000976	0
+# tanh(20) = 1 - 4.1e-18; indistinguishable from 1 at double precision
+ev-35	eval	tanh(20)	-	approx	1	0
+ev-36	eval	ln(2)	-	approx	0.69314718055994531	0
+# near-edge of the ln domain; no scientific-notation literals (section 12),
+# so 1e-9 is spelled out and parses as the exact rational 1/1000000000
+ev-37	eval	ln(0.000000001)	-	approx	-20.723265836946411	0
+ev-38	eval	abs(-7)	-	approx	7	0
+ev-39	eval	abs(2 - 5)	-	approx	3	0
+#
+# ---------- parser-rewritten function forms (section 4: exp/sqrt/sec/csc/cot/log) ----------
+ev-40	eval	exp(-1)	-	approx	0.36787944117144232	0
+ev-41	eval	sqrt(2)	-	approx	1.414213562373095	0
+ev-42	eval	sec(1)	-	approx	1.8508157176809256	0
+ev-43	eval	csc(2)	-	approx	1.0997501702946165	0
+ev-44	eval	cot(1.5)	-	approx	0.070914844302652449	0
+ev-45	eval	\log_2(8)	-	approx	3	0
+# plain log is base 10; 0.001 parses as exactly 1/1000
+ev-46	eval	log(0.001)	-	approx	-3	0
+#
+# ---------- constant propagation (pi, e) ----------
+ev-47	eval	pi^2/6	-	approx	1.6449340668482264	0
+ev-48	eval	e^pi - pi	-	approx	19.999099979189476	0
+#
+# ---------- compositions ----------
+ev-49	eval	sin(cos(1))	-	approx	0.51439525852354917	0
+ev-50	eval	sqrt(1 + sqrt(2))	-	approx	1.5537739740300373	0
+ev-51	eval	ln(cosh(2))	-	approx	1.3250027473578644	0
+ev-52	eval	atan(tan(0.3))	-	approx	0.3	0
+ev-53	eval	e^(sin(1))	-	approx	2.3197768247158532	0
+#
+# ---------- rational-exponent powers (sections 2 and 6) ----------
+# negative base with INTEGER exponent is fine
+ev-54	eval	(-2)^3	-	approx	-8	0
+ev-55	eval	(-2)^(-3)	-	approx	-0.125	0
+# negative base, odd-denominator rational exponent: exact factory fold (section 2)
+ev-56	eval	(-8)^(1/3)	-	approx	-2	0
+ev-57	eval	(-8)^(2/3)	-	approx	4	0
+# exact result 2^101 exists but overflows 64 bits, so the Pow stays symbolic
+# (section 2) and the evaluator computes it in doubles: 2^101 = 2.5353...e30
+ev-58	eval	4^(101/2)	-	approx	2.5353012004564588e30	0
+#
+# ---------- binding forms ----------
+ev-59	eval	x*y^2	x=2 y=-3	approx	18	0
+# 0.1 in a binding is the double nearest 1/10; expected computed from exact
+# (1/10)^2 - 2*(1/10) + 1 = 81/100 (the two agree to ~1e-16, well under tol)
+ev-60	eval	x^2 - 2x + 1	x=0.1	approx	0.81	0
+ev-61	eval	ln(x)	x=0.1	approx	-2.3025850929940457	0
+# negative base is legal because the evaluated exponent is the integer 3
+ev-62	eval	x^y	x=-2 y=3	approx	-8	0
+ev-63	eval	x^x	x=2.5	approx	9.8821176880261854	0
+ev-64	eval	\frac{x+y}{x-y}	x=3 y=0.5	approx	1.4	0
+#
+# ---------- exact-rational literal semantics (section 2: 0.1 -> 1/10) ----------
+# folds to EXACTLY 0 in the factories (1/10 + 2/10 - 3/10), unlike doubles
+ev-65	eval	0.1 + 0.2 - 0.3	-	approx	0	0
+ev-66	eval	\frac{123456789123456789}{1000000000}	-	approx	123456789.123456789	0
+#
+# ---------- overflow-adjacent exact arithmetic that must still evaluate ----------
+# 2^62 = 4611686018427387904 fits signed 64-bit (max 9223372036854775807)
+ev-67	eval	2^62	-	approx	4611686018427387904	0
+# Mul(2^62, Pow(2^60, -1)) must fold exactly (128-bit intermediates, section 2)
+ev-68	eval	2^62/2^60	-	approx	4	0
+#
+# ---------- error cases (section 6; diagnostics on stderr, exit 1) ----------
+err-20	eval	ln(0)	-	contains	-	1
+err-21	eval	asin(2)	-	contains	-	1
+# negative base, even-denominator exponent: never folds, EvalError at eval time
+err-22	eval	(-2)^(1/2)	-	contains	-	1
+# mathematically real (cube root of -5) but 5 is not a perfect cube so the Pow
+# cannot fold exactly; section 6 pins non-integer exponent + negative base -> EvalError
+err-23	eval	(-5)^(1/3)	-	contains	-	1
+err-24	eval	x^y	x=-2 y=0.5	contains	-	1
+err-25	eval	1/(x - 3)	x=3	contains	-	1
+# 0^negative -> division by zero
+err-26	eval	x^(-2)	x=0	contains	-	1
+# cosh(1000) overflows the double range -> non-finite result -> EvalError
+err-27	eval	cosh(1000)	-	contains	-	1
+# unbound-symbol message must NAME the symbol (section 6)
+err-28	eval	\omega + 1	-	contains	omega	1
+err-29	eval	x_1 + 2	-	contains	x_1	1
+# x is bound; the message must name the unbound q
+err-30	eval	x + q	x=1	contains	q	1
+#
+# ======================================================================
+# Reference-value computation (python3 + mpmath 1.4.1, mp.mp.dps = 50).
+# Each value was cross-checked against an independent double-precision
+# math-module computation; asserts require agreement to 1e-12 relative.
+#
+#   import math
+#   from fractions import Fraction as F
+#   import mpmath as mp
+#   mp.mp.dps = 50
+#   def R(num, den=1):            # exact rational -> 50-digit mpf
+#       return mp.mpf(num) / mp.mpf(den)
+#
+#   cases = [  # (id, 50-digit value, double-precision cross-check)
+#     ("ev-20", mp.sin(R(1)),                math.sin(1)),
+#     ("ev-21", mp.sin(R(-2)),               math.sin(-2)),
+#     ("ev-22", mp.cos(R(2)),                math.cos(2)),
+#     ("ev-23", mp.cos(mp.pi/3),             math.cos(math.pi/3)),
+#     ("ev-24", mp.tan(R(1)),                math.tan(1)),
+#     ("ev-25", mp.tan(R(-1,2)),             math.tan(-0.5)),
+#     ("ev-26", mp.asin(R(999999,1000000)),  math.asin(999999/1000000)),
+#     ("ev-27", mp.asin(R(-1)),              math.asin(-1)),
+#     ("ev-28", mp.acos(R(1,2)),             math.acos(0.5)),
+#     ("ev-29", mp.acos(R(-999999,1000000)), math.acos(-999999/1000000)),
+#     ("ev-30", mp.atan(R(1000000)),         math.atan(1000000)),
+#     ("ev-31", mp.sinh(R(-2)),              math.sinh(-2)),
+#     ("ev-32", mp.sinh(R(1,2)),             math.sinh(0.5)),
+#     ("ev-33", mp.cosh(R(10)),              math.cosh(10)),
+#     ("ev-34", mp.tanh(R(1,2)),             math.tanh(0.5)),
+#     ("ev-35", mp.tanh(R(20)),              math.tanh(20)),
+#     ("ev-36", mp.log(R(2)),                math.log(2)),
+#     ("ev-37", mp.log(R(1,10**9)),          math.log(1e-9)),
+#     ("ev-40", mp.exp(R(-1)),               math.exp(-1)),
+#     ("ev-41", mp.sqrt(R(2)),               math.sqrt(2)),
+#     ("ev-42", 1/mp.cos(R(1)),              1/math.cos(1)),
+#     ("ev-43", 1/mp.sin(R(2)),              1/math.sin(2)),
+#     ("ev-44", 1/mp.tan(R(3,2)),            1/math.tan(1.5)),
+#     ("ev-45", mp.log(R(8))/mp.log(R(2)),   math.log(8)/math.log(2)),
+#     ("ev-46", mp.log(R(1,1000))/mp.log(R(10)), math.log(0.001)/math.log(10)),
+#     ("ev-47", mp.pi**2/6,                  math.pi**2/6),
+#     ("ev-48", mp.e**mp.pi - mp.pi,         math.e**math.pi - math.pi),
+#     ("ev-49", mp.sin(mp.cos(R(1))),        math.sin(math.cos(1))),
+#     ("ev-50", mp.sqrt(1 + mp.sqrt(R(2))),  math.sqrt(1 + math.sqrt(2))),
+#     ("ev-51", mp.log(mp.cosh(R(2))),       math.log(math.cosh(2))),
+#     ("ev-52", mp.atan(mp.tan(R(3,10))),    math.atan(math.tan(0.3))),
+#     ("ev-53", mp.exp(mp.sin(R(1))),        math.exp(math.sin(1))),
+#     ("ev-58", mp.mpf(2)**101,              2.0**101),           # 4^(101/2)
+#     ("ev-59", R(2)*R(-3)**2,               2*(-3.0)**2),
+#     ("ev-60", R(1,10)**2 - 2*R(1,10) + 1,  float(F(1,10)**2 - 2*F(1,10) + 1)),
+#     ("ev-61", mp.log(R(1,10)),             math.log(F(1,10))),
+#     ("ev-63", R(5,2)**R(5,2),              2.5**2.5),
+#     ("ev-64", R(7,2)/R(5,2),               3.5/2.5),
+#     ("ev-66", R(123456789123456789,10**9), 123456789123456789/1000000000),
+#     ("ev-67", mp.mpf(2)**62,               float(2**62)),
+#   ]
+#   for cid, hi, lo in cases:
+#       assert abs(float(hi) - lo) <= 1e-12 * max(1.0, abs(float(hi)))
+#       print(cid, mp.nstr(hi, 17))
+#
+#   # exact-rational sanity checks backing ev-60/61/65/66/67/68 and ev-26:
+#   assert F("0.1") == F(1,10) and F("0.999999") == F(999999, 10**6)
+#   assert F(1,10) + F(2,10) - F(3,10) == 0                     # ev-65 -> exact 0
+#   assert 2**62 == 4611686018427387904 < 2**63 - 1             # ev-67 fits int64
+#   assert F(2**62, 2**60) == 4                                 # ev-68 exact fold
+#   assert F(123456789123456789, 10**9).denominator == 10**9    # ev-66 reduced, fits
+#
+# Exact-value cases not in the list above: ev-38/39 (|-7|=7, |2-5|=3),
+# ev-54/55 ((-2)^3=-8, (-2)^-3=-1/8), ev-56/57 ((-8)^(1/3)=-2, (-8)^(2/3)=4
+# by the section-2 odd-denominator fold), ev-62 ((-2)^3=-8 via bindings),
+# ev-65 (exactly 0), ev-68 (exactly 4) — all pure rational arithmetic.

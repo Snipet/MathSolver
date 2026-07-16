@@ -1,0 +1,125 @@
+# MathSolver printer torture corpus -- plain & LaTeX rendering (DESIGN.md section 5).
+# Same TSV format as cases.tsv; see tests/acceptance/README.md for columns and
+# matching semantics (id, subcommand, input, extra_args, expected_kind, expected, expects_exit).
+#
+# The printer is exercised through the CLI subcommands that echo a rendering:
+# `simplify` (plain style), `latex` (LaTeX style), and `--latex` (LaTeX from
+# simplify). Every input here is a fixpoint of simplify (or its simplified
+# form is exactly the shape under test), so the expectations hold whether or
+# not the `latex` subcommand simplifies before printing.
+#
+# Spec-freedom assumptions (derived ONLY from DESIGN.md, freedom noted):
+# 1. Plain spacing/operator style is pinned by the section 5 worked examples
+#    ("x^2 + 2*x + 3", "3/(2*x)", "e^(1/2)", "e^(-2)", "x - 2*y"): single
+#    spaces around binary +/- in an Add, tight "*" and "^". `exact` is used
+#    only for shapes those examples cover.
+# 2. LaTeX juxtaposition may or may not carry a space ("2x" vs "2 x"), and
+#    single-digit/single-letter exponents may or may not be braced ("x^{2}"
+#    vs "x^2"); regexes accept both -- EXCEPT where DESIGN prints a literal
+#    ("x^{10}", "2 \cdot 10^{x}"), which is required verbatim.
+# 3. Add display tie-break: section 5 says ties break by "reverse
+#    compare_expr", but its own worked example "x + (-2)*y -> x - 2*y"
+#    implies the opposite order for this Symbol-vs-Mul degree tie. pm-02 pins
+#    the literal worked example; the pure tie cases (po-06, po-07) accept
+#    either order while still rejecting wrong operators/signs/merging. If
+#    pm-02 fails on term order alone, reconcile with the section 5 example
+#    before touching the printer (cf. README: widen, don't churn).
+# 4. Mul factors are assumed printed in canonical AST arg order (section 2
+#    sort: Number < Constant < Symbol < Pow < Function < Mul < Add) -- only
+#    Add has a print-time reordering in section 5. Hence "(x+1)*y" prints
+#    "y*(x + 1)" and "2*(...)" keeps its coefficient first.
+# 5. sy-03: the plain rendering of symbol x_max must keep braces, "x_{max}" --
+#    the unbraced "x_max" would re-lex as x_m*a*x (section 4 subscript rule),
+#    violating the section 5 round-trip invariant. x_12 stays unbraced
+#    (section 4 pins that the Plain printer emits "x_12").
+# 6. Plain division rendering splits a non-integer rational coefficient into
+#    numerator/denominator (section 5): Mul(3/2,x) -> "3*x/2",
+#    Mul(1/2,Add(x,1)) -> "(x + 1)/2", Mul(3/2,Pow(x,-1)) -> "3/(2*x)".
+# 7. Pow(E, r) beats sqrt/division reconstruction for EVERY exponent
+#    (section 5 exception): "sqrt(e)" -> "e^(1/2)", "1/e^2" -> "e^(-2)",
+#    and inside a Mul the factor stays in the numerator: "x/e^2" -> "x*e^(-2)".
+# All expectations were cross-checked numerically with python3 (two sample
+# points per case; see scratchpad generator).
+#
+# ---------- plain division rendering (section 5 'Division rendering') ----------
+pd-01	simplify	3/x^2	-	exact	3/x^2	0
+pd-02	simplify	3/(2*x)	-	exact	3/(2*x)	0
+pd-03	simplify	1/x	-	exact	1/x	0
+pd-04	simplify	1/sqrt(x)	-	exact	1/sqrt(x)	0
+pd-05	simplify	x/(y*z)	-	exact	x/(y*z)	0
+pd-06	simplify	3x/2	-	exact	3*x/2	0
+pd-07	simplify	1/(2*x)	-	exact	1/(2*x)	0
+pd-08	simplify	x^(-2)	-	exact	1/x^2	0
+pd-09	simplify	1/(x + 1)	-	exact	1/(x + 1)	0
+# ---------- sqrt reconstruction, plain (Pow(u,1/2) -> sqrt, others stay ^) ----------
+ps-01	simplify	sqrt(x)	-	exact	sqrt(x)	0
+ps-02	simplify	sqrt(x + 1)	-	exact	sqrt(x + 1)	0
+ps-03	simplify	sqrt(x^3)	-	exact	sqrt(x^3)	0
+# ---------- Pow(E, ...) wins over sqrt/division reconstruction ----------
+pe-01	simplify	exp(1/2)	-	exact	e^(1/2)	0
+pe-02	simplify	exp(-2)	-	exact	e^(-2)	0
+pe-03	simplify	sqrt(e)	-	exact	e^(1/2)	0
+pe-04	simplify	1/e^2	-	exact	e^(-2)	0
+pe-05	simplify	1/sqrt(e)	-	exact	e^(-1/2)	0
+pe-06	simplify	e^x	-	exact	e^x	0
+pe-07	simplify	x/e^2	-	exact	x*e^(-2)	0
+pe-08	latex	exp(1/2)	-	regex	^e\^\{(\\frac\{1\}\{2\}|1/2)\}$	0
+pe-09	latex	exp(-2)	-	exact	e^{-2}	0
+# ---------- Add display: descending total degree, Numbers last ----------
+po-01	simplify	3 + 2x + x^2	-	exact	x^2 + 2*x + 3	0
+po-02	simplify	2 + sqrt(x) + x	-	exact	x + sqrt(x) + 2	0
+po-03	simplify	1/x + x^2	-	exact	x^2 + 1/x	0
+po-04	simplify	x + x^3 + x^2	-	exact	x^3 + x^2 + x	0
+po-05	simplify	1 + x^(3/2)	-	exact	x^(3/2) + 1	0
+# degree ties: order not pinned (see header note 3) -- either order, right operators
+po-06	simplify	x + y	-	regex	^(x \+ y|y \+ x)$	0
+po-07	simplify	x^2 + x*y	-	regex	^(x\^2 \+ x\*y|x\*y \+ x\^2)$	0
+# ---------- subtraction rendering and leading negatives ----------
+pm-01	simplify	x^2 - 2*y	-	exact	x^2 - 2*y	0
+pm-02	simplify	x - 2y	-	exact	x - 2*y	0
+pm-03	simplify	1 - x	-	exact	-x + 1	0
+pm-04	simplify	3 - 2x	-	exact	-2*x + 3	0
+pm-05	simplify	-x - 1	-	exact	-x - 1	0
+pm-06	simplify	x^2 - x - 1	-	exact	x^2 - x - 1	0
+pm-07	simplify	x - 1/2	-	exact	x - 1/2	0
+# ---------- minimal correct parentheses ----------
+pq-01	simplify	(x+1)*y	-	exact	y*(x + 1)	0
+pq-02	simplify	(x+1)^2	-	exact	(x + 1)^2	0
+# x^(y^z): '^' is right-assoc, so parens are optional here (minimal = none)
+pq-03	simplify	x^(y^z)	-	regex	^x\^\(?y\^z\)?$	0
+pq-04	simplify	(x^y)^z	-	exact	(x^y)^z	0
+pq-05	simplify	-(x+1)	-	exact	-(x + 1)	0
+pq-06	simplify	2^(x+1)	-	exact	2^(x + 1)	0
+pq-07	simplify	(-2)^x	-	exact	(-2)^x	0
+pq-08	simplify	(x+1)*(x+2)	-	exact	(x + 1)*(x + 2)	0
+pq-09	simplify	(x + 1)/2	-	exact	(x + 1)/2	0
+pq-10	simplify	-x^2	-	exact	-x^2	0
+# ---------- symbols, subscripts, greek (plain) ----------
+sy-01	simplify	x_{12}	-	exact	x_12	0
+sy-02	simplify	\alpha	-	exact	alpha	0
+sy-03	simplify	x_{max}	-	exact	x_{max}	0
+# ---------- LaTeX style (latex subcommand) ----------
+plx-01	latex	3/x^2	-	regex	^\\frac\{3\}\{x\^\{?2\}?\}$	0
+plx-02	latex	3/(2*x)	-	regex	^\\frac\{3\}\{2 ?x\}$	0
+plx-03	latex	1/x	-	exact	\frac{1}{x}	0
+plx-04	latex	1/sqrt(x)	-	exact	\frac{1}{\sqrt{x}}	0
+plx-05	latex	x/(y*z)	-	regex	^\\frac\{x\}\{y ?z\}$	0
+plx-06	latex	sqrt(x + 1)	-	regex	^\\sqrt\{x ?\+ ?1\}$	0
+plx-07	latex	x^10	-	exact	x^{10}	0
+plx-08	latex	3 + 2x + x^2	-	regex	^x\^\{?2\}? ?\+ ?2 ?x ?\+ ?3$	0
+plx-09	latex	x_{12}	-	exact	x_{12}	0
+plx-10	latex	\alpha	-	exact	\alpha	0
+plx-11	latex	sin(x)	-	exact	\sin\left(x\right)	0
+plx-12	latex	ln(x)	-	exact	\ln\left(x\right)	0
+# digit-boundary \cdot rule -- literal worked example, required verbatim
+plx-13	latex	2*10^x	-	exact	2 \cdot 10^{x}	0
+# juxtaposition must stay re-parseable: '\pi r' needs its space, '2x'/'x2^{x}' do not need \cdot
+plx-14	latex	2\pi r	-	regex	^2 ?\\pi +r$	0
+plx-15	latex	2x	-	regex	^2 ?x$	0
+plx-16	latex	x*2^x	-	regex	^x ?2\^\{?x\}?$	0
+plx-17	latex	e^x	-	regex	^e\^\{?x\}?$	0
+plx-18	latex	(x+1)/(x-1)	-	regex	^\\frac\{x ?\+ ?1\}\{x ?- ?1\}$	0
+# ---------- --latex flag form (LaTeX out of `simplify`) ----------
+pfx-01	simplify	sqrt(x)	--latex	exact	\sqrt{x}	0
+pfx-02	simplify	1/x	--latex	exact	\frac{1}{x}	0
+pfx-03	simplify	2*10^x	--latex	exact	2 \cdot 10^{x}	0

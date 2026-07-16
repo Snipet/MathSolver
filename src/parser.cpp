@@ -1,0 +1,738 @@
+#include "mathsolver/parser.hpp"
+
+#include <array>
+#include <cstddef>
+#include <format>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include "mathsolver/errors.hpp"
+#include "mathsolver/expr.hpp"
+#include "mathsolver/rational.hpp"
+
+namespace mathsolver {
+namespace {
+
+// ---------------------------------------------------------------------------
+// Tokens
+// ---------------------------------------------------------------------------
+
+enum class Tok {
+    Number,
+    Symbol,
+    Constant,
+    Func, // canonical spelling in `text`: sin, arcsin, sec, exp, ln, log, sqrt, abs, ...
+    Frac,
+    Left,
+    Right,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Caret,
+    Equals,
+    LParen,
+    RParen,
+    LBrace,
+    RBrace,
+    LBracket,
+    RBracket,
+    Comma,
+    Underscore,
+    End,
+};
+
+struct Token {
+    Tok kind = Tok::End;
+    std::size_t begin = 0;
+    std::size_t end = 0;
+    Rational value{};                     // Tok::Number
+    std::string text;                     // Tok::Symbol / Tok::Func
+    ConstantId constant = ConstantId::Pi; // Tok::Constant
+};
+
+bool is_letter(char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'); }
+bool is_digit(char c) { return c >= '0' && c <= '9'; }
+bool is_alnum(char c) { return is_letter(c) || is_digit(c); }
+
+// ---------------------------------------------------------------------------
+// Known names for identifier-run segmentation (DESIGN.md §4).
+// ---------------------------------------------------------------------------
+
+enum class NameKind { Function, Greek, Pi, Euler };
+
+struct KnownName {
+    std::string_view name;
+    NameKind kind;
+};
+
+constexpr std::array<KnownName, 32> kKnownNames{{
+    {"arcsin", NameKind::Function}, {"arccos", NameKind::Function},
+    {"arctan", NameKind::Function}, {"asin", NameKind::Function},
+    {"acos", NameKind::Function},   {"atan", NameKind::Function},
+    {"sinh", NameKind::Function},   {"cosh", NameKind::Function},
+    {"tanh", NameKind::Function},   {"sqrt", NameKind::Function},
+    {"sin", NameKind::Function},    {"cos", NameKind::Function},
+    {"tan", NameKind::Function},    {"sec", NameKind::Function},
+    {"csc", NameKind::Function},    {"cot", NameKind::Function},
+    {"exp", NameKind::Function},    {"abs", NameKind::Function},
+    {"log", NameKind::Function},    {"ln", NameKind::Function},
+    {"epsilon", NameKind::Greek},   {"lambda", NameKind::Greek},
+    {"alpha", NameKind::Greek},     {"gamma", NameKind::Greek},
+    {"delta", NameKind::Greek},     {"theta", NameKind::Greek},
+    {"omega", NameKind::Greek},     {"beta", NameKind::Greek},
+    {"phi", NameKind::Greek},       {"mu", NameKind::Greek},
+    {"pi", NameKind::Pi},           {"e", NameKind::Euler},
+}};
+
+const KnownName* longest_known_prefix(std::string_view run) {
+    const KnownName* best = nullptr;
+    for (const auto& k : kKnownNames) {
+        if (run.starts_with(k.name) && (best == nullptr || k.name.size() > best->name.size())) {
+            best = &k;
+        }
+    }
+    return best;
+}
+
+// Backslash function commands accepted per DESIGN.md §4 (note: no \asin/\abs).
+constexpr std::array<std::string_view, 16> kBackslashFunctions{
+    "sin", "cos", "tan", "arcsin", "arccos", "arctan", "sinh", "cosh",
+    "tanh", "sec", "csc", "cot",   "exp",    "ln",     "log",  "sqrt",
+};
+
+constexpr std::array<std::string_view, 10> kGreekNames{
+    "alpha", "beta", "gamma", "delta", "epsilon", "theta", "lambda", "mu", "phi", "omega",
+};
+
+// ---------------------------------------------------------------------------
+// Lexer
+// ---------------------------------------------------------------------------
+
+class Lexer {
+public:
+    explicit Lexer(std::string_view src) : src_(src) {}
+
+    std::vector<Token> lex() {
+        while (true) {
+            skip_whitespace();
+            if (pos_ >= src_.size()) break;
+            char c = src_[pos_];
+            if (is_digit(c)) {
+                lex_number();
+            } else if (is_letter(c)) {
+                lex_identifier_run();
+            } else if (c == '\\') {
+                lex_command();
+            } else if (c == '_') {
+                lex_subscript();
+            } else {
+                lex_operator();
+            }
+        }
+        Token end;
+        end.kind = Tok::End;
+        end.begin = end.end = src_.size();
+        tokens_.push_back(std::move(end));
+        return std::move(tokens_);
+    }
+
+private:
+    void skip_whitespace() {
+        while (pos_ < src_.size()) {
+            char c = src_[pos_];
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v') {
+                ++pos_;
+            } else {
+                break;
+            }
+        }
+    }
+
+    void push(Tok kind, std::size_t begin, std::size_t end) {
+        Token t;
+        t.kind = kind;
+        t.begin = begin;
+        t.end = end;
+        tokens_.push_back(std::move(t));
+    }
+
+    void push_symbol(std::string name, std::size_t begin, std::size_t end) {
+        Token t;
+        t.kind = Tok::Symbol;
+        t.begin = begin;
+        t.end = end;
+        t.text = std::move(name);
+        tokens_.push_back(std::move(t));
+    }
+
+    void push_func(std::string name, std::size_t begin, std::size_t end) {
+        Token t;
+        t.kind = Tok::Func;
+        t.begin = begin;
+        t.end = end;
+        t.text = std::move(name);
+        tokens_.push_back(std::move(t));
+    }
+
+    void push_constant(ConstantId id, std::size_t begin, std::size_t end) {
+        Token t;
+        t.kind = Tok::Constant;
+        t.begin = begin;
+        t.end = end;
+        t.constant = id;
+        tokens_.push_back(std::move(t));
+    }
+
+    void lex_number() {
+        std::size_t begin = pos_;
+        while (pos_ < src_.size() && is_digit(src_[pos_])) ++pos_;
+        if (pos_ < src_.size() && src_[pos_] == '.') {
+            ++pos_;
+            if (pos_ >= src_.size() || !is_digit(src_[pos_])) {
+                throw ParseError(
+                    std::format("malformed number literal '{}'", src_.substr(begin, pos_ - begin)),
+                    begin, pos_);
+            }
+            while (pos_ < src_.size() && is_digit(src_[pos_])) ++pos_;
+        }
+        Rational value;
+        try {
+            value = Rational::from_decimal_string(src_.substr(begin, pos_ - begin));
+        } catch (const ParseError&) {
+            // Re-anchor the span into the original input.
+            throw ParseError(
+                std::format("malformed number literal '{}'", src_.substr(begin, pos_ - begin)),
+                begin, pos_);
+        }
+        Token t;
+        t.kind = Tok::Number;
+        t.begin = begin;
+        t.end = pos_;
+        t.value = value;
+        tokens_.push_back(std::move(t));
+    }
+
+    // Segment a maximal [A-Za-z]+ run greedily, longest known name first at
+    // each position; unknown letters become single-letter symbols.
+    void lex_identifier_run() {
+        std::size_t run_end = pos_;
+        while (run_end < src_.size() && is_letter(src_[run_end])) ++run_end;
+        while (pos_ < run_end) {
+            std::string_view rest = src_.substr(pos_, run_end - pos_);
+            if (const KnownName* k = longest_known_prefix(rest)) {
+                std::size_t begin = pos_;
+                pos_ += k->name.size();
+                switch (k->kind) {
+                case NameKind::Function: push_func(std::string(k->name), begin, pos_); break;
+                case NameKind::Greek: push_symbol(std::string(k->name), begin, pos_); break;
+                case NameKind::Pi: push_constant(ConstantId::Pi, begin, pos_); break;
+                case NameKind::Euler: push_constant(ConstantId::E, begin, pos_); break;
+                }
+            } else {
+                push_symbol(std::string(1, src_[pos_]), pos_, pos_ + 1);
+                ++pos_;
+            }
+        }
+    }
+
+    void lex_command() {
+        std::size_t begin = pos_;
+        ++pos_; // backslash
+        // Spacing commands \, \; \! \: are backslash + punctuation.
+        if (pos_ < src_.size() &&
+            (src_[pos_] == ',' || src_[pos_] == ';' || src_[pos_] == '!' || src_[pos_] == ':')) {
+            ++pos_;
+            return;
+        }
+        std::size_t name_begin = pos_;
+        while (pos_ < src_.size() && is_letter(src_[pos_])) ++pos_;
+        std::string_view name = src_.substr(name_begin, pos_ - name_begin);
+        if (name.empty()) {
+            std::size_t end = pos_ < src_.size() ? pos_ + 1 : pos_;
+            throw ParseError(std::format("unknown command '{}'", src_.substr(begin, end - begin)),
+                             begin, end);
+        }
+        if (name == "quad" || name == "qquad") return; // spacing, ignored
+        if (name == "frac") {
+            push(Tok::Frac, begin, pos_);
+            return;
+        }
+        if (name == "cdot" || name == "times") {
+            push(Tok::Star, begin, pos_);
+            return;
+        }
+        if (name == "div") {
+            push(Tok::Slash, begin, pos_);
+            return;
+        }
+        if (name == "left") {
+            push(Tok::Left, begin, pos_);
+            return;
+        }
+        if (name == "right") {
+            push(Tok::Right, begin, pos_);
+            return;
+        }
+        if (name == "pi") {
+            push_constant(ConstantId::Pi, begin, pos_);
+            return;
+        }
+        for (std::string_view g : kGreekNames) {
+            if (name == g) {
+                push_symbol(std::string(name), begin, pos_);
+                return;
+            }
+        }
+        for (std::string_view f : kBackslashFunctions) {
+            if (name == f) {
+                push_func(std::string(name), begin, pos_);
+                return;
+            }
+        }
+        throw ParseError(std::format("unknown command '{}'", src_.substr(begin, pos_ - begin)),
+                         begin, pos_);
+    }
+
+    // `_` folds a subscript into the preceding Symbol token (x_1, x_{12},
+    // x_a); after \log it becomes an Underscore token for the parser's
+    // explicit-base handling; anywhere else it is an error.
+    void lex_subscript() {
+        std::size_t us = pos_;
+        Token* prev = tokens_.empty() ? nullptr : &tokens_.back();
+        if (prev != nullptr && prev->kind == Tok::Func && prev->text == "log") {
+            push(Tok::Underscore, us, us + 1);
+            ++pos_;
+            return;
+        }
+        if (prev == nullptr || prev->kind != Tok::Symbol) {
+            throw ParseError("subscript '_' is only allowed on a symbol", us, us + 1);
+        }
+        ++pos_;
+        std::string sub;
+        if (pos_ < src_.size() && src_[pos_] == '{') {
+            ++pos_;
+            while (pos_ < src_.size() && is_alnum(src_[pos_])) sub += src_[pos_++];
+            if (pos_ >= src_.size() || src_[pos_] != '}') {
+                throw ParseError("missing '}' in subscript", us, pos_);
+            }
+            if (sub.empty()) {
+                throw ParseError("empty subscript", us, pos_ + 1);
+            }
+            ++pos_;
+        } else if (pos_ < src_.size() && is_digit(src_[pos_])) {
+            // Unbraced digit subscript: one maximal digit run (x_12 == x_{12}).
+            while (pos_ < src_.size() && is_digit(src_[pos_])) sub += src_[pos_++];
+        } else if (pos_ < src_.size() && is_letter(src_[pos_])) {
+            // Unbraced letter subscript: exactly one letter (x_ab == x_a * b).
+            sub = src_[pos_++];
+        } else {
+            throw ParseError("missing subscript after '_'", us, us + 1);
+        }
+        prev->text += '_';
+        prev->text += sub;
+        prev->end = pos_;
+    }
+
+    void lex_operator() {
+        char c = src_[pos_];
+        std::size_t begin = pos_;
+        switch (c) {
+        case '+': push(Tok::Plus, begin, ++pos_); return;
+        case '-': push(Tok::Minus, begin, ++pos_); return;
+        case '*':
+            ++pos_;
+            if (pos_ < src_.size() && src_[pos_] == '*') {
+                ++pos_;
+                push(Tok::Caret, begin, pos_); // ** is a synonym for ^
+            } else {
+                push(Tok::Star, begin, pos_);
+            }
+            return;
+        case '/': push(Tok::Slash, begin, ++pos_); return;
+        case '^': push(Tok::Caret, begin, ++pos_); return;
+        case '=': push(Tok::Equals, begin, ++pos_); return;
+        case '(': push(Tok::LParen, begin, ++pos_); return;
+        case ')': push(Tok::RParen, begin, ++pos_); return;
+        case '{': push(Tok::LBrace, begin, ++pos_); return;
+        case '}': push(Tok::RBrace, begin, ++pos_); return;
+        case '[': push(Tok::LBracket, begin, ++pos_); return;
+        case ']': push(Tok::RBracket, begin, ++pos_); return;
+        case ',': push(Tok::Comma, begin, ++pos_); return;
+        default:
+            throw ParseError(std::format("unexpected character '{}'", c), begin, begin + 1);
+        }
+    }
+
+    std::string_view src_;
+    std::size_t pos_ = 0;
+    std::vector<Token> tokens_;
+};
+
+// ---------------------------------------------------------------------------
+// Recursive-descent parser (grammar in DESIGN.md §4)
+// ---------------------------------------------------------------------------
+
+class Parser {
+public:
+    explicit Parser(std::string_view src) : src_(src), tokens_(Lexer(src).lex()) {}
+
+    const Token& peek() const { return tokens_[idx_]; }
+
+    const Token& advance() {
+        const Token& t = tokens_[idx_];
+        if (t.kind != Tok::End) ++idx_;
+        return t;
+    }
+
+    std::string_view slice(const Token& t) const { return src_.substr(t.begin, t.end - t.begin); }
+
+    [[noreturn]] void fail_unexpected(const Token& t) const {
+        if (t.kind == Tok::End) {
+            throw ParseError("unexpected end of input", t.begin, t.end);
+        }
+        throw ParseError(std::format("unexpected '{}'", slice(t)), t.begin, t.end);
+    }
+
+    void expect_end() const {
+        const Token& t = peek();
+        if (t.kind != Tok::End) fail_unexpected(t);
+    }
+
+    // expr := term (('+' | '-') term)*
+    Expr parse_expr() {
+        Expr cur = parse_term();
+        while (true) {
+            if (peek().kind == Tok::Plus) {
+                advance();
+                cur = make_add({cur, parse_term()});
+            } else if (peek().kind == Tok::Minus) {
+                advance();
+                cur = make_sub(cur, parse_term());
+            } else {
+                break;
+            }
+        }
+        return cur;
+    }
+
+private:
+    static bool starts_atom(Tok k) {
+        switch (k) {
+        case Tok::Number:
+        case Tok::Symbol:
+        case Tok::Constant:
+        case Tok::Func:
+        case Tok::Frac:
+        case Tok::LParen:
+        case Tok::LBrace:
+        case Tok::LBracket:
+        case Tok::Left: return true;
+        default: return false;
+        }
+    }
+
+    // term := unary (('*' | '/' | implicit) unary)*
+    Expr parse_term() {
+        Expr cur = parse_unary();
+        while (true) {
+            if (peek().kind == Tok::Star) {
+                advance();
+                cur = make_mul({cur, parse_unary()});
+            } else if (peek().kind == Tok::Slash) {
+                advance();
+                cur = make_div(cur, parse_unary());
+            } else if (starts_atom(peek().kind)) {
+                cur = make_mul({cur, parse_unary()}); // implicit multiplication
+            } else {
+                break;
+            }
+        }
+        return cur;
+    }
+
+    // unary := ('-' | '+') unary | postfix     (below ^: -x^2 == -(x^2))
+    Expr parse_unary() {
+        if (peek().kind == Tok::Minus) {
+            advance();
+            return make_neg(parse_unary());
+        }
+        if (peek().kind == Tok::Plus) {
+            advance();
+            return parse_unary();
+        }
+        return parse_postfix();
+    }
+
+    // postfix := atom ('^' unary)?             (right-assoc via the recursion)
+    Expr parse_postfix() {
+        Expr base = parse_atom();
+        if (peek().kind == Tok::Caret) {
+            advance();
+            return make_pow(std::move(base), parse_unary());
+        }
+        return base;
+    }
+
+    Expr parse_atom() {
+        const Token& t = peek();
+        switch (t.kind) {
+        case Tok::Number: return make_num(advance().value);
+        case Tok::Symbol: return make_sym(advance().text);
+        case Tok::Constant: return make_const(advance().constant);
+        case Tok::LParen: return parse_group(Tok::RParen, ')');
+        case Tok::LBrace: return parse_group(Tok::RBrace, '}');
+        case Tok::LBracket: return parse_group(Tok::RBracket, ']');
+        case Tok::Left: return parse_left_right();
+        case Tok::Frac: return parse_frac();
+        case Tok::Func: return parse_function_application();
+        default: fail_unexpected(t);
+        }
+    }
+
+    // '(' expr ')' and the {} / [] grouping forms.
+    Expr parse_group(Tok close, char close_char) {
+        Token open = advance();
+        Expr e = parse_expr();
+        const Token& t = peek();
+        if (t.kind != close) {
+            if (t.kind == Tok::End) {
+                throw ParseError(std::format("missing '{}'", close_char), open.begin, open.end);
+            }
+            throw ParseError(std::format("expected '{}', found '{}'", close_char, slice(t)),
+                             t.begin, t.end);
+        }
+        advance();
+        return e;
+    }
+
+    Expr parse_left_right() {
+        Token left = advance(); // \left
+        Tok close = Tok::End;
+        char close_char = ')';
+        switch (peek().kind) {
+        case Tok::LParen: close = Tok::RParen, close_char = ')'; break;
+        case Tok::LBracket: close = Tok::RBracket, close_char = ']'; break;
+        case Tok::LBrace: close = Tok::RBrace, close_char = '}'; break;
+        default:
+            throw ParseError("expected a delimiter after '\\left'",
+                             peek().kind == Tok::End ? left.begin : peek().begin,
+                             peek().kind == Tok::End ? left.end : peek().end);
+        }
+        Token open = advance();
+        Expr e = parse_expr();
+        if (peek().kind != Tok::Right) {
+            if (peek().kind == Tok::End) {
+                throw ParseError("missing '\\right'", left.begin, open.end);
+            }
+            fail_unexpected(peek());
+        }
+        Token right = advance(); // \right
+        const Token& d = peek();
+        if (d.kind != close) {
+            if (d.kind == Tok::End) {
+                throw ParseError(std::format("missing '{}' after '\\right'", close_char),
+                                 right.begin, right.end);
+            }
+            throw ParseError(
+                std::format("mismatched '\\right' delimiter: expected '{}', found '{}'",
+                            close_char, slice(d)),
+                d.begin, d.end);
+        }
+        advance();
+        return e;
+    }
+
+    Expr parse_frac() {
+        Token frac = advance();
+        expect_brace_open(frac, "after '\\frac'");
+        Expr numerator = parse_expr();
+        expect_brace_close("after '\\frac' numerator");
+        expect_brace_open(frac, "before '\\frac' denominator");
+        Expr denominator = parse_expr();
+        expect_brace_close("after '\\frac' denominator");
+        return make_div(std::move(numerator), std::move(denominator));
+    }
+
+    void expect_brace_open(const Token& anchor, std::string_view where) {
+        const Token& t = peek();
+        if (t.kind != Tok::LBrace) {
+            if (t.kind == Tok::End) {
+                throw ParseError(std::format("expected '{{' {}", where), anchor.begin, anchor.end);
+            }
+            throw ParseError(std::format("expected '{{' {}", where), t.begin, t.end);
+        }
+        advance();
+    }
+
+    void expect_brace_close(std::string_view where) {
+        const Token& t = peek();
+        if (t.kind != Tok::RBrace) {
+            throw ParseError(std::format("missing '}}' {}", where), t.begin, t.end);
+        }
+        advance();
+    }
+
+    static bool is_leaf(Tok k) {
+        return k == Tok::Number || k == Tok::Symbol || k == Tok::Constant;
+    }
+
+    Expr leaf(const Token& t) {
+        switch (t.kind) {
+        case Tok::Number: return make_num(t.value);
+        case Tok::Symbol: return make_sym(t.text);
+        default: return make_const(t.constant);
+        }
+    }
+
+    Expr parse_function_application() {
+        Token fn = advance(); // Tok::Func
+        std::string name = fn.text;
+
+        // \sqrt[n]{x} root index.
+        Expr index;
+        if (name == "sqrt" && peek().kind == Tok::LBracket) {
+            Token open = advance();
+            index = parse_expr();
+            const Token& t = peek();
+            if (t.kind != Tok::RBracket) {
+                if (t.kind == Tok::End) {
+                    throw ParseError("missing ']' after '\\sqrt' index", open.begin, open.end);
+                }
+                throw ParseError(std::format("expected ']', found '{}'", slice(t)), t.begin,
+                                 t.end);
+            }
+            advance();
+        }
+
+        // \log_b / \log_{b} explicit base.
+        Expr log_base;
+        if (name == "log" && peek().kind == Tok::Underscore) {
+            Token us = advance();
+            if (peek().kind == Tok::LBrace) {
+                log_base = parse_group(Tok::RBrace, '}');
+            } else if (is_leaf(peek().kind)) {
+                log_base = leaf(advance());
+            } else {
+                const Token& t = peek();
+                throw ParseError("expected a base after '_' in 'log'",
+                                 t.kind == Tok::End ? us.begin : t.begin,
+                                 t.kind == Tok::End ? us.end : t.end);
+            }
+        }
+
+        // \sin^{n} notation; \sin^{-1} means arcsin (likewise cos/tan).
+        Expr exponent;
+        if (peek().kind == Tok::Caret) {
+            advance();
+            exponent = parse_unary();
+            if (exponent->kind() == Kind::Number && exponent->number() == Rational(-1) &&
+                (name == "sin" || name == "cos" || name == "tan")) {
+                name.insert(0, "a");
+                exponent = nullptr;
+            }
+        }
+
+        Expr arg = parse_function_argument(fn);
+        Expr result = apply_function(name, std::move(arg), std::move(index), std::move(log_base));
+        if (exponent) result = make_pow(std::move(result), std::move(exponent));
+        return result;
+    }
+
+    // Bare-form argument: a single group if the next token opens one, else a
+    // tight factor sequence of leaf atoms (each with an optional power).
+    Expr parse_function_argument(const Token& fn) {
+        switch (peek().kind) {
+        case Tok::LParen: return parse_group(Tok::RParen, ')');
+        case Tok::LBrace: return parse_group(Tok::RBrace, '}');
+        case Tok::Left: return parse_left_right(); // \sin\left(x\right) — §5 LaTeX output
+        case Tok::Frac: return parse_frac();
+        case Tok::Func:
+            if (peek().text == "sqrt") return parse_function_application();
+            break;
+        default: break;
+        }
+        std::vector<Expr> factors;
+        while (is_leaf(peek().kind)) {
+            Expr f = leaf(advance());
+            if (peek().kind == Tok::Caret) {
+                advance();
+                f = make_pow(std::move(f), parse_unary());
+            }
+            factors.push_back(std::move(f));
+        }
+        if (factors.empty()) {
+            throw ParseError(std::format("function '{}' has no argument", fn.text), fn.begin,
+                             fn.end);
+        }
+        return make_mul(std::move(factors));
+    }
+
+    // Parse-time rewrites (DESIGN.md §2): no Sqrt/Exp/Log/sec/csc/cot nodes.
+    static Expr apply_function(const std::string& name, Expr arg, Expr index, Expr log_base) {
+        if (auto fid = function_from_name(name)) return make_fn(*fid, std::move(arg));
+        if (name == "sec") return make_pow(make_fn(FunctionId::Cos, std::move(arg)), make_num(-1));
+        if (name == "csc") return make_pow(make_fn(FunctionId::Sin, std::move(arg)), make_num(-1));
+        if (name == "cot") return make_pow(make_fn(FunctionId::Tan, std::move(arg)), make_num(-1));
+        if (name == "exp") return make_exp(std::move(arg));
+        if (name == "sqrt") {
+            if (index) return make_pow(std::move(arg), make_div(make_num(1), std::move(index)));
+            return make_sqrt(std::move(arg));
+        }
+        // log: base 10 unless an explicit base was given.
+        Expr base = log_base ? std::move(log_base) : make_num(10);
+        return make_div(make_fn(FunctionId::Ln, std::move(arg)),
+                        make_fn(FunctionId::Ln, std::move(base)));
+    }
+
+    std::string_view src_;
+    std::vector<Token> tokens_;
+    std::size_t idx_ = 0;
+};
+
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+std::variant<Expr, Equation> parse_input(std::string_view src) {
+    Parser p(src);
+    Expr lhs = p.parse_expr();
+    if (p.peek().kind == Tok::Equals) {
+        p.advance();
+        Expr rhs = p.parse_expr();
+        p.expect_end(); // a second top-level '=' fails here
+        return Equation{std::move(lhs), std::move(rhs)};
+    }
+    p.expect_end();
+    return lhs;
+}
+
+Expr parse_expression(std::string_view src) {
+    Parser p(src);
+    Expr e = p.parse_expr();
+    p.expect_end(); // an '=' fails here
+    return e;
+}
+
+Equation parse_equation(std::string_view src) {
+    Parser p(src);
+    Expr lhs = p.parse_expr();
+    const Token& t = p.peek();
+    if (t.kind != Tok::Equals) {
+        if (t.kind == Tok::End) {
+            throw ParseError("expected '=' in equation", t.begin, t.end);
+        }
+        throw ParseError(std::format("expected '=', found '{}'", p.slice(t)), t.begin, t.end);
+    }
+    p.advance();
+    Expr rhs = p.parse_expr();
+    p.expect_end();
+    return Equation{std::move(lhs), std::move(rhs)};
+}
+
+} // namespace mathsolver

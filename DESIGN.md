@@ -1,0 +1,557 @@
+# MathSolver — Design Document
+
+MathSolver is a from-scratch computer-algebra system (CAS) in C++23. It parses
+LaTeX-style math input, simplifies/augments expressions, differentiates them
+symbolically, and solves equations exactly where possible and numerically
+otherwise. No third-party dependencies except Catch2 (tests only).
+
+This document is the **contract** between modules. The public headers in
+`include/mathsolver/` mirror it; if a header comment and this document
+disagree, fix whichever is wrong and note it in the commit/summary.
+
+---
+
+## 1. Module map and dependency order
+
+| Module          | Files                                   | Depends on               |
+|-----------------|-----------------------------------------|--------------------------|
+| errors          | `errors.hpp` (header-only)              | —                        |
+| rational        | `rational.hpp/.cpp`                     | errors                   |
+| expr (core AST) | `expr.hpp/.cpp`                         | rational, errors         |
+| parser          | `parser.hpp/.cpp`                       | expr                     |
+| printer         | `printer.hpp/.cpp`                      | expr                     |
+| evaluator       | `evaluator.hpp/.cpp`                    | expr                     |
+| simplify        | `simplify.hpp/.cpp`                     | expr                     |
+| derivative      | `derivative.hpp/.cpp`                   | expr, simplify           |
+| solver          | `solver.hpp/.cpp`                       | expr, simplify, derivative, evaluator |
+| CLI/REPL        | `apps/main.cpp`                         | everything               |
+
+Build targets: static lib `mathsolver_core` (src/*), executable `mathsolver`
+(apps/), test executable `mathsolver_tests` (tests/, Catch2 v3 via
+FetchContent, registered with `catch_discover_tests`).
+
+Error handling convention: **exceptions**, all derived from `mathsolver::Error`
+(see `errors.hpp`). No `std::expected` in public APIs.
+
+Style: 4-space indent, 100 columns (see `.clang-format`), `snake_case` for
+functions/variables, `PascalCase` for types, `k`-prefixed constants. Naming and
+signatures in the headers are final — do not rename public API.
+
+---
+
+## 2. Expression representation (`expr.hpp`)
+
+A single immutable tagged node, shared by `std::shared_ptr`:
+
+```cpp
+using Expr = std::shared_ptr<const ExprNode>;
+enum class Kind { Number, Symbol, Constant, Add, Mul, Pow, Function };
+enum class ConstantId { Pi, E };
+enum class FunctionId { Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Ln, Abs };
+```
+
+**Canonical form (invariants that hold for every constructed `Expr`):**
+
+- There is no Sub/Div/Neg/Sqrt/Exp/Log node. Rewrites at construction/parse:
+  - `a - b`  → `Add(a, Mul(-1, b))`
+  - `-a`     → `Mul(-1, a)`
+  - `a / b`  → `Mul(a, Pow(b, -1))`
+  - `sqrt(x)`→ `Pow(x, 1/2)`; `\sqrt[n]{x}` → `Pow(x, 1/n)`
+  - `exp(x)` → `Pow(E, x)`
+  - `log_b(x)` → `Mul(Ln(x), Pow(Ln(b), -1))`; plain `log` means base 10
+  - `sec/csc/cot x` → `Pow(cos/sin/tan x, -1)`
+- `Add` and `Mul` are n-ary (≥ 2 args), never directly nest themselves
+  (auto-flattened), and their args are **sorted** by `compare_expr`.
+- `Pow` has exactly 2 args (base, exponent); `Function` exactly 1.
+- Numbers are exact rationals (`Rational`, §3). Decimal literals are converted
+  exactly (`3.14` → `157/50`).
+
+**Factory functions** (`make_add`, `make_mul`, `make_pow`, `make_num`,
+`make_sym`, …) perform *light* canonicalization only — deterministic, cheap,
+never recursive rewriting:
+
+- `make_add(terms)`: flatten nested Adds; fold all Number terms into one exact
+  sum; drop resulting 0; 0 args → `0`, 1 arg → that arg; sort args.
+- `make_mul(factors)`: flatten; fold Numbers; any literal `0` → `0`; drop `1`s;
+  0 args → `1`, 1 arg → that arg; sort args.
+- `make_pow(b, e)`:
+  - `e = 0` → `1` (convention: `0^0 = 1`, documented); `e = 1` → `b`;
+    `b = 1` → `1`; `b = 0` with positive-rational `e` → `0` (`0^negative`
+    throws DivisionByZeroError via the numeric fold).
+  - Number base with **integer** Number exponent → exact fold
+    (overflow-checked; a result that cannot fit 64 bits throws OverflowError).
+  - Number base with non-integer rational exponent `p/q` (reduced) → fold only
+    if the result is exactly rational (integer q-th roots of numerator and
+    denominator exist): `pow(4, 1/2)` → `2`, `pow(8/27, 1/3)` → `2/3`.
+    Negative Number bases fold only when `q` is odd (`(-8)^(1/3)` → `-2`,
+    `(-8)^(2/3)` → `4`), never for even `q`. If the exact result exists
+    mathematically but does not fit 64 bits (e.g. `pow(4, 101/2)` = 2^101),
+    stay **symbolic** — catch the internal overflow; only the
+    integer-exponent path throws.
+  - `make_pow(Pow(u, r), s)` where `r` and `s` are both Numbers and `s` is an
+    **integer** → `make_pow(u, r·s)`. (Required for the printer round-trip:
+    `3/x^2` re-parses through `Pow(Pow(x,2),-1)` and must land on
+    `Pow(x,-2)`. Note `(u^(1/2))^2 → u` extends the domain — standard CAS
+    behavior, documented.)
+  - `make_pow(Mul(...), s)` where `s` is an integer Number and the Mul
+    contains a Number factor `c` → `Mul(c^s, make_pow(Mul(rest...), s))`.
+    (Also required for round-trip: `1/(2*x)` must re-parse to the canonical
+    `Mul(1/2, Pow(x,-1))`.)
+- `make_fn(id, arg)`: no auto-evaluation (special values are simplify's job).
+
+Numeric folding in `make_add`/`make_mul` must be **order-independent**:
+accumulate exact sums/products with 128-bit intermediates (reducing as you
+go) so the same multiset of Number args never produces a different result —
+or a spurious OverflowError — depending on input order. Throw only if the
+final reduced value does not fit 64 bits.
+
+Like-term collection (`2x + 3x → 5x`), power combining, and all identities
+live in **simplify**, not in the factories.
+
+**Canonical ordering** `compare_expr(a, b) -> int` (-1/0/+1), a strict total
+order used for sorting Add/Mul args and for deterministic output:
+
+1. Rank by Kind: Number < Constant < Symbol < Pow < Function < Mul < Add.
+2. Ties: Number by rational value; Constant by id; Symbol lexicographic by
+   name; Function by (id, arg); Pow by (base, exponent); Add/Mul
+   lexicographically element-wise, shorter first on prefix ties.
+
+**Other core utilities** (in `expr.cpp`): `structurally_equal`, `hash_expr`
+(consistent with equality), `contains_symbol`, `free_symbols`, `substitute`
+(replaces every occurrence of a symbol with an expression, reconstructing
+through factories), `debug_string` (s-expression dump, e.g.
+`(add 2 (mul 3 x))` — exact format: lowercase kind names, numbers as `n` or
+`n/d`, functions as `(sin x)`, constants as `pi`/`e`).
+
+Convenience operators on `Expr` (`+ - * /`, unary `-`) forward to factories.
+
+`Equation` is a simple struct `{ Expr lhs, rhs; }` — not an Expr node.
+
+---
+
+## 3. Rational (`rational.hpp`)
+
+Exact rational over `long long`: normalized (den > 0, gcd = 1, zero is `0/1`).
+All arithmetic is overflow-checked (`__builtin_*_overflow` or equivalent) and
+throws `OverflowError` on overflow, `DivisionByZeroError` on x/0. Provides
+`+ - * /`, unary minus, `==`/`<=>`, `pow(long long)` (negative exponents
+invert; `0^negative` throws DivisionByZeroError), `from_decimal_string("3.14")`,
+`to_double`, `to_string` (`"5"`, `"-3/2"`), predicates (`is_zero`, `is_one`,
+`is_integer`, `is_negative`).
+
+---
+
+## 4. Parser (`parser.hpp`) — LaTeX-style grammar
+
+Input: one expression, or one equation (`lhs = rhs`, single `=`). Both LaTeX
+and plain ASCII style are accepted by the same grammar. Throws `ParseError`
+carrying a byte span `[begin, end)` into the original input for caret
+diagnostics.
+
+### Tokens
+
+- Numbers: integers `42`, decimals `3.14`. **No** scientific notation (`2e3`
+  is `2·e·3`... actually `2*e*3`? No — see identifier rules: `e3` is `e * 3`?
+  digits can't follow letters in one token, so `2e3` lexes as `2, e, 3` →
+  `2·e·3`. Documented limitation.)
+- Operators: `+ - * / ^ = ( ) { } [ ]`, `**` (synonym for `^`), `,` (only
+  meaningful to callers like the REPL, not inside expressions except function
+  call syntax has exactly one argument — a comma inside parens is a
+  ParseError).
+- LaTeX commands: `\frac{a}{b}`, `\sqrt{x}`, `\sqrt[n]{x}`, `\cdot`, `\times`
+  (→ multiplication), `\div` (→ division), `\left`/`\right` (paired with the
+  following delimiter, must match), `\pi`, spacing commands `\, \; \! \:
+  \quad \qquad` (ignored), function commands `\sin \cos \tan \arcsin \arccos
+  \arctan \sinh \cosh \tanh \sec \csc \cot \exp \ln \log \sqrt`, greek
+  letters `\alpha \beta \gamma \delta \epsilon \theta \lambda \mu \phi \omega`
+  (→ symbols named `alpha`, `beta`, ...). `\log_{b}` / `\log_b` for explicit
+  base. Unknown `\command` → ParseError pointing at the command.
+- Identifier runs (`[A-Za-z]+`): segmented **greedily, longest known name
+  first** at each position. Known names: function names (`sin`, `cos`, `tan`,
+  `asin`, `acos`, `atan`, `arcsin`, `arccos`, `arctan`, `sinh`, `cosh`,
+  `tanh`, `sec`, `csc`, `cot`, `exp`, `ln`, `log`, `sqrt`, `abs`), constants
+  (`pi`, `e`), greek names (same list as above). Anything else consumes a
+  single letter as a **symbol**. So `xy` → `x·y`, `sinx` → `sin(x)` (function
+  then continues lexing), `alpha` → symbol `alpha`, `foo` → `f·o·o`.
+  Consequence: variables are single letters (or greek names), and `e` is
+  always Euler's number — documented in README.
+- Subscripts: `x_1`, `x_{12}`, `x_a` → single symbol named `x_1`, `x_12`,
+  `x_a`. After `_` **without** braces, the subscript is exactly one letter or
+  one maximal digit run: `x_12` ≡ `x_{12}` (one symbol `x_12`), while `x_ab`
+  is `x_a · b`. A braced subscript takes every letter/digit up to the
+  matching `}` (`x_{max}` → symbol `x_max`); anything else inside the braces
+  is a ParseError. Subscript on a non-symbol is a ParseError (except
+  `\log_b`). The Plain printer emits the unbraced form (`x_12`), which must
+  re-lex to the same symbol.
+
+### Grammar (precedence, loosest → tightest)
+
+```
+input       := expr ( '=' expr )?
+expr        := term ( ('+' | '-') term )*
+term        := unary ( ('*' | '/' | implicit) unary )*     ; implicit multiplication
+unary       := ('-' | '+') unary | postfix
+postfix     := atom ( '^' unary )?                          ; right-assoc: 2^3^2 = 2^(3^2)
+atom        := number | symbol | constant | '(' expr ')' | '{' expr '}'
+             | '[' expr ']' | \frac{expr}{expr} | \sqrt[expr]{expr}
+             | function-application
+```
+
+- Implicit multiplication: two adjacent atoms/factors multiply (`2x`,
+  `x y`, `2(x+1)`, `(x+1)(x-2)`, `2\pi r`). It binds exactly like explicit
+  `*`, so `1/2x` = `(1/2)·x` — documented. It triggers **only** when the next
+  token is an atom-starter — a number, a letter/known name, `(`, `{`, `[`, or
+  a LaTeX command that begins an atom. It never triggers at
+  `+ - * / ^ = ) } ]`, a comma, or end of input; in particular `2 - 3` is
+  always the subtraction `Add(2, -3)`, never `Mul(2, -3)`.
+- Unary minus: `-x^2` = `-(x^2)`; exponent may itself be signed: `2^-3` ok.
+- Function application: `sin(x)`, `\sin{x}`, or bare `\sin x`. The bare form's
+  argument is the following **tight factor sequence**: one or more adjacent
+  atoms (numbers/symbols/constants, each with optional `^` power), stopping at
+  `+ - * / = ) } ]`, a comma, another function name, `\frac`, or end of
+  input; if the first token after the function is a group (`(`, `{`, `\frac`,
+  `\sqrt`), the argument is exactly that one group. Examples:
+  `\sin 2x` → `sin(2x)`; `\sin x \cos y` → `sin(x)·cos(y)`;
+  `\sin x + 1` → `sin(x) + 1`; `\sin^2 x` → `(sin x)^2` (the common
+  `\sin^{n}` notation is supported; `\sin^{-1} x` means `asin(x)`).
+  A function name with no argument (`sin` then `+`) → ParseError.
+- `=` at top level only, at most one → `Equation`.
+
+API: `parse_input` (expr or equation), `parse_expression`, `parse_equation`.
+
+### Diagnostics
+
+`ParseError::what()` is a human message (e.g. `unexpected ')'`,
+`missing '}' after \frac numerator`, `unknown command '\fraq'`). The CLI adds
+the caret display:
+
+```
+error: unknown command '\fraq'
+    \fraq{1}{2} + x
+    ^~~~~
+```
+
+---
+
+## 5. Printer (`printer.hpp`)
+
+`to_string(expr, PrintStyle::Plain | PrintStyle::LaTeX)` and same for
+`Equation` (`lhs = rhs`).
+
+Plain style: minimal correct parentheses; explicit `*`; `^` for powers;
+numbers as `5`, `-3/2`; `pi`, `e`; functions as `sin(...)`, natural log as
+`ln(...)`; `Mul(-1, x)` → `-x`; Add renders subtractions
+(`x + (-2)*y` → `x - 2*y`).
+
+Division rendering (Plain): within a Mul, factors whose exponent is a
+**negative Number** move to a denominator with the exponent negated, and a
+non-integer rational coefficient contributes its numerator/denominator, e.g.
+`Mul(3/2, Pow(x,-1))` → `3/(2*x)`, `Mul(3, Pow(x,-2))` → `3/x^2`, a bare
+`Pow(x,-1)` → `1/x`. `Pow(u, 1/2)` → `sqrt(u)` and `Pow(u, -1/2)` →
+`1/sqrt(u)`. These re-parse to the original AST **because of** the §2
+make_pow folds (Pow-of-Pow with integer outer exponent; Number extraction
+from an integer power of a Mul) — printer tests must cover exactly these
+shapes. Exception: `Pow(E, x)` prints as `e^x` and this rule **wins** over
+sqrt/division reconstruction whatever the exponent (`Pow(E, 1/2)` → `e^(1/2)`,
+`Pow(E, -2)` → `e^(-2)`).
+
+Add display ordering: the printer displays Add terms sorted by **descending
+total degree**, where a term's total degree is the sum of the rational
+exponents of its non-Number factors (a bare symbol or function counts 1, a
+Number term counts 0); ties break by reverse `compare_expr`. This is a
+print-time ordering only — the AST keeps its canonical §2 arg order. Example:
+`x^2 + 2*x + 3`.
+
+LaTeX style: same structure but `\frac{...}{...}` for the division rendering,
+`\sqrt{...}`, `\sin\left(...\right)` (always parenthesize function args with
+`\left(`), `\pi`, greek symbol names get their backslash back
+(`alpha` → `\alpha`), exponents in braces (`x^{10}`), subscripted symbols
+re-rendered (`x_12` → `x_{12}`). Juxtaposition between factors (`2 x` →
+`2x`) EXCEPT: emit `\cdot` whenever the preceding factor ends in a digit and
+the following factor's rendering starts with a digit (e.g.
+`Mul(2, Pow(10, x))` → `2 \cdot 10^{x}`, which would otherwise re-lex as
+`210^x`). Two literal Number factors never co-occur (the factories fold
+them), so the digit-boundary rule is the only `\cdot` case.
+
+Round-trip invariant (tested): `parse(to_string(e, Plain))` and
+`parse(to_string(e, LaTeX))` are `structurally_equal` to `e`.
+
+`debug_string` lives in expr, not here.
+
+---
+
+## 6. Evaluator (`evaluator.hpp`)
+
+- `evaluate(expr, bindings) -> double` where `bindings` maps symbol name →
+  double. Throws `EvalError` on: unbound symbol (message names it), division
+  by zero, domain errors (`ln(x≤0)`, `asin(|x|>1)`, even root of a negative,
+  `0^negative`), or non-finite result. `Pow` with non-integer exponent and
+  negative base → EvalError (real domain only).
+- `try_exact_numeric(expr) -> std::optional<Rational>`: folds an expression
+  containing no symbols/constants to an exact rational if every operation
+  stays rational (integer powers, rational-result roots); `std::nullopt`
+  otherwise (including on overflow — catch internally).
+
+---
+
+## 7. Simplifier (`simplify.hpp`)
+
+- `simplify(expr)`: apply the safe rule set bottom-up, repeat to fixpoint
+  (bounded iterations, e.g. 32; the rules must be confluent enough that this
+  terminates — every rule must strictly reduce a well-founded measure or be
+  applied only once per pass).
+- `simplify(Equation)`: simplify both sides.
+- `expand(expr)`: distribute Mul over Add, expand integer powers of sums
+  (binomial via repeated multiplication), then `simplify`.
+- `collect(expr, symbol)`: rewrite as a polynomial in `symbol` with simplified
+  coefficients (returns the expr unchanged apart from regrouping if not a
+  polynomial in `symbol` — collect what it can: `x*y + x*z + 1` collected in
+  `x` → `(y+z)*x + 1`). The returned Expr obeys the standard §2 canonical
+  form; "reads highest-degree first" is a *printing* behavior delivered by
+  §5's display ordering, not an AST property.
+- `polynomial_coefficients(expr, symbol) -> optional<vector<Expr>>`: if
+  `expand(expr)` is a polynomial in `symbol` (finite non-negative integer
+  powers, coefficients free of `symbol`), return coeffs `c[0..n]` (index =
+  degree, simplified, `c[n]` nonzero — except the zero polynomial, which
+  returns the single coefficient `{0}`); else `nullopt`. This is the
+  solver's workhorse.
+- `factor(expr)`: best-effort — extract common numeric/symbolic factors from
+  an Add; factor quadratics with rational roots into linear factors; leave
+  anything else unchanged. Never throws just because it can't factor.
+
+**Rule inventory for `simplify`** (all "safe" — value-preserving on the reals
+except formal cancellations, which are standard CAS behavior and documented):
+
+- Numeric folding everywhere (via factories + `try_exact_numeric` on subtrees).
+- Like terms: `2x + 3x → 5x`; more generally sum terms with equal non-numeric
+  part fold coefficients (`x*y + 2*x*y → 3*x*y`).
+- Like factors: `x * x^2 → x^3`; equal bases with numeric exponents combine;
+  `x/x → 1` (formal; assumes `x ≠ 0`).
+- Power rules: `(x^a)^b → x^(a*b)` only when `b` is an integer Number
+  (already a §2 factory fold when `a` is a Number too), or when `a = p/q` and
+  `b` are rational Numbers with `p`, `q`, and `b`'s denominator all **odd**
+  (this parity restriction keeps the rule from turning an expression that is
+  defined at negative `x` under §6's evaluator — e.g. `(x^2)^(1/3)` — into
+  one that is not — `x^(2/3)`; domain *extensions* like `(x^(1/2))^2 → x`
+  are acceptable, domain *restrictions* are not); `x^a * y^a` is NOT
+  combined; `(x*y)^n → x^n * y^n` for integer `n`.
+- `Pow(E, Ln(x)) → x`; `Ln(Pow(E, x)) → x`; `Ln(1) → 0`; `Ln(E) → 1`.
+- `ln(a*b) → ln a + ln b` is NOT applied (domain); `ln(x^n)` for odd integer
+  `n` → `n·ln(x)` is NOT applied either — log expansion is out of scope for
+  `simplify` (would fight the fixpoint; note in README).
+- Trig: exact values at rational multiples of π with denominator ∈
+  {1, 2, 3, 4, 6} (reduced mod 2π, all quadrants) for sin and cos; same for
+  tan **except** odd multiples of π/2, where tan is undefined — those are
+  left unchanged by simplify (never invent a value, never throw);
+  `sin(-u) → -sin(u)`, `tan(-u) → -tan(u)`, `cos(-u) → cos(u)` (negation
+  detected as Mul with negative leading rational — pull the sign out);
+  `sin(u)^2 + cos(u)^2 → 1` (also with a common coefficient:
+  `k·sin² + k·cos² → k`); `asin(sin(x))` is NOT simplified (not
+  value-preserving); `sin(asin(x)) → x` IS (valid where defined).
+- Inverse trig special values (needed so solver results like `asin(1/2)`
+  print as `pi/6`): asin and acos at `0, ±1/2, ±sqrt(2)/2, ±sqrt(3)/2, ±1`;
+  atan at `0, ±1, ±sqrt(3), ±sqrt(3)/3` (recognize the canonical AST shapes
+  of these arguments, e.g. `Mul(1/2, Pow(3, 1/2))` for `sqrt(3)/2`,
+  `Mul(1/3, Pow(3, 1/2))` for `sqrt(3)/3`).
+- `abs(c)` for numeric `c` → `|c|`; `abs(abs(u)) → abs(u)`;
+  `abs(-u) → abs(u)` (sign pulled as above); `abs(u)^2 → u^2` (even integer
+  powers); `abs(pi) → pi`, `abs(e) → e`.
+- Hyperbolic: `sinh(0)=0, cosh(0)=1, tanh(0)=0`, odd/even sign rules.
+- `sqrt` (as `Pow(u, 1/2)`): `sqrt(u^2) → abs(u)`; more generally
+  `(u^even)^(1/even)` respects abs.
+
+`simplify` must be **idempotent**: `simplify(simplify(e))` is
+`structurally_equal` to `simplify(e)` — tested property.
+
+---
+
+## 8. Derivative (`derivative.hpp`)
+
+`differentiate(expr, symbol) -> Expr` (returned already `simplify`-ed).
+Linearity; n-ary product rule (Σᵢ argᵢ' · Πⱼ≠ᵢ argⱼ); general power rule
+`d(u^v) = u^v · (v'·ln u + v·u'/u)`, with the two common special cases taken
+directly (v constant → `v·u^(v-1)·u'`; u = E → `E^v · v'`) so results stay
+clean; chain rule through every FunctionId:
+
+| f      | f'(u)·u'                    |
+|--------|-----------------------------|
+| sin    | cos(u)                      |
+| cos    | -sin(u)                     |
+| tan    | 1 + tan(u)^2                |
+| asin   | (1-u²)^(-1/2)               |
+| acos   | -(1-u²)^(-1/2)              |
+| atan   | (1+u²)^(-1)                 |
+| sinh   | cosh(u)                     |
+| cosh   | sinh(u)                     |
+| tanh   | 1 - tanh(u)^2               |
+| ln     | u^(-1)                      |
+| abs    | u·abs(u)^(-1)  (note: undefined at 0) |
+
+Symbols other than `symbol`, constants, numbers → 0.
+
+---
+
+## 9. Solver (`solver.hpp`)
+
+```cpp
+struct Solution { Expr value; bool exact; std::string note; };
+struct SolveResult {
+  enum class Status { Solved, NumericOnly, NoRealSolution, AllReals, Unsolved };
+  Status status; std::vector<Solution> solutions;
+  std::string method; std::vector<std::string> warnings;
+};
+struct NumericOptions { double lo = -100, hi = 100; int scan_points = 4001;
+                        double tol = 1e-12; int max_iter = 128; };
+SolveResult solve(const Equation&, std::string_view symbol,
+                  const NumericOptions& = {});
+SolveResult solve_numeric(const Equation&, std::string_view symbol,
+                          const NumericOptions& = {});
+```
+
+`solve` pipeline over `f = simplify(lhs - rhs)`:
+
+1. `f` free of the symbol: `f ≡ 0` → `AllReals` ("identity"); numeric nonzero
+   → `NoRealSolution` ("contradiction"); otherwise `Unsolved` with a note.
+2. **Polynomial path**: `polynomial_coefficients(f, x)`; degree 1 → linear;
+   degree 2 → quadratic formula, exact roots kept symbolic — written
+   unambiguously as `(-b ± sqrt(b^2 - 4*a*c)) / (2*a)`, simplified. Negative
+   *numeric* discriminant → `NoRealSolution`; **zero** discriminant → a
+   single Solution (not two identical ones); symbolic discriminant → return
+   both roots with a warning that they exist only when the discriminant ≥ 0;
+   a *symbolic* leading coefficient additionally gets a warning that the
+   roots are valid only when that coefficient is nonzero. Degree ≥ 3 with
+   **numeric rational** coefficients → rational-root theorem to peel exact
+   roots + synthetic division, quadratic on what remains, numeric fallback
+   for any irreducible remainder; biquadratic-style detection (poly in
+   `x^k`) → substitute, solve, back-substitute (`x^k = r` → real k-th roots).
+3. **Isolation path** (symbol occurs exactly once in `f` after simplify, or
+   equation rearranges to `g(x-part) = const-part`): peel outermost layer
+   repeatedly. Rules, with `c` the constant side after each peel:
+   - Add: move symbol-free terms across.
+   - Mul: divide by symbol-free factors; a *symbolic* divisor gets a
+     "valid only when ... ≠ 0" warning.
+   - Pow, `u^e = c` with `e` a Number `p/q` (reduced; covers `sqrt` = 1/2):
+     `p` even (`q` odd) → require numeric `c ≥ 0` (`c < 0` →
+     `NoRealSolution`), solutions `u = ±c^(q/p)`; `p` odd, `q` even →
+     require numeric `c ≥ 0` (range of an even root; `c < 0` →
+     `NoRealSolution`), single solution `u = c^(q/p)`; `p` odd, `q` odd →
+     single solution `u = c^(q/p)`, where for numeric `c < 0` the result is
+     written sign-extracted as `u = -(|c|^(q/p))` so it evaluates and
+     verifies cleanly. Symbolic `c` → proceed with the generic form plus a
+     domain warning.
+   - Pow, `a^u = c` (symbol in the exponent) → `u = ln(c) / ln(a)`, requiring
+     numeric `c > 0` and numeric `a > 0` (a ≤ 0 falls through to
+     numeric/Unsolved; `a = 1` is unreachable — the factories fold `1^u`).
+   - Function inverses: `ln → exp`; `abs(u) = c` → `u = ±c` requiring numeric
+     `c ≥ 0` (`c < 0` → `NoRealSolution`); `asin/acos/atan(u) = c` → apply
+     `sin/cos/tan`, with a numeric range check on `c` against the inverse
+     function's range; `sin(u) = c` → principal `u = asin(c)`; `cos(u) = c` →
+     principal `u = acos(c)`; `tan(u) = c` → principal `u = atan(c)`;
+     `sinh/cosh/tanh` via their `ln`-form inverses (cosh: `±`, require
+     numeric `c ≥ 1`).
+   - Periodicity is reported per-root in `Solution.note` (equation-level
+     caveats go in `warnings`), with these exact general-solution families:
+     sin: `x = <root> + 2*pi*n or x = pi - <root> + 2*pi*n`;
+     cos: `x = ±<root> + 2*pi*n`;
+     tan: `x = <root> + pi*n` (period **π**, not 2π).
+   Results are exact and simplified (the §7 inverse-trig table turns e.g.
+   `asin(1/2)` into `pi/6`).
+4. **Numeric fallback** (`solve_numeric`, also callable directly).
+   Precondition: `free_symbols(f)` must be exactly `{x}` — if other free
+   symbols remain when the fallback is reached, return `Unsolved` with a
+   warning naming them (never let an unbound-symbol EvalError escape
+   `solve`). Scan `[lo, hi]` on a uniform grid; where `f` changes sign →
+   bisection tightened by Newton (derivative from §8, falling back to
+   bisection when Newton leaves the bracket or derivative vanishes); where
+   `|f|` is locally tiny without a sign change (grid minimum below 1e-7 of
+   local scale) → Newton polish to catch even-multiplicity roots; skip
+   non-finite regions (domain gaps); dedupe roots within
+   `1e-8·max(1,|root|)`; verify every root by substitution
+   (`|f(root)| < 1e-6` relative); sort ascending. Roots found → status
+   `NumericOnly`, values are `Number` nodes holding decimal-converted
+   rationals of the double roots, `exact = false`, warning notes the search
+   interval ("roots outside [lo, hi] are not reported"). **Zero** roots
+   found → status `Unsolved` (not an empty `NumericOnly`), same
+   interval warning.
+5. Every **exact** candidate is verified by numeric substitution at the end
+   (random-free: evaluate the residual; if it contains free symbols other
+   than x, substitute fixed test values — e.g. 1.7320508 and 0.3141593 —
+   for them). Drop policy: a candidate is dropped (with a warning) ONLY when
+   the residual evaluates **cleanly** (no EvalError) and is clearly nonzero
+   (> 1e-6 relative) at every sample where it evaluates. An EvalError at all
+   samples, or a residual that vanishes at some samples but not others,
+   KEEPS the candidate with a "may be valid only under domain conditions"
+   warning — conditional solutions (symbolic discriminants, range-limited
+   inverses) must survive verification. If everything drops → fall through
+   to numeric.
+
+`solve` fills `method` with a short human label (`"linear"`,
+`"quadratic formula"`, `"rational roots + quadratic"`, `"isolation"`,
+`"numeric (Newton/bisection)"`).
+
+---
+
+## 10. CLI / REPL (`apps/main.cpp`)
+
+One-shot subcommands (all print plain style by default, `--latex` switches
+output to LaTeX; errors go to stderr with caret diagnostics, exit code 1
+(parse/math errors) or 2 (usage errors)):
+
+```
+mathsolver simplify "2x + 3x"
+mathsolver expand   "(x+1)^3"
+mathsolver factor   "x^2 - 5x + 6"
+mathsolver solve    "x^2 = 4" [x] [--range LO HI]     # var optional if unique
+mathsolver diff     "sin(x^2)" [x]                    # var optional if unique
+mathsolver eval     "x^2 + y" x=3 y=0.5
+mathsolver latex    "sqrt(x)/2"                       # print LaTeX form
+mathsolver --help | --version
+mathsolver          # no args → REPL
+```
+
+`solve` output: one line per solution (`x = 2`, `x ≈ 1.8955`), then
+`method:` and any warnings. `NoRealSolution` → `no real solutions`;
+`AllReals` → `true for all x`.
+
+REPL (`>>> ` prompt, plain `std::getline` — no readline dependency; Ctrl-D or
+`quit`/`exit` to leave):
+
+- Bare expression → simplify and print.
+- Bare equation → solve for its single free symbol (if several, ask user to
+  use `solve ..., var`).
+- Commands (comma-separated arguments, split at top-level commas only):
+  `solve <eq>[, <var>]`, `diff <expr>[, <var>]`, `eval <expr>, x=1[, y=2 …]`,
+  `expand <e>`, `factor <e>`, `latex <e>`, `debug <e>` (s-expr dump),
+  `help`, `quit`/`exit`.
+- Parse/math errors print the caret diagnostic and keep the session alive.
+
+End-to-end tests: CTest invokes the built binary
+(`add_test(... COMMAND mathsolver simplify ...)` + `PASS_REGULAR_EXPRESSION`,
+or a small Catch2 file using `popen` with the binary path passed as a compile
+definition — implementer's choice, but at least: simplify, solve exact, solve
+numeric, diff, eval, a parse-error exit code, and a piped-stdin REPL session).
+
+---
+
+## 11. Testing conventions
+
+- Catch2 v3, one `test_<module>.cpp` per module, registered in
+  `tests/CMakeLists.txt`.
+- Prefer building expectations with factories + `structurally_equal`, or
+  round-trip through the parser once it exists; use `debug_string` in failure
+  messages (`INFO(debug_string(e))`).
+- Property-style checks worth including: parser round-trip (§5), simplify
+  idempotence (§7), `evaluate(diff(f)) ≈ (f(x+h)-f(x-h))/2h` on a grid for
+  every FunctionId, solver roots verified by substitution.
+- Everything runs via `ctest --test-dir build` and must be green at the end of
+  every stage.
+
+## 12. Documented limitations (README material, keep honest)
+
+- Real domain only (no complex results; quadratics with negative discriminant
+  report "no real solutions").
+- `e` is always Euler's number; variables are single letters/greek names.
+- Rational arithmetic is 64-bit and overflow-checked (throws, never wraps).
+- Formal cancellations (`x/x → 1`) assume nonzero denominators.
+- Numeric root search only covers the requested interval.
+- No scientific-notation literals.
