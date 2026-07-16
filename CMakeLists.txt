@@ -14,6 +14,12 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
+option(MATHSOLVER_SANITIZE "Build with Address + UndefinedBehavior sanitizers" OFF)
+if(MATHSOLVER_SANITIZE)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
 add_library(mathsolver_warnings INTERFACE)
 if(MSVC)
     target_compile_options(mathsolver_warnings INTERFACE /W4)
