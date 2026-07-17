@@ -20,6 +20,7 @@
     "integrate x*sin(x), x",
     "factor x^2 - 5x + 6",
     "eval x^2 + y, x=3, y=0.5",
+    "dsp.butter lowpass, 4, 1000, 48000",
   ];
 
   async function scrollToBottom() {

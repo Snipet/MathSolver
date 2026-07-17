@@ -161,6 +161,28 @@ try {
 
   check("eval with explicit bindings", (await run("eval x^2 + y, x=3, y=0.5")).includes("9.5"));
 
+  // Plugins (docs/PLUGINS.md): catalog, a real dsp.butter design (kv + table
+  // + chart), and plugin error handling.
+  const cat = await run("plugins");
+  check("plugins catalog lists dsp", cat.includes("dsp.butter"), cat.replace(/\n/g, " ").slice(0, 60));
+  const butterOut = await run("dsp.butter lowpass, 4, 1000, 48000");
+  check(
+    "dsp.butter renders design",
+    butterOut.includes("Butterworth") && butterOut.includes("Gain at cutoff") && butterOut.includes("-3.0"),
+    butterOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const hasChart = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => !!el.querySelector("canvas") && !!el.querySelector("table"),
+  );
+  check("dsp.butter has table + chart", hasChart);
+  await run("dsp.butter lowpass, 4, 30000, 48000");
+  const pluginErr = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => el.querySelector(".error-msg")?.textContent ?? "",
+  );
+  check("dsp error card", pluginErr.includes("Nyquist"), pluginErr);
+
   // The console session survives a reload (localStorage).
   const before = await page.$$eval(".cells .cell", (e) => e.length);
   await page.reload({ waitUntil: "load" });

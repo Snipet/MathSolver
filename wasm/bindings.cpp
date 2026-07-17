@@ -24,6 +24,7 @@
 #include <emscripten/bind.h>
 
 #include "mathsolver/mathsolver.hpp"
+#include "mathsolver/plugin.hpp"
 
 namespace {
 
@@ -490,6 +491,48 @@ std::string ms_sample(std::string input, std::string var, double lo, double hi, 
     });
 }
 
+// ---------------------------------------------------------------------------
+// Plugins (mathsolver/plugin.hpp, docs/PLUGINS.md).
+// ---------------------------------------------------------------------------
+
+/// Catalog of the compiled-in plugins and their commands.
+std::string ms_plugins() {
+    return guarded([&]() -> std::string {
+        plugins::register_builtin_plugins();
+        std::string out = "{\"ok\":true,\"plugins\":[";
+        bool first_plugin = true;
+        for (const auto& p : plugins::registry()) {
+            if (!first_plugin) out += ",";
+            first_plugin = false;
+            out += std::format("{{\"name\":{},\"version\":{},\"summary\":{},\"commands\":[",
+                               jstr(p->name()), jstr(p->version()), jstr(p->summary()));
+            bool first_cmd = true;
+            for (const auto& c : p->commands()) {
+                if (!first_cmd) out += ",";
+                first_cmd = false;
+                out += std::format("{{\"name\":{},\"summary\":{},\"usage\":{}}}",
+                                   jstr(c.name), jstr(c.summary), jstr(c.usage));
+            }
+            out += "]}";
+        }
+        return out + "]}";
+    });
+}
+
+/// Invoke `plugin.command` with comma-separated arguments (same top-level
+/// splitting convention as the console grammar). The plugin's JSON result is
+/// passed through verbatim.
+std::string ms_plugin_call(std::string plugin, std::string command, std::string args_csv) {
+    return guarded([&]() -> std::string {
+        plugins::register_builtin_plugins();
+        const plugins::Plugin* p = plugins::find(plugin);
+        if (p == nullptr) {
+            return err_json(std::format("no plugin named '{}'", plugin));
+        }
+        return p->invoke(command, split_csv(args_csv));
+    });
+}
+
 } // namespace
 
 EMSCRIPTEN_BINDINGS(mathsolver) {
@@ -508,4 +551,6 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("solveSystem", &ms_solve_system);
     emscripten::function("evaluate", &ms_evaluate);
     emscripten::function("sample", &ms_sample);
+    emscripten::function("plugins", &ms_plugins);
+    emscripten::function("pluginCall", &ms_plugin_call);
 }

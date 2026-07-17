@@ -56,6 +56,18 @@ check("subs unsimplified", ms.subs("x + x + w", "w=7", false), (r) => r.ok && r.
 check("subs unsimplified latex", ms.subs("x + x + w", "w=7", false), (r) => r.ok && r.latex === "x + x + 7", "x + x + 7");
 check("subs subscripted name", ms.subs("v_{max} + 1", "v_max=8", true), (r) => r.ok && r.plain === "9", "9 (canonical symbol names accepted)");
 check("subs malformed", ms.subs("x", "x", true), (r) => !r.ok && r.error.includes("malformed substitution"), "malformed error");
+// plugins (mathsolver/plugin.hpp, docs/PLUGINS.md)
+check("plugins catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name === "dsp" && p.commands.some((c) => c.name === "butter")), "dsp plugin listed");
+check("plugin butter", ms.pluginCall("dsp", "butter", "lowpass,4,1000,48000"), (r) => r.ok && r.blocks.some((b) => b.type === "table") && b_series_ok(r), "block envelope");
+check("plugin butter kv gain", ms.pluginCall("dsp", "butter", "lowpass,4,1000,48000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Gain at cutoff" && v.startsWith("-3.0"))), "-3.01 dB at fc");
+check("plugin freqz", ms.pluginCall("dsp", "freqz", "48000,0.2,0.4,0.2,-0.5,0.3"), (r) => r.ok && r.blocks.some((b) => b.type === "series"), "series block");
+check("plugin bad args", ms.pluginCall("dsp", "butter", "lowpass,4,30000,48000"), (r) => !r.ok && r.error.includes("Nyquist"), "Nyquist error");
+check("plugin unknown", ms.pluginCall("nope", "x", ""), (r) => !r.ok && r.error.includes("no plugin named"), "unknown plugin error");
+
+function b_series_ok(r) {
+  const s = r.blocks.find((b) => b.type === "series");
+  return s && s.x.length === s.series[0].ys.length && s.x.length > 100;
+}
 
 console.log(failures === 0 ? `\nALL PASS` : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

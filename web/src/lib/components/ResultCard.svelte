@@ -6,13 +6,17 @@
   import ResultIntegral from "./ResultIntegral.svelte";
   import ResultDefinite from "./ResultDefinite.svelte";
   import ResultEvaluate from "./ResultEvaluate.svelte";
+  import PluginResult from "./PluginResult.svelte";
   import SpanHighlight from "./SpanHighlight.svelte";
   import Katex from "./Katex.svelte";
 
   let { outcome }: { outcome: Outcome | null } = $props();
 
   const computedFrom = $derived(
-    outcome && outcome.kind !== "error" && outcome.kind !== "assignment"
+    outcome &&
+      outcome.kind !== "error" &&
+      outcome.kind !== "assignment" &&
+      outcome.kind !== "plugin"
       ? (outcome.computedFrom ?? null)
       : null,
   );
@@ -33,6 +37,12 @@
         <ResultDefinite from={outcome.from} to={outcome.to} result={outcome.result} />
       {:else if outcome.kind === "evaluate"}
         <ResultEvaluate result={outcome.result} />
+      {:else if outcome.kind === "plugin"}
+        <PluginResult
+          plugin={outcome.plugin}
+          command={outcome.command}
+          result={outcome.result}
+        />
       {:else if outcome.kind === "assignment"}
         <div class="assignment">
           <Katex latex={outcome.latex} display />

@@ -53,14 +53,25 @@ add_library(mathsolver_core STATIC
     src/derivative.cpp
     src/integrate.cpp
     src/solver.cpp
+    src/plugin.cpp
 )
 target_include_directories(mathsolver_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(mathsolver_core PRIVATE mathsolver_warnings)
 
+# Built-in plugins (docs/PLUGINS.md): numeric domain extensions behind the
+# uniform command surface in include/mathsolver/plugin.hpp. Hosts that link
+# this library call plugins::register_builtin_plugins() at startup.
+add_library(mathsolver_plugins STATIC
+    plugins/register_builtin.cpp
+    plugins/dsp/dsp.cpp
+    plugins/dsp/dsp_design.cpp
+)
+target_link_libraries(mathsolver_plugins PUBLIC mathsolver_core PRIVATE mathsolver_warnings)
+
 if(EMSCRIPTEN)
     # ES6-module WASM build consumed by the Svelte app in web/.
     add_executable(mathsolver_wasm wasm/bindings.cpp)
-    target_link_libraries(mathsolver_wasm PRIVATE mathsolver_core mathsolver_warnings)
+    target_link_libraries(mathsolver_wasm PRIVATE mathsolver_core mathsolver_plugins mathsolver_warnings)
     set_target_properties(mathsolver_wasm PROPERTIES OUTPUT_NAME "mathsolver")
     target_link_options(mathsolver_wasm PRIVATE
         --bind
