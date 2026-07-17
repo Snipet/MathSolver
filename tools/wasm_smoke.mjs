@@ -136,6 +136,8 @@ check("dsolve resonance", ms.dsolve("y'' + y = sin(t)", "y(0)=0,y'(0)=0"), (r) =
 check("dsolve warning", ms.dsolve("y' + y = 1", ""), (r) => r.ok && r.warnings.length === 1 && r.warnings[0].includes("y(0) = 0"), "assumed-zero IC warning");
 check("dsolve error", ms.dsolve("y' + y = ln(t)", ""), (r) => !r.ok && r.error.includes("no Laplace transform"), "untransformable forcing");
 check("dsolve first-order linear", ms.dsolve("y' = -2t*y", "y(0)=1"), (r) => r.ok && r.plain === "e^(-t^2)" && r.method === "integrating factor", "variable-coefficient e^(-t^2)");
+check("dsolve system rotation", ms.dsolve("x' = y; y' = -x", "x(0)=1,y(0)=0"), (r) => r.ok && r.plain.includes("x(t) = cos(t)") && r.latex.includes("aligned"), "cos/sin system");
+check("dsolve system nonlinear error", ms.dsolve("x' = y*y; y' = x", ""), (r) => !r.ok && r.error.includes("linear"), "nonlinear system rejected");
 check("dsolve separable", ms.dsolve("y' = y^2", "y(0)=1"), (r) => r.ok && !r.implicit && r.plain.includes("1"), "y = 1/(1-t) family");
 check("dsolve general constant", ms.dsolve("y' = -2y", ""), (r) => r.ok && r.plain.includes("C") && r.warnings.length >= 1, "general solution keeps C");
 // limit review regressions

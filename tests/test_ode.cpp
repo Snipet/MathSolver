@@ -132,6 +132,81 @@ TEST_CASE("dsolve: fractional and starred coefficients parse") {
 }
 
 // ---------------------------------------------------------------------------
+// First-order linear systems
+// ---------------------------------------------------------------------------
+
+TEST_CASE("dsolve system: rotation gives cos/sin exactly") {
+    const DsolveSystemResult r = dsolve_system(
+        {"x' = y", "y' = -x"}, {"x(0)=1", "y(0)=0"});
+    REQUIRE(r.names == std::vector<std::string>{"x", "y"});
+    for (const double t : {0.0, 0.4, 1.1, 2.3}) {
+        CHECK(std::abs(evaluate(r.solutions[0], Bindings{{"t", t}}) -
+                       std::cos(t)) < 1e-9);
+        CHECK(std::abs(evaluate(r.solutions[1], Bindings{{"t", t}}) +
+                       std::sin(t)) < 1e-9);
+    }
+}
+
+TEST_CASE("dsolve system: coupled decay through eigenvalues -1 and -3") {
+    // x' = -2x + y, y' = x - 2y with x(0)=1, y(0)=0:
+    // x = (e^-t + e^-3t)/2, y = (e^-t - e^-3t)/2.
+    const DsolveSystemResult r = dsolve_system(
+        {"x' = -2x + y", "y' = x - 2y"}, {"x(0)=1", "y(0)=0"});
+    for (const double t : {0.0, 0.5, 1.2}) {
+        const double ex = (std::exp(-t) + std::exp(-3 * t)) / 2.0;
+        const double ey = (std::exp(-t) - std::exp(-3 * t)) / 2.0;
+        CHECK(std::abs(evaluate(r.solutions[0], Bindings{{"t", t}}) - ex) <
+              1e-9);
+        CHECK(std::abs(evaluate(r.solutions[1], Bindings{{"t", t}}) - ey) <
+              1e-9);
+    }
+}
+
+TEST_CASE("dsolve system: forcing and residual verification") {
+    // x' = -x + e^(-2t), y' = x - y, zero ICs; verify the residuals of both
+    // equations directly.
+    const DsolveSystemResult r = dsolve_system(
+        {"x' = -x + e^(-2t)", "y' = x - y"}, {"x(0)=0", "y(0)=0"});
+    const Expr dx = differentiate(r.solutions[0], "t");
+    const Expr dy = differentiate(r.solutions[1], "t");
+    for (const double t : {0.3, 0.9, 1.8}) {
+        const Bindings b{{"t", t}};
+        const double x = evaluate(r.solutions[0], b);
+        const double y = evaluate(r.solutions[1], b);
+        CHECK(std::abs(evaluate(dx, b) - (-x + std::exp(-2 * t))) < 1e-9);
+        CHECK(std::abs(evaluate(dy, b) - (x - y)) < 1e-9);
+    }
+    CHECK(std::abs(evaluate(r.solutions[0], Bindings{{"t", 0.0}})) < 1e-12);
+}
+
+TEST_CASE("dsolve system: three coupled equations") {
+    // Chain x -> y -> z: x' = -x, y' = x - y, z' = y.
+    const DsolveSystemResult r = dsolve_system(
+        {"x' = -x", "y' = x - y", "z' = y"}, {"x(0)=1", "y(0)=0", "z(0)=0"});
+    // x = e^-t, y = t e^-t, z = 1 - (1+t) e^-t.
+    for (const double t : {0.4, 1.5}) {
+        CHECK(std::abs(evaluate(r.solutions[2], Bindings{{"t", t}}) -
+                       (1.0 - (1.0 + t) * std::exp(-t))) < 1e-9);
+    }
+}
+
+TEST_CASE("dsolve system: missing conditions and specific errors") {
+    const DsolveSystemResult r =
+        dsolve_system({"x' = y", "y' = -x"}, {"y(0)=1"});
+    REQUIRE(r.warnings.size() == 1);
+    CHECK_THAT(r.warnings[0], ContainsSubstring("x(0) = 0"));
+
+    CHECK_THROWS_WITH(dsolve_system({"x' = y*y", "y' = x"}, {}),
+                      ContainsSubstring("linear"));
+    CHECK_THROWS_WITH(dsolve_system({"x' = t*x", "y' = x"}, {}),
+                      ContainsSubstring("constant"));
+    CHECK_THROWS_WITH(dsolve_system({"x' = y", "x' = -y"}, {}),
+                      ContainsSubstring("duplicate"));
+    CHECK_THROWS_WITH(dsolve_system({"x = y", "y' = x"}, {}),
+                      ContainsSubstring("first order"));
+}
+
+// ---------------------------------------------------------------------------
 // First-order methods (y' = f(t, y))
 // ---------------------------------------------------------------------------
 

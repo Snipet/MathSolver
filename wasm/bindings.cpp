@@ -603,6 +603,40 @@ std::string ms_dsolve(std::string ode, std::string conditions_csv) {
             }
             start = comma + 1;
         }
+        // A ';' selects the first-order-system path; the components render
+        // as one aligned block through the ordinary dsolve result card.
+        std::vector<std::string> sys_eqs;
+        {
+            std::size_t start = 0;
+            for (std::size_t i = 0; i <= ode.size(); ++i) {
+                if (i == ode.size() || ode[i] == ';') {
+                    const std::string piece = trim(ode.substr(start, i - start));
+                    if (!piece.empty()) sys_eqs.push_back(piece);
+                    start = i + 1;
+                }
+            }
+        }
+        if (sys_eqs.size() > 1) {
+            const DsolveSystemResult r = dsolve_system(sys_eqs, conditions);
+            std::string plain;
+            std::string latex = "\\begin{aligned}";
+            for (std::size_t i = 0; i < r.names.size(); ++i) {
+                if (i > 0) {
+                    plain += "\n";
+                    latex += " \\\\ ";
+                }
+                plain += r.names[i] + "(t) = " +
+                         to_string(r.solutions[i], PrintStyle::Plain);
+                latex += r.names[i] + "(t) &= " +
+                         to_string(r.solutions[i], PrintStyle::LaTeX);
+            }
+            latex += "\\end{aligned}";
+            return std::format(
+                "{{\"ok\":true,\"plain\":{},\"latex\":{},"
+                "\"transformPlain\":\"\",\"transformLatex\":\"\","
+                "\"implicit\":false,\"method\":{},\"warnings\":{}}}",
+                jstr(plain), jstr(latex), jstr(r.method), jarr_str(r.warnings));
+        }
         const DsolveResult r = dsolve(ode, conditions);
         return std::format(
             "{{\"ok\":true,{},\"transformPlain\":{},\"transformLatex\":{},"

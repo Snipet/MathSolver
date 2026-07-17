@@ -703,6 +703,21 @@ bool has_top_level_semicolon(const std::string& s) {
 /// Prints y(t), the partial-fraction Y(s), and assumed-zero-IC warnings.
 void run_dsolve(const std::string& input, PrintStyle style) {
     const std::vector<std::string> parts = split_top_level(input, ',');
+    // A ';' in the equation part selects the first-order-system path:
+    //   dsolve x' = -2x + y; y' = x - 2y, x(0)=1, y(0)=0
+    if (split_top_level(parts[0], ';').size() > 1) {
+        const DsolveSystemResult res = dsolve_system(
+            split_top_level(parts[0], ';'), {parts.begin() + 1, parts.end()});
+        for (std::size_t i = 0; i < res.names.size(); ++i) {
+            std::println("{}(t) = {}", res.names[i],
+                         to_string(res.solutions[i], style));
+        }
+        std::println("method: {}", res.method);
+        for (const std::string& w : res.warnings) {
+            std::println("warning: {}", w);
+        }
+        return;
+    }
     const DsolveResult res =
         dsolve(parts[0], {parts.begin() + 1, parts.end()});
     if (res.implicit) {

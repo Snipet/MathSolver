@@ -23,6 +23,27 @@ struct DsolveResult {
     std::vector<std::string> warnings;
 };
 
+struct DsolveSystemResult {
+    std::vector<std::string> names;  ///< Unknown functions, equation order.
+    std::vector<Expr> solutions;     ///< x_i(t), matching names.
+    std::vector<Expr> transforms;    ///< X_i(s) in partial-fraction form.
+    std::string method;
+    std::vector<std::string> warnings;
+};
+
+/// Solve a first-order linear constant-coefficient system
+///
+///   dsolve_system({"x' = -2x + y", "y' = x - 2y"}, {"x(0)=1", "y(0)=0"})
+///
+/// by the Laplace transform: (sI - A) X = x(0) + F(s) is one linear system
+/// over rational functions of s, solved exactly by the Gaussian solver, then
+/// each component inverts through apart() + the inverse transform. Each
+/// right side must be linear in the unknowns with numeric coefficients; the
+/// remaining forcing may use anything the forward transform handles.
+/// Missing initial conditions default to zero with a warning.
+DsolveSystemResult dsolve_system(const std::vector<std::string>& equations,
+                                 const std::vector<std::string>& conditions);
+
 /// Solve  a_n y^(n) + ... + a_1 y' + a_0 y = f(t)  with initial conditions
 /// at t = 0, exactly:  L{y^(k)} = s^k Y - Σ s^(k-1-j) y^(j)(0)  turns the
 /// ODE into algebra, Y(s) = (F(s) + ics)/charpoly is expanded into partial

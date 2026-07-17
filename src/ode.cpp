@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "mathsolver/apart.hpp"
+#include "mathsolver/derivative.hpp"
 #include "mathsolver/errors.hpp"
 #include "mathsolver/evaluator.hpp"
 #include "mathsolver/integrate.hpp"
@@ -395,6 +396,176 @@ DsolveResult dsolve_first_order(const std::string& rhs_text,
 }
 
 } // namespace
+
+DsolveSystemResult dsolve_system(const std::vector<std::string>& equations,
+                                 const std::vector<std::string>& conditions) {
+    if (equations.size() < 2) {
+        throw Error("dsolve: a system needs at least two ';'-separated "
+                    "equations");
+    }
+    DsolveSystemResult result;
+    result.method = "laplace transform + linear solve + partial fractions";
+
+    // Parse "name' = rhs" per equation; the primed names are the unknowns.
+    std::vector<Expr> rhs;
+    for (const std::string& eq_text : equations) {
+        const std::size_t eq = eq_text.find('=');
+        if (eq == std::string::npos) {
+            throw Error(std::format("dsolve: '{}' needs '='",
+                                    trim_ws(eq_text)));
+        }
+        const std::string lhs = trim_ws(eq_text.substr(0, eq));
+        if (lhs.size() < 2 || lhs.back() != '\'' ||
+            lhs.find('\'') != lhs.size() - 1) {
+            throw Error(std::format(
+                "dsolve: system equations are first order, spelled "
+                "\"<name>' = ...\" (got '{}')",
+                lhs));
+        }
+        const std::string name = trim_ws(lhs.substr(0, lhs.size() - 1));
+        for (const std::string& seen : result.names) {
+            if (seen == name) {
+                throw Error(std::format(
+                    "dsolve: duplicate equation for {}'", name));
+            }
+        }
+        if (name == "t" || name == "s") {
+            throw Error("dsolve: unknown functions may not be named t or s");
+        }
+        result.names.push_back(name);
+        try {
+            rhs.push_back(simplify(parse_expression(
+                trim_ws(eq_text.substr(eq + 1)))));
+        } catch (const Error& e) {
+            throw Error(std::format("dsolve: cannot read the right side of "
+                                    "{}': {}",
+                                    name, e.what()));
+        }
+    }
+    const std::size_t n = result.names.size();
+
+    // Coefficient matrix (numeric, constant) and forcing per equation.
+    std::vector<std::vector<Rational>> a(n, std::vector<Rational>(n));
+    std::vector<Expr> forcing(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        Expr rest = rhs[i];
+        for (std::size_t j = 0; j < n; ++j) {
+            const Expr cij = simplify(differentiate(rhs[i], result.names[j]));
+            if (contains_symbol(cij, "t")) {
+                throw Error(std::format(
+                    "dsolve: the coefficient of {} in {}' must be constant "
+                    "(got {})",
+                    result.names[j], result.names[i],
+                    to_string(cij, PrintStyle::Plain)));
+            }
+            if (cij->kind() != Kind::Number) {
+                throw Error(std::format(
+                    "dsolve: the system must be linear in the unknowns with "
+                    "numeric coefficients ({}' has coefficient {} on {})",
+                    result.names[i], to_string(cij, PrintStyle::Plain),
+                    result.names[j]));
+            }
+            a[i][j] = cij->number();
+            rest = simplify(substitute(rest, result.names[j], make_num(0)));
+        }
+        forcing[i] = rest;
+        if (contains_symbol(forcing[i], "s")) {
+            throw Error("dsolve: the symbol 's' is reserved");
+        }
+    }
+
+    // Initial conditions name(0)=value.
+    std::map<std::string, Expr> x0;
+    for (const std::string& cond : conditions) {
+        const std::size_t eq = cond.find('=');
+        const std::string lhs = eq == std::string::npos
+                                    ? std::string{}
+                                    : trim_ws(cond.substr(0, eq));
+        std::string matched;
+        for (const std::string& name : result.names) {
+            if (lhs == name + "(0)") {
+                matched = name;
+                break;
+            }
+        }
+        if (matched.empty()) {
+            throw Error(std::format(
+                "dsolve: system conditions look like x(0)=1 with x one of "
+                "the unknowns (got '{}')",
+                trim_ws(cond)));
+        }
+        if (x0.contains(matched)) {
+            throw Error(std::format("dsolve: duplicate condition for {}(0)",
+                                    matched));
+        }
+        x0[matched] = simplify(parse_expression(trim_ws(cond.substr(eq + 1))));
+    }
+    for (const std::string& name : result.names) {
+        if (!x0.contains(name)) {
+            x0[name] = make_num(0);
+            result.warnings.push_back(
+                std::format("assuming {}(0) = 0", name));
+        }
+    }
+
+    // (sI - A) X = x0 + F(s), one exact linear solve in the X_i symbols.
+    const Expr s = make_sym("s");
+    std::vector<std::string> xnames;
+    for (const std::string& name : result.names) {
+        xnames.push_back("__ls_" + name);
+    }
+    std::vector<Equation> eqs;
+    for (std::size_t i = 0; i < n; ++i) {
+        Expr F;
+        try {
+            F = laplace(forcing[i], "t");
+        } catch (const Error& e) {
+            throw Error(std::format(
+                "dsolve: the forcing in {}' has no Laplace transform: {}",
+                result.names[i], e.what()));
+        }
+        std::vector<Expr> lhs_terms{make_mul({s, make_sym(xnames[i])}),
+                                    simplify(make_neg(x0.at(result.names[i])))};
+        std::vector<Expr> rhs_terms{F};
+        for (std::size_t j = 0; j < n; ++j) {
+            if (!a[i][j].is_zero()) {
+                rhs_terms.push_back(
+                    make_mul({make_num(a[i][j]), make_sym(xnames[j])}));
+            }
+        }
+        eqs.push_back({simplify(make_add(std::move(lhs_terms))),
+                       simplify(make_add(std::move(rhs_terms)))});
+    }
+    const SystemSolveResult sys = solve_system(eqs, xnames);
+    if (sys.status != SystemSolveResult::Status::Solved) {
+        throw Error("dsolve: could not solve the transformed system (is the "
+                    "system well posed?)");
+    }
+    // Gaussian pivots in s produce "valid only when s + 2 != 0" style
+    // warnings; s is the transform variable, so they are vacuous here.
+
+    for (std::size_t i = 0; i < n; ++i) {
+        const Expr X = simplify(expand(sys.values.at(xnames[i])));
+        Expr X_pf;
+        try {
+            X_pf = apart(X, "s");
+        } catch (const Error& e) {
+            throw Error(std::format("dsolve: cannot decompose {}(s) = {}: {}",
+                                    result.names[i],
+                                    to_string(X, PrintStyle::Plain), e.what()));
+        }
+        try {
+            result.solutions.push_back(simplify(inverse_laplace(X_pf, "s")));
+        } catch (const Error& e) {
+            throw Error(std::format("dsolve: cannot invert {}(s) = {}: {}",
+                                    result.names[i],
+                                    to_string(X_pf, PrintStyle::Plain),
+                                    e.what()));
+        }
+        result.transforms.push_back(X_pf);
+    }
+    return result;
+}
 
 DsolveResult dsolve(std::string_view ode,
                     const std::vector<std::string>& conditions) {

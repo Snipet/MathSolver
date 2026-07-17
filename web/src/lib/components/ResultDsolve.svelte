@@ -9,6 +9,9 @@
 
 {#if result.implicit}
   <Katex latex={`${result.latex} = 0`} display />
+{:else if result.latex.startsWith("\\begin{aligned}")}
+  <!-- A system: the aligned block already names each component. -->
+  <Katex latex={result.latex} display />
 {:else}
   <Katex latex={`y(t) = ${result.latex}`} display />
 {/if}
