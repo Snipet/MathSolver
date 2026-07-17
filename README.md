@@ -189,6 +189,18 @@ $ mathsolver series "(x+1)/(x-1)" x inf 3
 1 + 2/x + 2/x^2 + 2/x^3
 ```
 
+Asymptotics of the gamma function — `stirling` builds the Stirling series
+for ln Γ(x) with exact Bernoulli-number coefficients (computed by the
+defining recurrence over exact rationals) and reports its own accuracy
+against lgamma, including the reminder that an asymptotic series is a
+truncation, not a convergent expansion:
+
+```console
+$ mathsolver stirling x 3
+ln Gamma(x) ~ ln(x)*(x - 1/2) - x + ln(2*pi)/2 + 1/(12*x) - 1/(360*x^3) + 1/(1260*x^5)
+note: ln Gamma(10): Stirling 12.8018274801 vs exact 12.8018274801 (|error| = 5.87e-11)
+```
+
 Multivariate and vector calculus — `grad`, `div`, `curl` (3-D vector and
 2-D scalar), `laplacian`, `jacobian`, and `hessian` operate on
 `;`-separated fields over an explicit variable list, and the web console's
@@ -345,9 +357,15 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   dsp.remez lowpass, 31, 1000, 1500, 8000 → optimal equiripple (Parks–McClellan)
   dsp.freqz 48000, 0.2,0.4,0.2,-0.5,0.3  → response of your own biquads
   linalg.solve [2 1; 1 3], [3 5]         → LU solve with residual
-  linalg.eig [0 -1; 1 0]                 → eigenvalues incl. complex pairs
+  linalg.eig [0 -1; 1 0]                 → exact eigendecomposition (chi poly,
+                                           surds, complex pairs, eigenvectors;
+                                           numeric QR past the exact reach)
+  linalg.eig [a 1; 1 a]                  → symbolic eigenvalues a ± 1
   linalg.svd [1 2; 3 4; 5 6]             → singular values, rank, cond
   linalg.det [a b; c d]                  → symbolic determinants (Bareiss)
+  linalg.trisolve [-1], [2 2], [-1], [1 1] → structured: Thomas O(n)
+  linalg.toeplitz [2 1 0], [3 4 3]       → structured: Levinson O(n^2)
+  linalg.circulant [2 1 1], [4 4 4]      → structured: DFT diagonalization
   pde.heat 1, 1, x*(1-x)                 → heat equation: Fourier series + profiles
   pde.wave 1, 2, sin(pi*x)               → wave equation: standing-wave evolution
   ie.fredholm x*t, x, 1, 0, 1            → integral equation by Nyström quadrature

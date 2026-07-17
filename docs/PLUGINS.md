@@ -195,10 +195,13 @@ where supported:
 | `linalg.solve [A], [b]` | LU with partial pivoting; reports the residual max\|Ax − b\|. |
 | `linalg.det [A]` | Numeric LU determinant, or **exact Bareiss** for symbolic entries (≤ 5×5): `linalg.det [a b; c d]` → `a*d - b*c`. |
 | `linalg.inv [A]` | Inverse with the 2-norm condition number. |
-| `linalg.eig [A]` | Eigenvalues by Hessenberg + shifted QR, including complex conjugate pairs (≤ 16×16), with spectral radius and a trace cross-check. |
+| `linalg.eig [A]` | **Exact eigendecomposition** for n ≤ 4: characteristic polynomial by Bareiss over Expr, roots through the core solver (exact surds — `[1 1; 1 0]` → golden ratio — complex pairs, and symbolic matrices: `[a 1; 1 a]` → a ± 1), eigenvectors from an exact rational null space (multi-dimensional eigenspaces included) or the 2×2 closed form. Anything the exact machinery can't factor, and everything larger, falls back to Hessenberg + shifted QR (≤ 16×16) with spectral radius and a trace cross-check. |
 | `linalg.svd [A]` | One-sided Jacobi SVD: singular values, rank, cond, U and V tables. |
 | `linalg.rank [A]` | Numeric rank via the SVD tolerance. |
 | `linalg.lstsq [A], [b]` | Least squares via the SVD pseudoinverse, with the residual norm. |
+| `linalg.trisolve [sub], [diag], [super], [b]` | **Structured**: tridiagonal solve by the O(n) Thomas algorithm (n up to 4096), zero pivots reported instead of divided by. |
+| `linalg.toeplitz [first column], [b]` | **Structured**: symmetric Toeplitz solve by the O(n²) Levinson recursion; singular leading principal minors are reported (the recursion needs strong nonsingularity). |
+| `linalg.circulant [first column], [b]` | **Structured**: circulant solve by DFT diagonalization; a vanishing eigenvalue (DFT coefficient of the first column) is reported as singular. Every structured command prints the residual against a structured matvec. |
 
 Every analysis additionally reports **classical stability margins** (gain
 margin at the −180° crossing, phase margin at the 0 dB crossing, refined by
