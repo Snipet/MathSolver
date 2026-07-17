@@ -126,6 +126,16 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
         note: args[1] ? `collect in ${args[1]}` : "collect",
       };
     }
+    case "apart": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      return {
+        kind: "math",
+        latex: f.latex,
+        note: args[1] ? `partial fractions in ${args[1]}` : "partial fractions",
+      };
+    }
     case "plot": {
       if (!expr) return NONE;
       const f = await fragment(expr);

@@ -10,6 +10,7 @@ export interface MathSolverModule {
   latex(input: string): string;
   subs(input: string, assignments: string, simplifyResult: boolean): string;
   collect(input: string, variable: string): string;
+  apart(input: string, variable: string): string;
   derivative(input: string, variable: string): string;
   laplace(input: string, timeVar: string): string;
   ilaplace(input: string, freqVar: string): string;

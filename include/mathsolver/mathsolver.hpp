@@ -4,6 +4,7 @@
 
 #include <string_view>
 
+#include "mathsolver/apart.hpp"
 #include "mathsolver/derivative.hpp"
 #include "mathsolver/errors.hpp"
 #include "mathsolver/evaluator.hpp"

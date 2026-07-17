@@ -140,6 +140,7 @@ export interface EngineApi {
     TransformResult,
   ];
   collect: [[input: string, variable: string], TransformResult];
+  apart: [[input: string, variable: string], TransformResult];
   derivative: [[input: string, variable: string], TransformResult];
   laplace: [[input: string, timeVar: string], TransformResult];
   ilaplace: [[input: string, freqVar: string], TransformResult];

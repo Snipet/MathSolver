@@ -44,6 +44,7 @@ const MATH_VERBS = new Set([
   "evaluate",
   "subs",
   "collect",
+  "apart",
   "laplace",
   "ilaplace",
 ]);
@@ -170,6 +171,7 @@ function helpMessage(): NotebookMessage {
       "solve <eq>; <eq>[; …][, <var>, …]   (linear system)",
       "eval <expr>, x=1[, y=2 …]           subs <expr>, x=y+1[, …]",
       "collect <expr>[, <var>]             latex <expr>",
+      "apart <expr>[, <var>]               partial fractions",
       "laplace <expr>[, <t>]      f(t) → F(s)   ilaplace <expr>[, <s>]  F(s) → f(t)",
       "plot <expr>[, <lo>, <hi>]           chart an expression",
       "<name> := <value>      bind a variable (applies to later lines)",
@@ -272,6 +274,13 @@ async function runVerb(verb: string, rest: string): Promise<CellResult> {
       const v = args[1] ?? (await inferVar(expr));
       const env = await applyEnv(expr, [v], "expr");
       const r = await call("collect", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "apart": {
+      const v = args[1] ?? (await inferVar(expr));
+      const env = await applyEnv(expr, [v], "expr");
+      const r = await call("apart", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }

@@ -317,6 +317,15 @@ void run_collect(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(collect(e, var), style));
 }
 
+/// `apart` expands a rational function into partial fractions; the variable
+/// is inferred exactly like collect when omitted.
+void run_apart(const std::string& input, const std::string& explicit_var,
+               PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "apart");
+    std::println("{}", to_string(apart(e, var), style));
+}
+
 /// `integrate` (DESIGN.md §8b): indefinite prints `F(x) + C`, definite
 /// (--from/--to, both or neither) prints `value = ...` / `value ≈ ...`;
 /// Unsolved prints `unable to integrate` and still exits 0 — it is an answer.
@@ -649,6 +658,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver diff     \"sin(x^2)\" [x]\n"
                "  mathsolver integrate \"x*sin(x)\" [x]\n"
                "  mathsolver integrate \"sin(x)\" [x] --from 0 --to pi\n"
+               "  mathsolver apart    \"(3x+2)/((x+1)(x+2))\" [x]\n"
                "  mathsolver laplace  \"e^(-t) sin(2t)\" [t]\n"
                "  mathsolver ilaplace \"1/(s^2 + 2s + 5)\" [s]\n"
                "  mathsolver eval     \"x^2 + y\" x=3 y=0.5\n"
@@ -672,7 +682,8 @@ void print_usage(std::FILE* out) {
 bool is_known_subcommand(std::string_view s) {
     return s == "simplify" || s == "expand" || s == "factor" || s == "solve" ||
            s == "diff" || s == "integrate" || s == "eval" || s == "latex" ||
-           s == "subs" || s == "collect" || s == "laplace" || s == "ilaplace";
+           s == "subs" || s == "collect" || s == "laplace" || s == "ilaplace" ||
+           s == "apart";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -761,7 +772,8 @@ int run_one_shot(const std::vector<std::string>& args) {
                                                 positionals.end());
             run_solve_system(input, vars, style);
         } else if (sub == "solve" || sub == "diff" || sub == "integrate" ||
-                   sub == "collect" || sub == "laplace" || sub == "ilaplace") {
+                   sub == "collect" || sub == "laplace" || sub == "ilaplace" ||
+                   sub == "apart") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (usage: mathsolver {} \"<input>\" [var])",
@@ -774,6 +786,8 @@ int run_one_shot(const std::vector<std::string>& args) {
                 run_diff(input, var, style);
             } else if (sub == "collect") {
                 run_collect(input, var, style);
+            } else if (sub == "apart") {
+                run_apart(input, var, style);
             } else if (sub == "laplace") {
                 run_laplace(input, var, style);
             } else if (sub == "ilaplace") {
@@ -839,6 +853,7 @@ void print_repl_help() {
         "  eval <expression>, x=1[, y=2 ...]\n"
         "  subs <expression>, x=y+1[, z=2 ...]\n"
         "  collect <expression>[, <variable>]\n"
+        "  apart <expression>[, <variable>]       partial fractions\n"
         "  laplace <expression>[, <time var>]     f(t) -> F(s)\n"
         "  ilaplace <expression>[, <freq var>]    F(s) -> f(t)\n"
         "  simplify <expression>      expand <expression>\n"
@@ -864,7 +879,7 @@ bool is_repl_command(std::string_view word) {
            word == "solve" || word == "diff" || word == "integrate" ||
            word == "eval" || word == "latex" || word == "debug" ||
            word == "subs" || word == "collect" || word == "laplace" ||
-           word == "ilaplace";
+           word == "ilaplace" || word == "apart";
 }
 
 // ---------------------------------------------------------------------------
@@ -1339,7 +1354,7 @@ void repl_command(const std::string& command, const std::string& rest,
         // The first comma segment holds the equation(s) (';'-separated for a
         // system), the remaining segments are the variables.
         repl_solve(input, {parts.begin() + 1, parts.end()}, env);
-    } else if (command == "diff" || command == "collect") {
+    } else if (command == "diff" || command == "collect" || command == "apart") {
         if (parts.size() > 2) {
             throw UsageError{std::format(
                 "too many arguments: usage: {} <input>[, <variable>]", command)};
@@ -1354,6 +1369,8 @@ void repl_command(const std::string& command, const std::string& rest,
             PrintStyle::Plain);
         if (command == "diff") {
             run_diff(resolved, var, PrintStyle::Plain);
+        } else if (command == "apart") {
+            run_apart(resolved, var, PrintStyle::Plain);
         } else {
             run_collect(resolved, var, PrintStyle::Plain);
         }

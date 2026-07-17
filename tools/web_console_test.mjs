@@ -134,6 +134,10 @@ try {
     (await run("integrate x*sin(x), x")).includes("-x*cos(x)"),
   );
   check(
+    "apart verb",
+    (await run("apart (3x+2)/((x+1)(x+2))")).includes("4/(x + 2)"),
+  );
+  check(
     "laplace verb",
     (await run("laplace e^(-t) sin(2t)")).includes("(s + 1)^2 + 4"),
   );

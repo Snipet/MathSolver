@@ -308,6 +308,31 @@ std::string ms_derivative(std::string input, std::string var) {
     });
 }
 
+/// apart(expr, variable): partial-fraction expansion. An empty variable
+/// infers the single free symbol, mirroring collect.
+std::string ms_apart(std::string input, std::string variable) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string var = trim(variable);
+        if (var.empty()) {
+            const std::set<std::string> syms = free_symbols(e);
+            if (syms.size() != 1) {
+                std::string list;
+                for (const auto& s : syms) {
+                    if (!list.empty()) list += ", ";
+                    list += s;
+                }
+                return err_json(
+                    syms.empty()
+                        ? "cannot infer the variable: the input has no free symbols"
+                        : "cannot infer the variable: candidates are " + list);
+            }
+            var = *syms.begin();
+        }
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(apart(e, var)));
+    });
+}
+
 /// laplace(expr, timeVar): f(t) -> F(s). Empty timeVar defaults to t.
 std::string ms_laplace(std::string input, std::string time) {
     return guarded([&]() -> std::string {
@@ -564,6 +589,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("subs", &ms_subs);
     emscripten::function("collect", &ms_collect);
     emscripten::function("derivative", &ms_derivative);
+    emscripten::function("apart", &ms_apart);
     emscripten::function("laplace", &ms_laplace);
     emscripten::function("ilaplace", &ms_ilaplace);
     emscripten::function("integrate", &ms_integrate);

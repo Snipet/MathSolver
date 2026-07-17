@@ -87,6 +87,11 @@ check("sys feedback", ms.pluginCall("sys", "feedback", "1,s + 1,3"), (r) => r.ok
 check("sys rlocus", ms.pluginCall("sys", "rlocus", "1,s^3 + 3s^2 + 2s,100"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.series.some((s) => s.label.startsWith("locus"))) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Verdict" && v.includes("unstable near K"))), "locus + critical gain");
 check("sys tfz", ms.pluginCall("sys", "tfz", "z,z^2 - 0.5z + 0.06,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.equal === true && b.series.some((s) => s.label === "unit circle")) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("inside |z| = 1"))), "z-plane analysis");
 check("sys tfz unstable", ms.pluginCall("sys", "tfz", "1,z - 1.2,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("outside |z| = 1"))), "unstable z pole");
+// partial fractions (apart.hpp)
+check("apart linear", ms.apart("(3x+2)/((x+1)(x+2))", "x"), (r) => r.ok && r.plain.includes("4/(x + 2)") && r.plain.includes("-1/(x + 1)"), "-1/(x+1) + 4/(x+2)");
+check("apart improper", ms.apart("x^2/(x^2-1)", "x"), (r) => r.ok && r.plain.startsWith("1 "), "polynomial part 1 leads");
+check("apart inferred var", ms.apart("1/(x(x+1)^2)", ""), (r) => r.ok && r.plain.includes("(x + 1)^2"), "repeated factor kept");
+check("apart error", ms.apart("sin(x)/(x+1)", "x"), (r) => !r.ok && r.error.includes("not a polynomial"), "non-rational rejected");
 // symbolic Laplace / inverse Laplace transforms (transform.hpp)
 check("laplace 1", ms.laplace("1", "t"), (r) => r.ok && r.plain === "1/s", "1/s");
 check("laplace sin", ms.laplace("sin(3t)", "t"), (r) => r.ok && r.plain === "3/(s^2 + 9)", "3/(s^2 + 9)");

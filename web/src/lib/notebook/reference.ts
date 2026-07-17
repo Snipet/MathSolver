@@ -34,6 +34,11 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         usage: "collect <expr>[, <var>]",
         hint: "Regroup as a polynomial in one variable",
       },
+      {
+        insert: "apart",
+        usage: "apart <expr>[, <var>]",
+        hint: "Partial-fraction expansion of a rational function",
+      },
       { insert: "latex", usage: "latex <expr>", hint: "Convert to LaTeX, unsimplified" },
       {
         insert: "plot",
