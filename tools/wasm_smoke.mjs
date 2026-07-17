@@ -87,6 +87,17 @@ check("sys feedback", ms.pluginCall("sys", "feedback", "1,s + 1,3"), (r) => r.ok
 check("sys rlocus", ms.pluginCall("sys", "rlocus", "1,s^3 + 3s^2 + 2s,100"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.series.some((s) => s.label.startsWith("locus"))) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Verdict" && v.includes("unstable near K"))), "locus + critical gain");
 check("sys tfz", ms.pluginCall("sys", "tfz", "z,z^2 - 0.5z + 0.06,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.equal === true && b.series.some((s) => s.label === "unit circle")) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("inside |z| = 1"))), "z-plane analysis");
 check("sys tfz unstable", ms.pluginCall("sys", "tfz", "1,z - 1.2,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("outside |z| = 1"))), "unstable z pole");
+// discrete calculus (discrete.hpp)
+check("sum polynomial", ms.sum("k^2", "k", "1", "n"), (r) => r.ok && r.status === "exact" && r.plain.includes("n^3/3"), "Faulhaber n^3/3 + ...");
+check("sum infinite geometric", ms.sum("(1/2)^k", "k", "0", "inf"), (r) => r.ok && r.status === "exact" && r.plain === "2", "= 2");
+check("sum telescoping", ms.sum("1/(k*(k+1))", "k", "1", "inf"), (r) => r.ok && r.status === "exact" && r.plain === "1", "= 1");
+check("sum diverges", ms.sum("2^k", "k", "0", "inf"), (r) => r.ok && r.status === "diverges", "divergence reported");
+check("product factorial range", ms.product("k", "k", "1", "5"), (r) => r.ok && r.plain === "120", "5! = 120");
+check("rsolve fibonacci", ms.rsolve("a(n+2) = a(n+1) + a(n)", "a(0)=0,a(1)=1"), (r) => r.ok && r.plain.includes("sqrt(5)") && r.order === 2, "Binet's formula");
+check("rsolve forced", ms.rsolve("a(n+1) = 2 a(n) + 1", "a(0)=0"), (r) => r.ok && r.plain.includes("2^n"), "2^n - 1");
+// vector-calculus review regressions
+check("grad rejects multi-component", ms.vectorOp("grad", "x^2; y^2", "x,y"), (r) => !r.ok && r.error.includes("single scalar"), "no silent truncation");
+check("field rejects unknown symbols", ms.sampleField("a*x", "y", "x", "y", -1, 1, -1, 1, 3), (r) => !r.ok && r.error.includes("a"), "unbound symbol reported");
 // limits (limit.hpp)
 check("limit lhopital", ms.limit("sin(x)/x", "x", "0", ""), (r) => r.ok && r.status === "exact" && r.plain === "1", "sin x/x -> 1");
 check("limit rational inf", ms.limit("(3x^2+1)/(x^2-5)", "x", "inf", ""), (r) => r.ok && r.status === "exact" && r.plain === "3", "leading coefficients");

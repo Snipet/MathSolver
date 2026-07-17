@@ -363,6 +363,12 @@ std::string ms_vector_op(std::string op, std::string field_semi,
         if (field.empty()) {
             return err_json("no field expression given");
         }
+        if ((op == "grad" || op == "laplacian" || op == "hessian") &&
+            field.size() != 1) {
+            return err_json(op + " takes a single scalar field, not " +
+                            std::to_string(field.size()) +
+                            " ';'-separated components");
+        }
         const Expr scalar = field.front();
         auto render_vec = [](const ExprVec& v) {
             return std::format("\"plain\":{},\"latex\":{}",
@@ -412,6 +418,21 @@ std::string ms_sample_field(std::string fx, std::string fy, std::string xvar,
         const Expr v = parse_expression(fy);
         const std::string xv = trim(xvar).empty() ? "x" : trim(xvar);
         const std::string yv = trim(yvar).empty() ? "y" : trim(yvar);
+        // Unknown symbols would silently blank every sample; reject upfront.
+        std::set<std::string> extras = free_symbols(u);
+        const std::set<std::string> vsyms = free_symbols(v);
+        extras.insert(vsyms.begin(), vsyms.end());
+        extras.erase(xv);
+        extras.erase(yv);
+        if (!extras.empty()) {
+            std::string list;
+            for (const std::string& s : extras) {
+                if (!list.empty()) list += ", ";
+                list += s;
+            }
+            return err_json("the field contains symbols other than " + xv +
+                            " and " + yv + ": " + list);
+        }
         std::vector<double> xs, ys, us, vs;
         for (int j = 0; j < n; ++j) {
             for (int i = 0; i < n; ++i) {
@@ -441,6 +462,55 @@ std::string ms_sample_field(std::string fx, std::string fy, std::string xvar,
         return std::format(
             "{{\"ok\":true,\"n\":{},\"x\":{},\"y\":{},\"u\":{},\"v\":{}}}", n,
             arr(xs), arr(ys), arr(us), arr(vs));
+    });
+}
+
+std::string sum_result_json(const SumResult& r) {
+    const char* status = r.status == SumResult::Status::Exact ? "exact"
+                         : r.status == SumResult::Status::Diverges
+                             ? "diverges"
+                             : "unsolved";
+    std::string out = std::format("{{\"ok\":true,\"status\":{}", jstr(status));
+    if (r.status == SumResult::Status::Exact) {
+        out += "," + rendered_fields(r.value);
+    }
+    out += std::format(",\"method\":{},\"warnings\":{}}}", jstr(r.method),
+                       jarr_str(r.warnings));
+    return out;
+}
+
+/// sum(term, var, lo, hi): closed-form summation; hi accepts "inf".
+std::string ms_sum(std::string term, std::string var, std::string lo,
+                   std::string hi) {
+    return guarded([&]() -> std::string {
+        const Expr t = parse_expression(term);
+        const Expr l = parse_expression(lo);
+        const std::string h = trim(hi);
+        if (h == "inf" || h == "oo") {
+            return sum_result_json(sum_infinite(t, trim(var), l));
+        }
+        return sum_result_json(sum_finite(t, trim(var), l, parse_expression(h)));
+    });
+}
+
+/// product(term, var, lo, hi): closed-form product (numeric or geometric).
+std::string ms_product(std::string term, std::string var, std::string lo,
+                       std::string hi) {
+    return guarded([&]() -> std::string {
+        return sum_result_json(product_finite(parse_expression(term), trim(var),
+                                              parse_expression(lo),
+                                              parse_expression(hi)));
+    });
+}
+
+/// rsolve(recurrence, conditionsCsv): closed form of a linear recurrence.
+std::string ms_rsolve(std::string recurrence, std::string conditions_csv) {
+    return guarded([&]() -> std::string {
+        const RsolveResult r = rsolve(recurrence, split_csv(conditions_csv));
+        return std::format(
+            "{{\"ok\":true,{},\"order\":{},\"method\":{},\"warnings\":{}}}",
+            rendered_fields(r.solution), r.order, jstr(r.method),
+            jarr_str(r.warnings));
     });
 }
 
@@ -800,6 +870,9 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("series", &ms_series);
     emscripten::function("vectorOp", &ms_vector_op);
     emscripten::function("limit", &ms_limit);
+    emscripten::function("sum", &ms_sum);
+    emscripten::function("product", &ms_product);
+    emscripten::function("rsolve", &ms_rsolve);
     emscripten::function("sampleField", &ms_sample_field);
     emscripten::function("laplace", &ms_laplace);
     emscripten::function("ilaplace", &ms_ilaplace);

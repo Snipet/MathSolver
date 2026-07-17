@@ -165,6 +165,16 @@ try {
     (await run("limit 1/x, x, 0, right")).includes("+∞"),
   );
   check(
+    "sum verb Faulhaber",
+    (await run("sum k^2, k, 1, n")).includes("n^3/3"),
+  );
+  check(
+    "rsolve verb Binet",
+    (await run("rsolve a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1")).includes(
+      "sqrt(5)",
+    ),
+  );
+  check(
     "curl verb",
     (await run("curl -y; x; 0, x, y, z")).includes("(0, 0, 2)"),
   );

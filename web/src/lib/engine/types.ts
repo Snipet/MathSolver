@@ -32,6 +32,19 @@ export type LimitCallResult =
     } & Partial<Rendered>)
   | EngineError;
 
+export type SumCallResult =
+  | ({
+      ok: true;
+      status: "exact" | "diverges" | "unsolved";
+      method: string;
+      warnings: string[];
+    } & Partial<Rendered>)
+  | EngineError;
+
+export type RsolveCallResult =
+  | ({ ok: true; order: number; method: string; warnings: string[] } & Rendered)
+  | EngineError;
+
 export type FieldResult =
   | {
       ok: true;
@@ -182,6 +195,12 @@ export interface EngineApi {
     [input: string, variable: string, point: string, direction: string],
     LimitCallResult,
   ];
+  sum: [[term: string, variable: string, lo: string, hi: string], SumCallResult];
+  product: [
+    [term: string, variable: string, lo: string, hi: string],
+    SumCallResult,
+  ];
+  rsolve: [[recurrence: string, conditionsCsv: string], RsolveCallResult];
   sampleField: [
     [
       fx: string,

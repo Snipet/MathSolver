@@ -129,6 +129,24 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
     case "dsolve":
       // The ODE prime grammar (y'' …) is not an expression; no live preview.
       return NONE;
+    case "sum":
+    case "product": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      const v = args[1] ?? "k";
+      const lo = args[2] ?? "?";
+      const hi =
+        args[3] === "inf" || args[3] === "oo" ? "\\infty" : (args[3] ?? "?");
+      const op = verb === "sum" ? "\\sum" : "\\prod";
+      return {
+        kind: "math",
+        latex: `${op}_{${v}=${lo}}^{${hi}} ${f.latex}`,
+      };
+    }
+    case "rsolve":
+      // The a(n+k) grammar is not an expression; no live preview.
+      return NONE;
     case "limit": {
       if (!expr) return NONE;
       const f = await fragment(expr);

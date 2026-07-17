@@ -349,6 +349,60 @@ void run_series(const std::string& input, const std::string& explicit_var,
 
 std::vector<std::string> split_top_level(const std::string& s, char delim);
 
+void print_sum_result(const SumResult& r, const char* noun, PrintStyle style) {
+    switch (r.status) {
+        case SumResult::Status::Exact:
+            std::println("{} = {}", noun, to_string(r.value, style));
+            break;
+        case SumResult::Status::Diverges:
+            std::println("the {} diverges", noun);
+            break;
+        case SumResult::Status::Unsolved:
+            std::println("unable to find a closed form");
+            break;
+    }
+    if (!r.method.empty()) {
+        std::println("method: {}", r.method);
+    }
+    for (const std::string& w : r.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
+/// `sum <term> <var> <lo> <hi>` (hi accepts inf) and `product` likewise.
+void run_sum(const std::string& input, const std::vector<std::string>& args,
+             bool is_product, PrintStyle style) {
+    if (args.size() != 4) {
+        throw UsageError{std::format(
+            "usage: {} <term>, <variable>, <lo>, <hi>{}",
+            is_product ? "product" : "sum", is_product ? "" : "   (hi may be inf)")};
+    }
+    const Expr term = parse_expression_diag(input);
+    const std::string& var = args[1];
+    const Expr lo = parse_expression_diag(args[2]);
+    if (!is_product && (args[3] == "inf" || args[3] == "oo")) {
+        print_sum_result(sum_infinite(term, var, lo), "sum", style);
+        return;
+    }
+    const Expr hi = parse_expression_diag(args[3]);
+    if (is_product) {
+        print_sum_result(product_finite(term, var, lo, hi), "product", style);
+    } else {
+        print_sum_result(sum_finite(term, var, lo, hi), "sum", style);
+    }
+}
+
+/// `rsolve <recurrence>[, a(0)=v, ...]` — mirrors dsolve's shape.
+void run_rsolve(const std::string& input, PrintStyle style) {
+    const std::vector<std::string> parts = split_top_level(input, ',');
+    const RsolveResult res = rsolve(parts[0], {parts.begin() + 1, parts.end()});
+    std::println("a(n) = {}", to_string(res.solution, style));
+    std::println("method: {}", res.method);
+    for (const std::string& w : res.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
 /// `limit <expr> <var> <point> [left|right]`. The point accepts inf/-inf/oo.
 void run_limit(const std::string& input, const std::string& var,
                const std::string& point_text, const std::string& dir_text,
@@ -419,6 +473,13 @@ void run_vector(const std::string& sub, const std::vector<std::string>& position
     ExprVec field;
     for (const std::string& comp : split_top_level(positionals[0], ';')) {
         field.push_back(parse_expression_diag(comp));
+    }
+    const bool wants_scalar =
+        sub == "grad" || sub == "laplacian" || sub == "hessian";
+    if (wants_scalar && field.size() != 1) {
+        throw UsageError{std::format(
+            "{} takes a single scalar field, not {} ';'-separated components",
+            sub, field.size())};
     }
     const Expr scalar = field.front();
     if (sub == "grad") {
@@ -793,6 +854,8 @@ void print_usage(std::FILE* out) {
                "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
                "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
+               "  mathsolver sum      \"k^2\" k 1 n\n"
+               "  mathsolver rsolve   \"a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1\"\n"
                "  mathsolver grad     \"x^2 + y^2\" x y\n"
                "  mathsolver curl     \"x*y; y*z; z*x\" x y z\n"
                "  mathsolver eval     \"x^2 + y\" x=3 y=0.5\n"
@@ -819,7 +882,8 @@ bool is_known_subcommand(std::string_view s) {
            s == "subs" || s == "collect" || s == "laplace" || s == "ilaplace" ||
            s == "apart" || s == "dsolve" || s == "series" || s == "grad" ||
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
-           s == "hessian" || s == "limit";
+           s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
+           s == "rsolve";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -942,6 +1006,16 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_limit(input, positionals[1], positionals[2],
                       positionals.size() > 3 ? positionals[3] : "", style);
+        } else if (sub == "sum" || sub == "product") {
+            run_sum(input, positionals, sub == "product", style);
+        } else if (sub == "rsolve") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the recurrence and its "
+                    "conditions in one quoted argument)",
+                    positionals[1])};
+            }
+            run_rsolve(input, style);
         } else if (sub == "series") {
             if (positionals.size() > 4) {
                 throw UsageError{std::format(
@@ -1026,6 +1100,10 @@ void print_repl_help() {
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
         "  limit <expression>, <variable>, <point>[, left|right]\n"
         "         (point accepts numbers, inf, -inf)\n"
+        "  sum <term>, <var>, <lo>, <hi>          closed forms (hi may be inf)\n"
+        "  product <term>, <var>, <lo>, <hi>\n"
+        "  rsolve <recurrence>[, a(0)=v, ...]     e.g.\n"
+        "         rsolve a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1\n"
         "  grad <f>, <vars...>       div/curl <F1;F2;..>, <vars...>\n"
         "  laplacian <f>, <vars...>  jacobian <F1;..>, <vars...>  hessian <f>, <vars...>\n"
         "  simplify <expression>      expand <expression>\n"
@@ -1054,7 +1132,8 @@ bool is_repl_command(std::string_view word) {
            word == "ilaplace" || word == "apart" || word == "dsolve" ||
            word == "series" || word == "grad" || word == "div" ||
            word == "curl" || word == "laplacian" || word == "jacobian" ||
-           word == "hessian" || word == "limit";
+           word == "hessian" || word == "limit" || word == "sum" ||
+           word == "product" || word == "rsolve";
 }
 
 // ---------------------------------------------------------------------------
@@ -1534,6 +1613,30 @@ void repl_command(const std::string& command, const std::string& rest,
         positionals.push_back(resolved_field);
         positionals.insert(positionals.end(), parts.begin() + 1, parts.end());
         run_vector(command, positionals, PrintStyle::Plain);
+        return;
+    }
+    if (command == "rsolve") {
+        if (trim(rest).empty()) {
+            throw UsageError{
+                "usage: rsolve <recurrence>[, a(0)=v, ...]   e.g. "
+                "rsolve a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1"};
+        }
+        run_rsolve(rest, PrintStyle::Plain);
+        return;
+    }
+    if (command == "sum" || command == "product") {
+        const std::vector<std::string> parts = split_top_level_commas(rest);
+        if (parts.size() != 4) {
+            throw UsageError{std::format(
+                "usage: {} <term>, <variable>, <lo>, <hi>", command)};
+        }
+        std::set<std::string> excluded{parts[1]};
+        std::vector<std::string> args = parts;
+        args[0] = to_string(
+            resolve_expr(parse_expression_diag(parts[0]), env, excluded),
+            PrintStyle::Plain);
+        run_sum(args[0], args, command == "product", PrintStyle::Plain);
+        warn_assigned_variable(parts[1], env);
         return;
     }
     if (command == "dsolve") {

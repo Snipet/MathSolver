@@ -6,6 +6,7 @@
 
 #include "mathsolver/apart.hpp"
 #include "mathsolver/derivative.hpp"
+#include "mathsolver/discrete.hpp"
 #include "mathsolver/errors.hpp"
 #include "mathsolver/evaluator.hpp"
 #include "mathsolver/expr.hpp"

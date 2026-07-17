@@ -57,6 +57,9 @@ const MATH_VERBS = new Set([
   "hessian",
   "vecfield",
   "limit",
+  "sum",
+  "product",
+  "rsolve",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -187,6 +190,8 @@ function helpMessage(): NotebookMessage {
       "       dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0",
       "series <expr>[, <var>[, <center>[, <order>]]]   Taylor expansion",
       "limit <expr>, <var>, <point>[, left|right]   (point: number, inf, -inf)",
+      "sum <term>, <var>, <lo>, <hi>       product <term>, <var>, <lo>, <hi>",
+      "rsolve <recurrence>[, a(0)=v, …]    e.g. rsolve a(n+2)=a(n+1)+a(n), a(0)=0, a(1)=1",
       "grad <f>, <vars…>    div/curl <F1;F2;…>, <vars…>    laplacian <f>, <vars…>",
       "jacobian <F1;F2;…>, <vars…>    hessian <f>, <vars…>",
       "vecfield <Fx>; <Fy>[, <xlo>, <xhi>, <ylo>, <yhi>]   quiver plot",
@@ -345,6 +350,42 @@ async function runVerb(verb: string, rest: string): Promise<CellResult> {
       lines.push(...r.warnings);
       return { kind: "message", tone: "info", lines };
     }
+    case "sum":
+    case "product": {
+      if (args.length !== 4)
+        return usage(
+          `usage: ${verb} <term>, <var>, <lo>, <hi>` +
+            (verb === "sum" ? "   (hi may be inf)" : ""),
+        );
+      const v = args[1];
+      const env = await applyEnv(expr, [v], "expr");
+      const r = await call(verb, [env.text, v, args[2], args[3]]);
+      if (!r.ok) return err(env.text, r);
+      if (r.status === "exact" && r.plain && r.latex) {
+        return {
+          kind: "transform",
+          result: { ok: true, plain: r.plain, latex: r.latex },
+          computedFrom: env.computedFrom,
+        };
+      }
+      const lines = [
+        r.status === "diverges"
+          ? `the ${verb} diverges`
+          : "unable to find a closed form",
+      ];
+      if (r.method) lines.push(`method: ${r.method}`);
+      lines.push(...r.warnings);
+      return { kind: "message", tone: "info", lines };
+    }
+    case "rsolve": {
+      const r = await call("rsolve", [expr, args.slice(1).join(",")]);
+      if (!r.ok) return err(expr, r);
+      return {
+        kind: "transform",
+        result: { ok: true, plain: `a(n) = ${r.plain}`, latex: `a(n) = ${r.latex}` },
+        computedFrom: null,
+      };
+    }
     case "grad":
     case "div":
     case "curl":
@@ -375,13 +416,27 @@ async function runVerb(verb: string, rest: string): Promise<CellResult> {
           'usage: vecfield <Fx>; <Fy>[, <xlo>, <xhi>, <ylo>, <yhi>]  (two ' +
             "components over x and y)",
         );
-      const b = args
-        .slice(1)
-        .map((s) => Number.parseFloat(s));
-      const [xlo, xhi, ylo, yhi] =
-        b.length === 4 && b.every((n) => !Number.isNaN(n))
-          ? b
-          : [-2, 2, -2, 2];
+      // Bounds: none (default box) or exactly four finite numbers with
+      // xlo < xhi and ylo < yhi — partial/malformed bounds are an error,
+      // not a silent default.
+      let xlo = -2;
+      let xhi = 2;
+      let ylo = -2;
+      let yhi = 2;
+      if (args.length > 1) {
+        const b = args.slice(1).map((s) => Number.parseFloat(s));
+        if (
+          b.length !== 4 ||
+          !b.every((n) => Number.isFinite(n)) ||
+          b[0] >= b[1] ||
+          b[2] >= b[3]
+        )
+          return usage(
+            "vecfield bounds must be four finite numbers with xlo < xhi and " +
+              "ylo < yhi: vecfield <Fx>; <Fy>, <xlo>, <xhi>, <ylo>, <yhi>",
+          );
+        [xlo, xhi, ylo, yhi] = b;
+      }
       const fx = (await applyEnv(comps[0], ["x", "y"], "expr")).text;
       const fy = (await applyEnv(comps[1], ["x", "y"], "expr")).text;
       const r = await call("sampleField", [

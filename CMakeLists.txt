@@ -51,6 +51,7 @@ add_library(mathsolver_core STATIC
     src/evaluator.cpp
     src/simplify.cpp
     src/derivative.cpp
+    src/discrete.cpp
     src/integrate.cpp
     src/limit.cpp
     src/apart.cpp

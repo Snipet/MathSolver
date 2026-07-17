@@ -85,6 +85,21 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         usage: "limit <expr>, <var>, <point>[, left|right]",
         hint: "Limit at a point or ±inf (exact where possible)",
       },
+      {
+        insert: "sum",
+        usage: "sum <term>, <var>, <lo>, <hi>",
+        hint: "Closed-form summation (hi may be a symbol or inf)",
+      },
+      {
+        insert: "product",
+        usage: "product <term>, <var>, <lo>, <hi>",
+        hint: "Closed-form or exact numeric product",
+      },
+      {
+        insert: "rsolve",
+        usage: "rsolve <recurrence>[, a(0)=v, …]",
+        hint: "Solve a linear recurrence (e.g. Fibonacci → Binet)",
+      },
     ],
   },
   {

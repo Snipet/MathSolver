@@ -11,7 +11,6 @@
 #include "mathsolver/apart.hpp"
 
 #include <map>
-#include <numeric>
 #include <optional>
 #include <string>
 #include <utility>
@@ -21,6 +20,7 @@
 #include "mathsolver/printer.hpp"
 #include "mathsolver/simplify.hpp"
 #include "mathsolver/solver.hpp"
+#include "polyfactor.hpp"
 
 namespace mathsolver {
 
@@ -54,126 +54,16 @@ Expr product(std::vector<Expr> fs) {
     return simplify(make_mul(std::move(fs)));
 }
 
-// --- exact polynomial factoring by rational-root deflation ------------------
+// Factoring lives in polyfactor.hpp (shared with rsolve); apart's own
+// naming is kept via aliases.
+using FactoredDen = internal::FactoredPoly;
 
-constexpr long long k_divisor_cap = 1'000'000'000'000LL; // 1e12
-
-std::vector<long long> divisors_of(long long v) {
-    if (v < 0) {
-        v = -v;
-    }
-    if (v == 0 || v > k_divisor_cap) {
-        throw Error("apart: denominator coefficients are too large to factor");
-    }
-    std::vector<long long> out;
-    for (long long d = 1; d * d <= v; ++d) {
-        if (v % d == 0) {
-            out.push_back(d);
-            if (d != v / d) {
-                out.push_back(v / d);
-            }
-        }
-    }
-    return out;
-}
-
-/// Horner evaluation of an ascending-coefficient polynomial.
-Rational eval_poly(const std::vector<Rational>& c, const Rational& x) {
-    Rational acc{0};
-    for (std::size_t i = c.size(); i-- > 0;) {
-        acc = acc * x + c[i];
-    }
-    return acc;
-}
-
-/// Divide by (x - r), assuming r is a root. Ascending coefficients in/out.
-std::vector<Rational> deflate(const std::vector<Rational>& c, const Rational& r) {
-    std::vector<Rational> q(c.size() - 1, Rational{0});
-    Rational carry = c.back();
-    for (std::size_t i = c.size() - 1; i-- > 0;) {
-        q[i] = carry;
-        carry = c[i] + carry * r;
-    }
-    return q; // carry is the remainder, zero by assumption
-}
-
-/// The factored denominator: monic linear factors (x - root)^m, monic
-/// irreducible quadratics (x^2 + bx + c)^m, and the constant pulled out.
-struct FactoredDen {
-    std::map<Rational, int> linear;                          // root -> mult
-    std::map<std::pair<Rational, Rational>, int> quads;      // (b, c) -> mult
-    Rational lead{1};
-};
-
-/// Factor one monic-normalized base polynomial, merging `outer_mult` copies
-/// of each of its factors into `den`.
 void factor_base(std::vector<Rational> c, int outer_mult, FactoredDen& den) {
-    // Normalize monic, folding the leading coefficient into den.lead.
-    const Rational lead = c.back();
-    for (int m = 0; m < outer_mult; ++m) {
-        den.lead = den.lead * lead;
+    try {
+        internal::factor_rational_poly(std::move(c), outer_mult, den);
+    } catch (const Error& e) {
+        throw Error(std::string("apart: ") + e.what());
     }
-    for (Rational& v : c) {
-        v = v / lead;
-    }
-
-    // Roots at zero.
-    while (c.size() > 1 && c.front().is_zero()) {
-        den.linear[Rational{0}] += outer_mult;
-        c.erase(c.begin());
-    }
-
-    // Rational roots by the rational-root theorem on the integer-cleared
-    // polynomial, deflating on every hit (re-deriving candidates each time).
-    while (c.size() > 2) {
-        long long lcm = 1;
-        for (const Rational& v : c) {
-            lcm = std::lcm(lcm, v.den());
-            if (lcm > k_divisor_cap) {
-                throw Error("apart: denominator coefficients are too large to factor");
-            }
-        }
-        std::vector<long long> ic(c.size());
-        for (std::size_t i = 0; i < c.size(); ++i) {
-            ic[i] = c[i].num() * (lcm / c[i].den());
-        }
-        bool found = false;
-        for (const long long p : divisors_of(ic.front())) {
-            for (const long long q : divisors_of(ic.back())) {
-                for (const int sign : {1, -1}) {
-                    const Rational r{sign * p, q};
-                    if (eval_poly(c, r).is_zero()) {
-                        den.linear[r] += outer_mult;
-                        c = deflate(c, r);
-                        found = true;
-                        break;
-                    }
-                }
-                if (found) break;
-            }
-            if (found) break;
-        }
-        if (!found) {
-            break;
-        }
-    }
-
-    if (c.size() == 1) {
-        return; // fully deflated (monic remainder is the constant 1)
-    }
-    if (c.size() == 2) {
-        // A monic linear remainder root is rational; the loop above exits
-        // only at degree <= 2, so this arises solely from a degree-1 base.
-        den.linear[-c[0]] += outer_mult;
-        return;
-    }
-    if (c.size() == 3) {
-        den.quads[{c[1], c[0]}] += outer_mult; // x^2 + c1 x + c0
-        return;
-    }
-    throw Error(
-        "apart: cannot factor the denominator into linear and quadratic "
-        "factors over the rationals");
 }
 
 /// (x - root) or (x^2 + bx + c) as an Expr.
@@ -290,7 +180,7 @@ Expr apart_term(const Expr& term_in, const std::string& var) {
     // Total denominator degree and the full monic polynomial.
     int degree = 0;
     std::vector<Rational> d_monic{Rational{1}};
-    for (const auto& [root, m] : den.linear) {
+    for (const auto& [root, m] : den.roots) {
         degree += m;
         for (int i = 0; i < m; ++i) {
             d_monic = mul_linear(std::move(d_monic), root);
@@ -338,7 +228,7 @@ Expr apart_term(const Expr& term_in, const std::string& var) {
     std::vector<Expr> lhs_terms; // numerator * cofactor
     auto cofactor = [&](const Expr& skip_factor, int skip_power) {
         std::vector<Expr> fs;
-        for (const auto& [root, m] : den.linear) {
+        for (const auto& [root, m] : den.roots) {
             const Expr f = linear_factor(var, root);
             const int p =
                 m - (f->kind() == skip_factor->kind() &&
@@ -362,7 +252,7 @@ Expr apart_term(const Expr& term_in, const std::string& var) {
         }
         return product(std::move(fs));
     };
-    for (const auto& [root, m] : den.linear) {
+    for (const auto& [root, m] : den.roots) {
         const Expr f = linear_factor(var, root);
         for (int j = 1; j <= m; ++j) {
             const Expr u = fresh();
