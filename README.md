@@ -2,7 +2,8 @@
 
 A from-scratch computer-algebra system (CAS) in C++23: parse LaTeX-style math,
 simplify and transform expressions, differentiate and integrate symbolically,
-take Laplace transforms and their inverses, and solve equations — exactly
+take Laplace transforms and their inverses, solve equations and linear ODE
+initial-value problems, expand partial fractions and Taylor series — exactly
 where possible, numerically otherwise. No dependencies beyond the standard
 library (Catch2 is fetched automatically for tests only).
 
@@ -93,6 +94,41 @@ The time variable defaults to `t` (any name but `s`) and the frequency
 variable to `s`; both accept an explicit name as a second argument. Inputs
 with no transform rule error rather than returning a wrong answer.
 
+Differential equations — `dsolve` solves linear constant-coefficient
+initial-value problems exactly by the Laplace method: transform the
+equation (folding the initial conditions in), decompose Y(s) into partial
+fractions, and invert. Resonance is handled exactly (the secular `t`-term
+appears), omitted initial conditions default to zero with a warning, and
+the partial-fraction Y(s) is shown alongside the answer:
+
+```console
+$ mathsolver dsolve "y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0"
+y(t) = t*e^(-t) + e^(-t)
+Y(s) = 1/(s + 1) + 1/(s + 1)^2
+method: laplace transform + partial fractions
+$ mathsolver dsolve "y'' + y = sin(t), y(0)=0, y'(0)=0"
+y(t) = (-t*cos(t) + sin(t))/2
+Y(s) = 1/(s^2 + 1)^2
+method: laplace transform + partial fractions
+```
+
+Two supporting verbs round out the calculus toolkit. `apart` expands a
+rational function into partial fractions over the rationals (linear and
+irreducible-quadratic factors, repeated factors, improper inputs divided
+out first), and `series` builds Taylor polynomials with exact
+coefficients:
+
+```console
+$ mathsolver apart "(3x+2)/((x+1)(x+2))"
+-1/(x + 1) + 4/(x + 2)
+$ mathsolver apart "x^2/(x^2-1)"
+1 - 1/(2*(x + 1)) + 1/(2*(x - 1))
+$ mathsolver series "sin(x)" x 0 5
+x^5/120 - x^3/6 + x
+$ mathsolver series "ln(x)" x 1 3
+(x - 1)^3/3 - (x - 1)^2/2 + x - 1
+```
+
 Systems of equations — separate the equations with `;` inside one argument
 (the variables after it are optional when they can be inferred):
 
@@ -135,9 +171,9 @@ cos(x)/x - sin(x)/x^2
 
 A bare expression is simplified; a bare equation is solved for its single
 free symbol; `help` lists the commands (`solve`, `diff`, `integrate`,
-`laplace`, `ilaplace`, `eval`, `subs`, `collect`, `expand`, `factor`,
-`latex`, `debug` — e.g. `integrate sin(x), x, 0, pi`); errors keep the
-session alive.
+`laplace`, `ilaplace`, `dsolve`, `apart`, `series`, `eval`, `subs`,
+`collect`, `expand`, `factor`, `latex`, `debug` — e.g.
+`integrate sin(x), x, 0, pi`); errors keep the session alive.
 
 The REPL (and the web app) also keeps a session environment of **variable
 assignments**, entered as `name := value` and applied lazily to every
