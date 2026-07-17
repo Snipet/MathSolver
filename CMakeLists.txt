@@ -78,6 +78,8 @@ add_library(mathsolver_plugins STATIC
     plugins/linalg/linalg_core.cpp
     plugins/pde/pde.cpp
     plugins/pde/pde_core.cpp
+    plugins/ie/ie.cpp
+    plugins/ie/ie_core.cpp
 )
 target_link_libraries(mathsolver_plugins PUBLIC mathsolver_core PRIVATE mathsolver_warnings)
 
