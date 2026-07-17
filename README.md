@@ -175,7 +175,11 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   The console fills the viewport with a clickable **Commands** reference
   panel (built-ins plus the live plugin catalog), Tab autocompletion with
   inline usage hints, ↑/↓ history recall, per-cell rerun/edit actions, and
-  Ctrl+L to clear.
+  Ctrl+L to clear. As you type, a **live typeset preview** renders the math
+  the line will compute (`diff sin(x^2), x` shows d/dx(sin x²); definite
+  integrals render with their bounds; parse errors are caret-underlined),
+  and a **symbol palette** (π, √, |x|, ², ×, ÷, °, :=) inserts at the
+  cursor.
 
   The console also dispatches **plugin commands** — compiled-in C++ modules
   for numeric domains the CAS doesn't cover (see
