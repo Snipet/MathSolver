@@ -208,7 +208,7 @@ TEST_CASE("printer: functions", "[printer]") {
     CHECK(latex(make_fn(FunctionId::Cos, x())) == "\\cos\\left(x\\right)");
     CHECK(latex(make_fn(FunctionId::Asin, x())) == "\\arcsin\\left(x\\right)");
     CHECK(latex(make_fn(FunctionId::Atan, x())) == "\\arctan\\left(x\\right)");
-    CHECK(latex(make_fn(FunctionId::Abs, x())) == "abs\\left(x\\right)");
+    CHECK(latex(make_fn(FunctionId::Abs, x())) == "\\left|x\\right|");
     CHECK(latex(make_fn(FunctionId::Ln, x())) == "\\ln\\left(x\\right)");
 }
 
@@ -349,4 +349,13 @@ TEST_CASE("printer: round-trip corpus, both styles", "[printer][roundtrip]") {
     for (const Expr& e : corpus) {
         check_round_trip(e);
     }
+}
+
+TEST_CASE("printer: abs renders as LaTeX bars and round-trips") {
+    const Expr e = parse_expression("abs(x - 1)");
+    const std::string latex = to_string(e, PrintStyle::LaTeX);
+    CHECK(latex == "\\left|x - 1\\right|");
+    CHECK(structurally_equal(parse_expression(latex), e));
+    // Plain style unchanged.
+    CHECK(to_string(e, PrintStyle::Plain) == "abs(x - 1)");
 }

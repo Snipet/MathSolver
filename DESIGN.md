@@ -278,7 +278,12 @@ LaTeX style: same structure but `\frac{...}{...}` for the division rendering,
 `\sqrt{...}`, `\sin\left(...\right)` (always parenthesize function args with
 `\left(`), `\pi`, greek symbol names get their backslash back
 (`alpha` → `\alpha`), exponents in braces (`x^{10}`), subscripted symbols
-re-rendered (`x_12` → `x_{12}`). Juxtaposition between factors (`2 x` →
+re-rendered (`x_12` → `x_{12}`). Exception to the function-call form:
+`abs(u)` renders as `\left|u\right|` (standard LaTeX has no `\abs`; bars are
+what external renderers like KaTeX expect), and the parser accepts
+`\left| ... \right|` as absolute value so the round-trip holds. Bare `|`
+outside `\left`/`\right` remains a parse error (ambiguous nesting; see
+ROADMAP). Juxtaposition between factors (`2 x` →
 `2x`) EXCEPT: emit `\cdot` whenever the preceding factor ends in a digit and
 the following factor's rendering starts with a digit (e.g.
 `Mul(2, Pow(10, x))` → `2 \cdot 10^{x}`, which would otherwise re-lex as

@@ -405,6 +405,11 @@ std::string render_function(const Expr& e, PrintStyle style) {
     if (style == PrintStyle::Plain) {
         return std::string(function_name(e->function())) + "(" + arg + ")";
     }
+    if (e->function() == FunctionId::Abs) {
+        // Standard LaTeX has no \abs command; bars are what renderers
+        // (KaTeX/MathJax) and humans expect, and the parser accepts them.
+        return "\\left|" + arg + "\\right|";
+    }
     std::string_view name;
     switch (e->function()) {
         case FunctionId::Asin: name = "arcsin"; break;
@@ -412,11 +417,7 @@ std::string render_function(const Expr& e, PrintStyle style) {
         case FunctionId::Atan: name = "arctan"; break;
         default: name = function_name(e->function()); break;
     }
-    // There is no \abs command; the bare identifier parses identically.
-    std::string out = e->function() == FunctionId::Abs ? std::string(name)
-                                                       : "\\" + std::string(name);
-    out += "\\left(" + arg + "\\right)";
-    return out;
+    return "\\" + std::string(name) + "\\left(" + arg + "\\right)";
 }
 
 std::string render(const Expr& e, PrintStyle style) {

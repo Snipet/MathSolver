@@ -492,3 +492,15 @@ TEST_CASE("parser: unexpected non-ASCII byte reports the whole character",
     CHECK(ascii.begin() == 0);
     CHECK(ascii.end() == 1);
 }
+
+TEST_CASE("parser: \\left| ... \\right| is absolute value") {
+    CHECK(structurally_equal(parse_expression("\\left|x\\right|"),
+                             make_fn(FunctionId::Abs, make_sym("x"))));
+    CHECK(structurally_equal(parse_expression("\\left|x - 1\\right| + 2"),
+                             parse_expression("abs(x - 1) + 2")));
+    // Mismatched bar delimiters are errors.
+    CHECK_THROWS_AS(parse_expression("\\left|x\\right)"), ParseError);
+    CHECK_THROWS_AS(parse_expression("\\left(x\\right|"), ParseError);
+    // Bare '|' outside \left/\right stays an error.
+    CHECK_THROWS_AS(parse_expression("|x|"), ParseError);
+}

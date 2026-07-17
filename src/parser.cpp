@@ -42,6 +42,7 @@ enum class Tok {
     RBracket,
     Comma,
     Underscore,
+    Pipe,
     End,
 };
 
@@ -362,6 +363,7 @@ private:
         case '[': push(Tok::LBracket, begin, ++pos_); return;
         case ']': push(Tok::RBracket, begin, ++pos_); return;
         case ',': push(Tok::Comma, begin, ++pos_); return;
+        case '|': push(Tok::Pipe, begin, ++pos_); return;
         default:
             throw unexpected_character(begin);
         }
@@ -576,10 +578,12 @@ private:
         Token left = advance(); // \left
         Tok close = Tok::End;
         char close_char = ')';
+        bool is_abs = false;
         switch (peek().kind) {
         case Tok::LParen: close = Tok::RParen, close_char = ')'; break;
         case Tok::LBracket: close = Tok::RBracket, close_char = ']'; break;
         case Tok::LBrace: close = Tok::RBrace, close_char = '}'; break;
+        case Tok::Pipe: close = Tok::Pipe, close_char = '|', is_abs = true; break;
         default:
             throw ParseError("expected a delimiter after '\\left'",
                              peek().kind == Tok::End ? left.begin : peek().begin,
@@ -587,6 +591,10 @@ private:
         }
         Token open = advance();
         Expr e = parse_expr();
+        if (is_abs) {
+            // \left| u \right| is absolute value (the LaTeX printer's form).
+            e = make_fn(FunctionId::Abs, std::move(e));
+        }
         if (peek().kind != Tok::Right) {
             if (peek().kind == Tok::End) {
                 throw ParseError("missing '\\right'", left.begin, open.end);
