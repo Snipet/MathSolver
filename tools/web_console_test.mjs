@@ -174,6 +174,16 @@ try {
       "sqrt(5)",
     ),
   );
+  const laOut = await run("linalg.solve [2 1; 1 3], [3 5]");
+  check(
+    "linalg.solve renders",
+    laOut.includes("(0.8, 1.4)"),
+    laOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "linalg symbolic det",
+    (await run("linalg.det [a b; c d]")).includes("a*d"),
+  );
   check(
     "curl verb",
     (await run("curl -y; x; 0, x, y, z")).includes("(0, 0, 2)"),

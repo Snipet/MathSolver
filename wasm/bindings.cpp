@@ -141,10 +141,15 @@ std::string trim(std::string_view s) {
 }
 
 std::vector<std::string> split_csv(std::string_view s) {
+    // Top-level commas only: commas nested in (), [], {} stay inside their
+    // argument (matrix literals like "[1,2;3,4]" arrive intact).
     std::vector<std::string> out;
     std::size_t start = 0;
+    int depth = 0;
     for (std::size_t i = 0; i <= s.size(); ++i) {
-        if (i == s.size() || s[i] == ',') {
+        if (i < s.size() && (s[i] == '(' || s[i] == '[' || s[i] == '{')) ++depth;
+        if (i < s.size() && (s[i] == ')' || s[i] == ']' || s[i] == '}')) --depth;
+        if (i == s.size() || (s[i] == ',' && depth <= 0)) {
             const std::string item = trim(s.substr(start, i - start));
             if (!item.empty()) out.push_back(item);
             start = i + 1;

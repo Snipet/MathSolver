@@ -33,6 +33,7 @@ add_executable(mathsolver_tests
     test_cli.cpp
     test_plugin_dsp.cpp
     test_plugin_sys.cpp
+    test_plugin_linalg.cpp
 )
 target_link_libraries(mathsolver_tests PRIVATE mathsolver_core mathsolver_plugins Catch2::Catch2WithMain)
 
