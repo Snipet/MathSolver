@@ -151,6 +151,10 @@ export interface EngineApi {
   collect: [[input: string, variable: string], TransformResult];
   apart: [[input: string, variable: string], TransformResult];
   dsolve: [[ode: string, conditionsCsv: string], DsolveResult];
+  series: [
+    [input: string, variable: string, center: string, order: number],
+    TransformResult,
+  ];
   derivative: [[input: string, variable: string], TransformResult];
   laplace: [[input: string, timeVar: string], TransformResult];
   ilaplace: [[input: string, freqVar: string], TransformResult];

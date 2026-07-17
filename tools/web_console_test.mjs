@@ -151,6 +151,10 @@ try {
     dsolveOut.includes("t*e^(-t)") && dsolveOut.includes("Y(s)"),
     dsolveOut.replace(/\n/g, " ").slice(0, 80),
   );
+  check(
+    "series verb expands",
+    (await run("series sin(x), x, 0, 5")).includes("x^5/120"),
+  );
 
   const solveOut = await run("solve x^2 = 4, x");
   check("solve equation", solveOut.includes("x = -2; x = 2"), solveOut.replace(/\n/g, " ").slice(0, 60));

@@ -48,6 +48,7 @@ const MATH_VERBS = new Set([
   "laplace",
   "ilaplace",
   "dsolve",
+  "series",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -176,6 +177,7 @@ function helpMessage(): NotebookMessage {
       "laplace <expr>[, <t>]      f(t) → F(s)   ilaplace <expr>[, <s>]  F(s) → f(t)",
       "dsolve <ode>[, y(0)=v, y'(0)=v, …]  solve an IVP, e.g.",
       "       dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0",
+      "series <expr>[, <var>[, <center>[, <order>]]]   Taylor expansion",
       "plot <expr>[, <lo>, <hi>]           chart an expression",
       "<name> := <value>      bind a variable (applies to later lines)",
       "<plugin>.<command> …   call a plugin (run plugins for the catalog),",
@@ -293,6 +295,18 @@ async function runVerb(verb: string, rest: string): Promise<CellResult> {
       const r = await call("dsolve", [expr, args.slice(1).join(",")]);
       if (!r.ok) return err(expr, r);
       return { kind: "dsolve", result: r, computedFrom: null };
+    }
+    case "series": {
+      if (args.length > 4)
+        return usage("usage: series <expr>[, <var>[, <center>[, <order>]]]");
+      const v = args[1] ?? (await inferVar(expr));
+      const order = args[3] ? Number.parseInt(args[3], 10) : 6;
+      if (Number.isNaN(order))
+        return usage(`series order must be an integer, got '${args[3]}'`);
+      const env = await applyEnv(expr, [v], "expr");
+      const r = await call("series", [env.text, v, args[2] ?? "", order]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }
     case "laplace": {
       // Time variable defaults to t (not inferred): L{f(t)} = F(s).

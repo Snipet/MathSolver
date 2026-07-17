@@ -92,6 +92,11 @@ check("apart linear", ms.apart("(3x+2)/((x+1)(x+2))", "x"), (r) => r.ok && r.pla
 check("apart improper", ms.apart("x^2/(x^2-1)", "x"), (r) => r.ok && r.plain.startsWith("1 "), "polynomial part 1 leads");
 check("apart inferred var", ms.apart("1/(x(x+1)^2)", ""), (r) => r.ok && r.plain.includes("(x + 1)^2"), "repeated factor kept");
 check("apart error", ms.apart("sin(x)/(x+1)", "x"), (r) => !r.ok && r.error.includes("not a polynomial"), "non-rational rejected");
+// Taylor series (series.hpp)
+check("series maclaurin", ms.series("sin(x)", "x", "0", 5), (r) => r.ok && r.plain === "x^5/120 - x^3/6 + x", "sin(x) to order 5");
+check("series centered", ms.series("ln(x)", "x", "1", 3), (r) => r.ok && r.plain.includes("(x - 1)^3/3"), "ln about 1");
+check("series inferred", ms.series("e^x", "", "", 3), (r) => r.ok && r.plain.includes("x^3/6"), "var inferred, default center");
+check("series singular", ms.series("ln(x)", "x", "0", 3), (r) => !r.ok && r.error.includes("singular"), "singular center rejected");
 // dsolve: linear ODE IVPs by the Laplace method (ode.hpp)
 check("dsolve decay", ms.dsolve("y' + y = 0", "y(0)=1"), (r) => r.ok && r.plain === "e^(-t)", "e^(-t)");
 check("dsolve forced", ms.dsolve("y'' + 3y' + 2y = e^(-t)", "y(0)=1,y'(0)=0"), (r) => r.ok && r.plain.includes("t*e^(-t)") && r.transformPlain.includes("(s + 1)^2"), "t e^(-t) + e^(-t), Y(s) shown");

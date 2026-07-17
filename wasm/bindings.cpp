@@ -333,6 +333,31 @@ std::string ms_apart(std::string input, std::string variable) {
     });
 }
 
+/// series(expr, variable, center, order): Taylor expansion. Empty variable
+/// infers the single free symbol; empty center means 0.
+std::string ms_series(std::string input, std::string variable,
+                      std::string center, int order) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string var = trim(variable);
+        if (var.empty()) {
+            const std::set<std::string> syms = free_symbols(e);
+            if (syms.size() != 1) {
+                return err_json(
+                    syms.empty()
+                        ? "cannot infer the variable: the input has no free symbols"
+                        : "give the series variable explicitly: series <expr>, "
+                          "<var>[, <center>[, <order>]]");
+            }
+            var = *syms.begin();
+        }
+        const Expr c = trim(center).empty() ? make_num(0)
+                                            : parse_expression(trim(center));
+        return std::format("{{\"ok\":true,{}}}",
+                           rendered_fields(series(e, var, c, order)));
+    });
+}
+
 /// dsolve(ode, conditionsCsv): solve a linear constant-coefficient IVP.
 /// Returns the solution as plain/latex plus the partial-fraction Y(s) and
 /// any assumed-zero-IC warnings.
@@ -622,6 +647,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("derivative", &ms_derivative);
     emscripten::function("apart", &ms_apart);
     emscripten::function("dsolve", &ms_dsolve);
+    emscripten::function("series", &ms_series);
     emscripten::function("laplace", &ms_laplace);
     emscripten::function("ilaplace", &ms_ilaplace);
     emscripten::function("integrate", &ms_integrate);

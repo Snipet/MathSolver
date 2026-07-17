@@ -14,6 +14,7 @@
 #include "mathsolver/parser.hpp"
 #include "mathsolver/printer.hpp"
 #include "mathsolver/rational.hpp"
+#include "mathsolver/series.hpp"
 #include "mathsolver/simplify.hpp"
 #include "mathsolver/solver.hpp"
 #include "mathsolver/transform.hpp"

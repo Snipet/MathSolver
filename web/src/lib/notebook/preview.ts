@@ -129,6 +129,18 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
     case "dsolve":
       // The ODE prime grammar (y'' …) is not an expression; no live preview.
       return NONE;
+    case "series": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      const about = args[2] ?? "0";
+      const ord = args[3] ?? "6";
+      return {
+        kind: "math",
+        latex: f.latex,
+        note: `Taylor about ${about}, order ${ord}`,
+      };
+    }
     case "apart": {
       if (!expr) return NONE;
       const f = await fragment(expr);

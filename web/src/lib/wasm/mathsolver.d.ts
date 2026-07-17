@@ -12,6 +12,7 @@ export interface MathSolverModule {
   collect(input: string, variable: string): string;
   apart(input: string, variable: string): string;
   dsolve(ode: string, conditionsCsv: string): string;
+  series(input: string, variable: string, center: string, order: number): string;
   derivative(input: string, variable: string): string;
   laplace(input: string, timeVar: string): string;
   ilaplace(input: string, freqVar: string): string;

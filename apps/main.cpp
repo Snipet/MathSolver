@@ -326,6 +326,27 @@ void run_apart(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(apart(e, var), style));
 }
 
+/// `series`: Taylor expansion about a center (default 0) to an order
+/// (default 6); the variable is inferred like diff when omitted.
+void run_series(const std::string& input, const std::string& explicit_var,
+                const std::string& center_text, const std::string& order_text,
+                PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "series");
+    const Expr center =
+        center_text.empty() ? make_num(0) : parse_expression_diag(center_text);
+    int order = 6;
+    if (!order_text.empty()) {
+        const auto n = parse_double(order_text);
+        if (!n || *n != std::floor(*n)) {
+            throw UsageError{std::format("series order must be an integer, got '{}'",
+                                         order_text)};
+        }
+        order = static_cast<int>(*n);
+    }
+    std::println("{}", to_string(series(e, var, center, order), style));
+}
+
 /// `integrate` (DESIGN.md §8b): indefinite prints `F(x) + C`, definite
 /// (--from/--to, both or neither) prints `value = ...` / `value ≈ ...`;
 /// Unsolved prints `unable to integrate` and still exits 0 — it is an answer.
@@ -677,6 +698,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver laplace  \"e^(-t) sin(2t)\" [t]\n"
                "  mathsolver ilaplace \"1/(s^2 + 2s + 5)\" [s]\n"
                "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
+               "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
                "  mathsolver eval     \"x^2 + y\" x=3 y=0.5\n"
                "  mathsolver latex    \"sqrt(x)/2\"\n"
                "  mathsolver --help | --version\n"
@@ -699,7 +721,7 @@ bool is_known_subcommand(std::string_view s) {
     return s == "simplify" || s == "expand" || s == "factor" || s == "solve" ||
            s == "diff" || s == "integrate" || s == "eval" || s == "latex" ||
            s == "subs" || s == "collect" || s == "laplace" || s == "ilaplace" ||
-           s == "apart" || s == "dsolve";
+           s == "apart" || s == "dsolve" || s == "series";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -811,6 +833,16 @@ int run_one_shot(const std::vector<std::string>& args) {
             } else {
                 run_integrate(input, var, from_text, to_text, style);
             }
+        } else if (sub == "series") {
+            if (positionals.size() > 4) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver series "
+                    "\"<expr>\" [var] [center] [order])",
+                    positionals[4])};
+            }
+            run_series(input, positionals.size() > 1 ? positionals[1] : "",
+                       positionals.size() > 2 ? positionals[2] : "",
+                       positionals.size() > 3 ? positionals[3] : "", style);
         } else if (sub == "dsolve") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -882,6 +914,7 @@ void print_repl_help() {
         "  ilaplace <expression>[, <freq var>]    F(s) -> f(t)\n"
         "  dsolve <ode>[, y(0)=v, y'(0)=v, ...]   solve an IVP, e.g.\n"
         "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
+        "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
         "  simplify <expression>      expand <expression>\n"
         "  factor <expression>        latex <expression>\n"
         "  debug <expression>         (s-expression dump)\n"
@@ -905,7 +938,8 @@ bool is_repl_command(std::string_view word) {
            word == "solve" || word == "diff" || word == "integrate" ||
            word == "eval" || word == "latex" || word == "debug" ||
            word == "subs" || word == "collect" || word == "laplace" ||
-           word == "ilaplace" || word == "apart" || word == "dsolve";
+           word == "ilaplace" || word == "apart" || word == "dsolve" ||
+           word == "series";
 }
 
 // ---------------------------------------------------------------------------
@@ -1447,6 +1481,23 @@ void repl_command(const std::string& command, const std::string& rest,
             }
         }
         run_integrate(resolved, var, from_text, to_text, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "series") {
+        // series <expr>[, <var>[, <center>[, <order>]]]
+        if (parts.size() > 4) {
+            throw UsageError{
+                "usage: series <expression>[, <variable>[, <center>[, <order>]]]"};
+        }
+        const std::string var = parts.size() > 1 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
+        run_series(resolved, var, parts.size() > 2 ? parts[2] : "",
+                   parts.size() > 3 ? parts[3] : "", PrintStyle::Plain);
         warn_assigned_variable(var, env);
     } else if (command == "laplace" || command == "ilaplace") {
         if (parts.size() > 2) {
