@@ -91,8 +91,8 @@ method: partial fractions
 $ mathsolver integrate "sin(x)" --from 0 --to pi
 value = 2
 method: FTC
-$ mathsolver integrate "e^(-x^2)" --from 0 --to 1
-value ≈ 0.746824132812499
+$ mathsolver integrate "sin(x)/x" --from 1 --to 2
+value ≈ 0.659329906435827
 method: numeric (adaptive Simpson)
 $ mathsolver integrate "e^(x^2)"
 unable to integrate
