@@ -135,7 +135,7 @@ TEST_CASE("linalg: rank, cond, and least squares") {
 
 TEST_CASE("linalg plugin: commands and matrix parsing") {
     const Plugin& p = linalg_plugin();
-    CHECK(p.commands().size() == 7);
+    CHECK(p.commands().size() == 10);
 
     const std::string solve =
         p.invoke("solve", {"[2 1; 1 3]", "[3 5]"});
@@ -162,6 +162,105 @@ TEST_CASE("linalg plugin: commands and matrix parsing") {
 
     const std::string ragged = p.invoke("det", {"[1 2; 3]"});
     CHECK_THAT(ragged, ContainsSubstring("ragged"));
+}
+
+TEST_CASE("linalg: tridiagonal Thomas solve round-trips at n = 1000") {
+    // Discrete Poisson matrix (-1, 2, -1); manufacture b from a known x.
+    const std::size_t n = 1000;
+    la::Vector sub(n - 1, -1.0);
+    la::Vector diag(n, 2.0);
+    la::Vector super(n - 1, -1.0);
+    la::Vector x_true(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        x_true[i] = std::sin(0.01 * static_cast<double>(i + 1));
+    }
+    la::Vector b(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        b[i] = 2.0 * x_true[i];
+        if (i > 0) b[i] -= x_true[i - 1];
+        if (i + 1 < n) b[i] -= x_true[i + 1];
+    }
+    const la::Vector x = la::tridiag_solve(sub, diag, super, b);
+    for (std::size_t i = 0; i < n; ++i) {
+        CHECK(std::abs(x[i] - x_true[i]) < 1e-9);
+    }
+    // Zero pivot throws instead of dividing.
+    CHECK_THROWS_AS(la::tridiag_solve({1.0}, {0.0, 1.0}, {1.0}, {1.0, 1.0}),
+                    la::LinalgError);
+}
+
+TEST_CASE("linalg: Levinson Toeplitz solve matches the dense LU") {
+    // Well-conditioned symmetric Toeplitz from a decaying first column.
+    const std::size_t n = 40;
+    la::Vector c(n, 0.0);
+    for (std::size_t i = 0; i < n; ++i) {
+        c[i] = i == 0 ? 3.0 : 1.0 / static_cast<double>(i * i + 1);
+    }
+    la::Vector x_true(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        x_true[i] = std::cos(0.3 * static_cast<double>(i));
+    }
+    const la::Vector b = la::toeplitz_matvec(c, x_true);
+    const la::Vector x = la::toeplitz_solve(c, b);
+    for (std::size_t i = 0; i < n; ++i) {
+        CHECK(std::abs(x[i] - x_true[i]) < 1e-9);
+    }
+    // [1 1; 1 1]: the 2nd leading minor is singular -> beta = 0.
+    CHECK_THROWS_WITH(la::toeplitz_solve({1.0, 1.0}, {2.0, 2.0}),
+                      ContainsSubstring("singular"));
+}
+
+TEST_CASE("linalg: circulant DFT solve round-trips and flags singularity") {
+    const la::Vector c{5.0, 1.0, 2.0, 3.0};
+    const la::Vector x_true{1.0, -2.0, 0.5, 4.0};
+    const la::Vector b = la::circulant_matvec(c, x_true);
+    const la::Vector x = la::circulant_solve(c, b);
+    for (std::size_t i = 0; i < 4; ++i) {
+        CHECK(std::abs(x[i] - x_true[i]) < 1e-10);
+    }
+    // The all-ones circulant has rank 1: every non-DC eigenvalue is 0.
+    CHECK_THROWS_WITH(
+        la::circulant_solve({1.0, 1.0, 1.0}, {3.0, 3.0, 3.0}),
+        ContainsSubstring("singular"));
+    // Larger round trip.
+    const std::size_t n = 128;
+    la::Vector cl(n, 0.0);
+    cl[0] = 4.0;
+    cl[1] = 1.0;
+    cl[n - 1] = 1.0;
+    la::Vector xl(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        xl[i] = std::sin(0.1 * static_cast<double>(i));
+    }
+    const la::Vector bl = la::circulant_matvec(cl, xl);
+    const la::Vector sol = la::circulant_solve(cl, bl);
+    for (std::size_t i = 0; i < n; ++i) {
+        CHECK(std::abs(sol[i] - xl[i]) < 1e-9);
+    }
+}
+
+TEST_CASE("linalg plugin: structured solver commands") {
+    const Plugin& p = linalg_plugin();
+    // [2 -1; -1 2] x = (1, 1) -> x = (1, 1).
+    const std::string tri =
+        p.invoke("trisolve", {"[-1]", "[2 2]", "[-1]", "[1 1]"});
+    CHECK_THAT(tri, ContainsSubstring("(1, 1)"));
+    CHECK_THAT(tri, ContainsSubstring("Thomas"));
+
+    // T = [2 1; 1 2], b = (3, 3) -> x = (1, 1).
+    const std::string toe = p.invoke("toeplitz", {"[2 1]", "[3 3]"});
+    CHECK_THAT(toe, ContainsSubstring("(1, 1)"));
+    CHECK_THAT(toe, ContainsSubstring("Levinson"));
+
+    // C from (2, 1, 1): every row sums to 4 -> x = (1, 1, 1).
+    const std::string cir = p.invoke("circulant", {"[2 1 1]", "[4 4 4]"});
+    CHECK_THAT(cir, ContainsSubstring("(1, 1, 1)"));
+    CHECK_THAT(cir, ContainsSubstring("DFT"));
+
+    CHECK_THAT(p.invoke("trisolve", {"[1]", "[2 2]", "[1 1]", "[1 1]"}),
+               ContainsSubstring("n-1 sub"));
+    CHECK_THAT(p.invoke("toeplitz", {"[2 1]", "[3 3 3]"}),
+               ContainsSubstring("differ"));
 }
 
 TEST_CASE("linalg: exact eigendecomposition of rational matrices") {

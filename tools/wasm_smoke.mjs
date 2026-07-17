@@ -113,13 +113,18 @@ check("hyb bouncing ball", ms.pluginCall("hyb", "sim", "v; -9.81,x,x; -0.8*v,1,0
 check("hyb zeno", ms.pluginCall("hyb", "sim", "v; -9.81,x,x; -0.8*v,1,0,5"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Zeno" && v.includes("accumulation"))), "Zeno note surfaces");
 check("hyb error", ms.pluginCall("hyb", "sim", "q; -9.81,x,x; -0.8*v,1,0,2"), (r) => !r.ok && r.error.includes("found 'q'"), "stray symbol rejected");
 // linalg plugin
-check("linalg catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name === "linalg" && p.commands.length === 7), "linalg listed with 7 commands");
+check("linalg catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name === "linalg" && p.commands.length === 10), "linalg listed with 10 commands");
 check("linalg solve", ms.pluginCall("linalg", "solve", "[2 1; 1 3],[3 5]"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "x" && v === "(0.8, 1.4)")), "x = (0.8, 1.4)");
 check("linalg symbolic det", ms.pluginCall("linalg", "det", "[a b; c d]"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([, v]) => v.includes("a*d") && v.includes("b*c"))), "ad - bc");
 check("linalg eig complex", ms.pluginCall("linalg", "eig", "[0 -1; 1 0]"), (r) => r.ok && JSON.stringify(r.blocks).includes("i"), "±i");
 check("linalg svd rank", ms.pluginCall("linalg", "svd", "[1 2; 2 4]"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Rank" && v === "1")), "rank-1 detected");
 check("linalg comma matrix", ms.pluginCall("linalg", "det", "[4,7;2,6]"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([, v]) => v === "10")), "comma entries survive arg split");
 check("linalg singular error", ms.pluginCall("linalg", "solve", "[1 2; 2 4],[1 1]"), (r) => !r.ok && r.error.includes("singular"), "singular reported");
+check("linalg exact eig", ms.pluginCall("linalg", "eig", "[2 1; 1 2]"), (r) => r.ok && JSON.stringify(r.blocks).includes("Characteristic polynomial") && JSON.stringify(r.blocks).includes("(1, 1)"), "exact eigenpairs");
+check("linalg symbolic eig", ms.pluginCall("linalg", "eig", "[a 1; 1 a]"), (r) => r.ok && JSON.stringify(r.blocks).includes("a + 1"), "symbolic eigenvalues");
+check("linalg trisolve", ms.pluginCall("linalg", "trisolve", "[-1],[2 2],[-1],[1 1]"), (r) => r.ok && JSON.stringify(r.blocks).includes("(1, 1)"), "Thomas solve");
+check("linalg toeplitz", ms.pluginCall("linalg", "toeplitz", "[2 1],[3 3]"), (r) => r.ok && JSON.stringify(r.blocks).includes("Levinson"), "Levinson solve");
+check("linalg circulant", ms.pluginCall("linalg", "circulant", "[2 1 1],[4 4 4]"), (r) => r.ok && JSON.stringify(r.blocks).includes("(1, 1, 1)"), "DFT solve");
 // discrete calculus (discrete.hpp)
 check("sum polynomial", ms.sum("k^2", "k", "1", "n"), (r) => r.ok && r.status === "exact" && r.plain.includes("n^3/3"), "Faulhaber n^3/3 + ...");
 check("sum infinite geometric", ms.sum("(1/2)^k", "k", "0", "inf"), (r) => r.ok && r.status === "exact" && r.plain === "2", "= 2");

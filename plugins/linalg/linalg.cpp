@@ -665,6 +665,91 @@ std::string cmd_lstsq(const std::vector<std::string>& args) {
                    {"Rank", std::to_string(la::rank(*a))}})});
 }
 
+// --- structured solvers -----------------------------------------------------
+
+/// Display cap for long solution vectors.
+std::string vec_text_capped(const la::Vector& v) {
+    if (v.size() <= 12) {
+        return vec_text(v);
+    }
+    std::string out = "(";
+    for (std::size_t i = 0; i < 8; ++i) {
+        if (i > 0) out += ", ";
+        out += fmt(v[i]);
+    }
+    return out + std::format(", ... [{} entries])", v.size());
+}
+
+la::Vector parse_vector(const std::string& text, const char* what) {
+    const auto m = numeric_matrix(parse_matrix(text));
+    if (!m) {
+        throw Error(std::format("{} must have numeric entries", what));
+    }
+    return as_vector(*m, what);
+}
+
+std::string cmd_trisolve(const std::vector<std::string>& args) {
+    if (args.size() != 4) {
+        return error_json(
+            "usage: linalg.trisolve [sub], [diag], [super], [b]");
+    }
+    const la::Vector sub = parse_vector(args[0], "sub");
+    const la::Vector diag = parse_vector(args[1], "diag");
+    const la::Vector super = parse_vector(args[2], "super");
+    const la::Vector b = parse_vector(args[3], "b");
+    const la::Vector x = la::tridiag_solve(sub, diag, super, b);
+    double residual = 0.0;
+    for (std::size_t i = 0; i < x.size(); ++i) {
+        double ax = diag[i] * x[i];
+        if (i > 0) ax += sub[i - 1] * x[i - 1];
+        if (i + 1 < x.size()) ax += super[i] * x[i + 1];
+        residual = std::max(residual, std::abs(ax - b[i]));
+    }
+    return envelope(
+        std::format("tridiagonal solve (n = {})", x.size()),
+        {kv_block({{"x", vec_text_capped(x)},
+                   {"Method", "Thomas algorithm, O(n)"},
+                   {"Residual max|Ax - b|", std::format("{:.2e}", residual)}})});
+}
+
+std::string cmd_toeplitz(const std::vector<std::string>& args) {
+    if (args.size() != 2) {
+        return error_json("usage: linalg.toeplitz [first column], [b]");
+    }
+    const la::Vector c = parse_vector(args[0], "first column");
+    const la::Vector b = parse_vector(args[1], "b");
+    const la::Vector x = la::toeplitz_solve(c, b);
+    const la::Vector ax = la::toeplitz_matvec(c, x);
+    double residual = 0.0;
+    for (std::size_t i = 0; i < b.size(); ++i) {
+        residual = std::max(residual, std::abs(ax[i] - b[i]));
+    }
+    return envelope(
+        std::format("symmetric Toeplitz solve (n = {})", x.size()),
+        {kv_block({{"x", vec_text_capped(x)},
+                   {"Method", "Levinson recursion, O(n^2)"},
+                   {"Residual max|Tx - b|", std::format("{:.2e}", residual)}})});
+}
+
+std::string cmd_circulant(const std::vector<std::string>& args) {
+    if (args.size() != 2) {
+        return error_json("usage: linalg.circulant [first column], [b]");
+    }
+    const la::Vector c = parse_vector(args[0], "first column");
+    const la::Vector b = parse_vector(args[1], "b");
+    const la::Vector x = la::circulant_solve(c, b);
+    const la::Vector ax = la::circulant_matvec(c, x);
+    double residual = 0.0;
+    for (std::size_t i = 0; i < b.size(); ++i) {
+        residual = std::max(residual, std::abs(ax[i] - b[i]));
+    }
+    return envelope(
+        std::format("circulant solve (n = {})", x.size()),
+        {kv_block({{"x", vec_text_capped(x)},
+                   {"Method", "DFT diagonalization"},
+                   {"Residual max|Cx - b|", std::format("{:.2e}", residual)}})});
+}
+
 class LinalgPlugin final : public Plugin {
   public:
     std::string_view name() const override { return "linalg"; }
@@ -689,6 +774,14 @@ class LinalgPlugin final : public Plugin {
             {"rank", "Numeric rank via SVD", "linalg.rank [1 2; 2 4]"},
             {"lstsq", "Least squares via the SVD pseudoinverse",
              "linalg.lstsq [1 0; 1 1; 1 2], [1 2 4]"},
+            {"trisolve",
+             "Tridiagonal solve (Thomas algorithm, O(n), n up to 4096)",
+             "linalg.trisolve [-1 -1], [2 2 2], [-1 -1], [1 0 1]"},
+            {"toeplitz",
+             "Symmetric Toeplitz solve (Levinson recursion, O(n^2))",
+             "linalg.toeplitz [2 1 0], [3 4 3]"},
+            {"circulant", "Circulant solve (DFT diagonalization)",
+             "linalg.circulant [2 1 1], [4 4 4]"},
         };
     }
     std::string invoke(std::string_view command,
@@ -701,6 +794,9 @@ class LinalgPlugin final : public Plugin {
             if (command == "svd") return cmd_svd(args);
             if (command == "rank") return cmd_rank(args);
             if (command == "lstsq") return cmd_lstsq(args);
+            if (command == "trisolve") return cmd_trisolve(args);
+            if (command == "toeplitz") return cmd_toeplitz(args);
+            if (command == "circulant") return cmd_circulant(args);
             return error_json(std::format("linalg has no command '{}'", command));
         } catch (const la::LinalgError& e) {
             return error_json(e.what());

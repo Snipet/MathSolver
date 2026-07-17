@@ -59,6 +59,38 @@ double cond(const Matrix& a);
 /// Least-squares solution of A x ~= b via the SVD pseudoinverse.
 Vector lstsq(const Matrix& a, const Vector& b);
 
+// --- structured solvers -----------------------------------------------------
+//
+// Structure-exploiting solvers that scale far past the dense k_max_n cap:
+// O(n) Thomas elimination for tridiagonal systems, the O(n^2)
+// Levinson-Durbin recursion for symmetric Toeplitz systems, and DFT
+// diagonalization for circulant systems.
+
+inline constexpr int k_max_structured_n = 4096;
+
+/// Tridiagonal solve (Thomas algorithm, no pivoting): sub/super have n-1
+/// entries, diag and rhs have n. Throws on a zero pivot (the algorithm
+/// requires it structurally, e.g. diagonal dominance).
+Vector tridiag_solve(const Vector& sub, const Vector& diag,
+                     const Vector& super, const Vector& rhs);
+
+/// Symmetric Toeplitz solve T x = b by the Levinson recursion, T given by
+/// its first column. Requires every leading principal minor nonsingular
+/// (throws when the recursion's beta hits zero).
+Vector toeplitz_solve(const Vector& first_col, const Vector& b);
+
+/// Circulant solve C x = b by DFT diagonalization, C given by its first
+/// column (C_{j,k} = c[(j-k) mod n]). Throws when an eigenvalue (a DFT
+/// coefficient of c) vanishes.
+Vector circulant_solve(const Vector& first_col, const Vector& b);
+
+/// y = T x for the symmetric Toeplitz matrix given by its first column
+/// (used for residual reporting).
+Vector toeplitz_matvec(const Vector& first_col, const Vector& x);
+
+/// y = C x for the circulant matrix given by its first column.
+Vector circulant_matvec(const Vector& first_col, const Vector& x);
+
 // --- helpers shared with the command layer ---------------------------------
 
 /// A * B, A * x, and the transpose (dimension-checked).

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <format>
 #include <limits>
+#include <numbers>
 #include <utility>
 
 namespace mathsolver::plugins::linalg {
@@ -475,6 +476,196 @@ Vector matvec(const Matrix& a, const Vector& x) {
         }
     }
     return out;
+}
+
+// --- structured solvers -----------------------------------------------------
+
+namespace {
+
+void check_structured_size(std::size_t n, const char* what) {
+    if (n == 0) {
+        throw LinalgError(std::format("{}: empty system", what));
+    }
+    if (n > static_cast<std::size_t>(k_max_structured_n)) {
+        throw LinalgError(std::format("{}: n is capped at {}", what,
+                                      k_max_structured_n));
+    }
+}
+
+} // namespace
+
+Vector tridiag_solve(const Vector& sub, const Vector& diag,
+                     const Vector& super, const Vector& rhs) {
+    const std::size_t n = diag.size();
+    check_structured_size(n, "trisolve");
+    if (sub.size() + 1 != n || super.size() + 1 != n || rhs.size() != n) {
+        throw LinalgError(
+            "trisolve: need n-1 sub, n diag, n-1 super, n rhs entries");
+    }
+    // Forward sweep of the Thomas algorithm; c' and d' overwrite copies.
+    Vector c(n - 1, 0.0);
+    Vector d = rhs;
+    double piv = diag[0];
+    if (piv == 0.0) {
+        throw LinalgError("trisolve: zero pivot at row 1 (the Thomas "
+                          "algorithm has no pivoting; use linalg.solve)");
+    }
+    if (n > 1) {
+        c[0] = super[0] / piv;
+    }
+    d[0] = d[0] / piv;
+    for (std::size_t i = 1; i < n; ++i) {
+        piv = diag[i] - sub[i - 1] * c[i - 1];
+        if (piv == 0.0) {
+            throw LinalgError(std::format(
+                "trisolve: zero pivot at row {} (the Thomas algorithm has "
+                "no pivoting; use linalg.solve)",
+                i + 1));
+        }
+        if (i < n - 1) {
+            c[i] = super[i] / piv;
+        }
+        d[i] = (d[i] - sub[i - 1] * d[i - 1]) / piv;
+    }
+    for (std::size_t i = n - 1; i-- > 0;) {
+        d[i] -= c[i] * d[i + 1];
+    }
+    return d;
+}
+
+Vector toeplitz_solve(const Vector& first_col, const Vector& b) {
+    const std::size_t n = first_col.size();
+    check_structured_size(n, "toeplitz");
+    if (b.size() != n) {
+        throw LinalgError("toeplitz: first column and rhs sizes differ");
+    }
+    if (first_col[0] == 0.0) {
+        throw LinalgError("toeplitz: the diagonal entry t_0 must be nonzero");
+    }
+    // Normalize to T_ij = r_|i-j| with r_0 = 1 (Golub & Van Loan alg 4.7.2).
+    Vector r(n, 0.0);
+    Vector bn(n, 0.0);
+    for (std::size_t i = 0; i < n; ++i) {
+        r[i] = first_col[i] / first_col[0];
+        bn[i] = b[i] / first_col[0];
+    }
+    Vector x{bn[0]};
+    if (n == 1) {
+        return x;
+    }
+    Vector y{-r[1]};
+    double alpha = -r[1];
+    double beta = 1.0;
+    for (std::size_t k = 1; k < n; ++k) {
+        beta *= 1.0 - alpha * alpha;
+        if (std::abs(beta) < 1e-14) {
+            throw LinalgError(
+                "toeplitz: a leading principal minor is (numerically) "
+                "singular — the Levinson recursion needs strong "
+                "nonsingularity; use linalg.solve");
+        }
+        double mu = bn[k];
+        for (std::size_t i = 1; i <= k; ++i) {
+            mu -= r[i] * x[k - i];
+        }
+        mu /= beta;
+        for (std::size_t i = 0; i < k; ++i) {
+            x[i] += mu * y[k - 1 - i];
+        }
+        x.push_back(mu);
+        if (k < n - 1) {
+            alpha = -r[k + 1];
+            for (std::size_t i = 1; i <= k; ++i) {
+                alpha -= r[i] * y[k - i];
+            }
+            alpha /= beta;
+            const Vector y_old = y;
+            for (std::size_t i = 0; i < k; ++i) {
+                y[i] += alpha * y_old[k - 1 - i];
+            }
+            y.push_back(alpha);
+        }
+    }
+    return x;
+}
+
+Vector circulant_solve(const Vector& first_col, const Vector& b) {
+    const std::size_t n = first_col.size();
+    check_structured_size(n, "circulant");
+    if (b.size() != n) {
+        throw LinalgError("circulant: first column and rhs sizes differ");
+    }
+    // Eigenvalues of C are the DFT coefficients of the first column
+    // (lambda_m = sum_j c_j w^{-jm}, w = e^{2 pi i / n}); solve in the
+    // Fourier basis and transform back.
+    const double tau = 2.0 * std::numbers::pi / static_cast<double>(n);
+    std::vector<std::complex<double>> lam(n), bf(n);
+    for (std::size_t m = 0; m < n; ++m) {
+        std::complex<double> lm = 0.0;
+        std::complex<double> bm = 0.0;
+        for (std::size_t j = 0; j < n; ++j) {
+            const std::complex<double> w{
+                std::cos(tau * static_cast<double>(j) * static_cast<double>(m)),
+                -std::sin(tau * static_cast<double>(j) * static_cast<double>(m))};
+            lm += first_col[j] * w;
+            bm += b[j] * w;
+        }
+        lam[m] = lm;
+        bf[m] = bm;
+    }
+    double scale = 0.0;
+    for (const auto& l : lam) {
+        scale = std::max(scale, std::abs(l));
+    }
+    for (std::size_t m = 0; m < n; ++m) {
+        if (std::abs(lam[m]) < 1e-12 * std::max(scale, 1.0)) {
+            throw LinalgError(std::format(
+                "circulant: eigenvalue {} (DFT coefficient of the first "
+                "column) is zero — the matrix is singular",
+                m));
+        }
+        bf[m] /= lam[m];
+    }
+    Vector x(n, 0.0);
+    for (std::size_t j = 0; j < n; ++j) {
+        std::complex<double> acc = 0.0;
+        for (std::size_t m = 0; m < n; ++m) {
+            const std::complex<double> w{
+                std::cos(tau * static_cast<double>(j) * static_cast<double>(m)),
+                std::sin(tau * static_cast<double>(j) * static_cast<double>(m))};
+            acc += bf[m] * w;
+        }
+        x[j] = acc.real() / static_cast<double>(n);
+    }
+    return x;
+}
+
+Vector toeplitz_matvec(const Vector& first_col, const Vector& x) {
+    const std::size_t n = first_col.size();
+    if (x.size() != n) {
+        throw LinalgError("toeplitz matvec: dimensions do not match");
+    }
+    Vector y(n, 0.0);
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t j = 0; j < n; ++j) {
+            y[i] += first_col[i > j ? i - j : j - i] * x[j];
+        }
+    }
+    return y;
+}
+
+Vector circulant_matvec(const Vector& first_col, const Vector& x) {
+    const std::size_t n = first_col.size();
+    if (x.size() != n) {
+        throw LinalgError("circulant matvec: dimensions do not match");
+    }
+    Vector y(n, 0.0);
+    for (std::size_t i = 0; i < n; ++i) {
+        for (std::size_t j = 0; j < n; ++j) {
+            y[i] += first_col[(i + n - j) % n] * x[j];
+        }
+    }
+    return y;
 }
 
 Matrix transpose(const Matrix& a) {
