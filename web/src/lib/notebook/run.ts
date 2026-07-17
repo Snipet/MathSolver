@@ -114,8 +114,26 @@ async function runPluginCommand(
     return usage(`${plugin} has no command '${command}' — it offers: ${names}`);
   }
   // Arguments are the top-level comma-separated remainder, re-joined for the
-  // engine's CSV convention (plugin args cannot contain commas).
-  const args = splitTopLevelCommas(rest).join(",");
+  // engine's CSV convention (plugin args cannot contain commas). A pure
+  // identifier argument whose session binding resolves to a closed numeric
+  // value is substituted (f_c := 1000 → dsp.butter lowpass, 4, f_c, 48000);
+  // anything else — keywords, polynomials, ODEs — passes through verbatim.
+  const rawArgs = splitTopLevelCommas(rest);
+  const resolved = await Promise.all(
+    rawArgs.map(async (arg) => {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(arg)) return arg;
+      try {
+        const env = await applyEnv(arg, [], "expr");
+        if (env.text === arg) return arg;
+        const a = await call("analyze", [env.text]);
+        if (a.ok && "symbols" in a && a.symbols.length === 0) return env.text;
+      } catch {
+        /* unresolvable — pass the original through */
+      }
+      return arg;
+    }),
+  );
+  const args = resolved.join(",");
   const r = await call("pluginCall", [plugin, command, args]);
   if (!r.ok)
     return { kind: "error", message: r.error, input: line, begin: r.begin, end: r.end };
@@ -150,6 +168,7 @@ function helpMessage(): NotebookMessage {
       "solve <eq>; <eq>[; …][, <var>, …]   (linear system)",
       "eval <expr>, x=1[, y=2 …]           subs <expr>, x=y+1[, …]",
       "collect <expr>[, <var>]             latex <expr>",
+      "plot <expr>[, <lo>, <hi>]           chart an expression",
       "<name> := <value>      bind a variable (applies to later lines)",
       "<plugin>.<command> …   call a plugin (run plugins for the catalog),",
       "                       e.g. dsp.butter lowpass, 4, 1000, 48000",
@@ -306,6 +325,47 @@ async function runVerb(verb: string, rest: string): Promise<CellResult> {
   }
 }
 
+/** Bound argument: a plain number, or any constant expression ("2pi"). */
+async function evalBound(text: string, fallback: number): Promise<number | null> {
+  if (!text) return fallback;
+  const n = Number(text);
+  if (Number.isFinite(n)) return n;
+  const r = await call("evaluate", [text, ""]);
+  return r.ok && r.value !== null && Number.isFinite(r.value) ? r.value : null;
+}
+
+async function runPlot(rest: string): Promise<CellResult> {
+  const args = splitTopLevelCommas(rest);
+  const expr = args[0] ?? "";
+  if (!expr) return usage("plot needs an expression, e.g. plot sin(x)/x, -20, 20");
+  const lo = await evalBound(args[1] ?? "", -10);
+  const hi = await evalBound(args[2] ?? "", 10);
+  if (lo === null || hi === null || !(hi > lo))
+    return usage("plot bounds must be numbers (or constants like 2pi) with lo < hi");
+  const env = await applyEnv(expr, [], "expr");
+  const a = await call("analyze", [env.text]);
+  if (!a.ok) return err(env.text, a);
+  if (a.kind !== "expression")
+    return usage("plot takes an expression — solve equations with solve");
+  if (a.symbols.length > 1)
+    return usage(
+      `plot needs at most one free variable, got: ${a.symbols.join(", ")}`,
+    );
+  const v = a.symbols[0] ?? "x";
+  const n = 400;
+  const r = await call("sample", [env.text, v, lo, hi, n]);
+  if (!r.ok) return err(env.text, r);
+  const xs = Array.from({ length: n }, (_, k) => lo + ((hi - lo) * k) / (n - 1));
+  return {
+    kind: "chart",
+    title: `plot ${env.text}`,
+    x: xs,
+    series: [{ label: env.text, ys: r.ys }],
+    xlabel: v,
+    ylabel: "",
+  };
+}
+
 async function runSolve(rest: string, args: string[]): Promise<CellResult> {
   const target = args[0] ?? "";
   if (hasTopLevelSemicolon(target)) {
@@ -376,6 +436,10 @@ export async function runLine(raw: string): Promise<CellResult> {
           tone: "muted",
           lines: ["nothing to quit — this is a browser console; your work persists automatically"],
         };
+    }
+    if (verb === "plot") {
+      if (!rest) return usage("plot needs an expression, e.g. plot sin(x)/x, -20, 20");
+      return await runPlot(rest);
     }
     if (MATH_VERBS.has(verb)) {
       if (!rest) return usage(`${verb} needs an expression`);

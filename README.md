@@ -188,9 +188,12 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   dsp.ellip lowpass, 5, 1, 60, 1000, 48000
   dsp.fir lowpass, 101, 1000, 48000, kaiser, 10
   dsp.freqz 48000, 0.2,0.4,0.2,-0.5,0.3  → response of your own biquads
-  sys.tf s+1, s^2+3s+2                   → poles/zeros, Bode, step/impulse
+  sys.tf s+1, s^2+3s+2                   → poles/zeros, margins, Bode, step
   sys.ode y'' + 3y' + 2y = u' + u        → ODE to transfer function
+  sys.feedback 1, s(s+1)(s+2), 2         → closed loop under gain-K feedback
+  sys.rlocus 1, s^3 + 3s^2 + 2s          → root locus + critical gain
   sys.c2d 1, s+1, 100                    → discretize H(s) to digital biquads
+  plot sin(x)/x, -20, 20                 → chart any expression inline
   plugins                                → catalog of compiled-in plugins
   ```
 

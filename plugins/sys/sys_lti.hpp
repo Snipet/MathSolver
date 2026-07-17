@@ -54,6 +54,35 @@ cd tf_eval(const RationalTF& tf, cd s);
 /// H(0) — may be non-finite (pole at the origin).
 double dc_gain(const RationalTF& tf);
 
+/// Classical stability margins of an open-loop H(s), from the jw response.
+/// Absent optionals mean the corresponding crossing does not exist in the
+/// scanned range (e.g. |H| never reaches 0 dB).
+struct Margins {
+    /// Gain margin in dB at the phase crossover (-180 deg), and its frequency.
+    struct GM {
+        double db;
+        double freq;
+    };
+    /// Phase margin in degrees at the gain crossover (|H| = 1), and its
+    /// frequency.
+    struct PM {
+        double deg;
+        double freq;
+    };
+    std::vector<GM> gain;
+    std::vector<PM> phase;
+};
+Margins compute_margins(const RationalTF& tf, double wmin, double wmax);
+
+/// Closed-loop transfer function of G under gain-K unity feedback:
+/// T = K G / (1 + K G). Throws SysError if the closed loop degenerates.
+RationalTF feedback_unity(const RationalTF& g, double k);
+
+/// Root locus: closed-loop pole sets for each gain in `gains`
+/// (poles of den + K num). gains must be positive ascending.
+std::vector<std::vector<cd>> root_locus(const RationalTF& g,
+                                        const std::vector<double>& gains);
+
 /// Fixed-step RK4 simulation of the step and impulse responses on [0, T]
 /// (controllable canonical state-space; the impulse response is the unforced
 /// response from x0 = B, plus a D*delta(t) pass-through when biproper).

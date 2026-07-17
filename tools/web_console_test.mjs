@@ -239,6 +239,40 @@ try {
     odeOut.replace(/\n/g, " ").slice(0, 80),
   );
 
+  const fbOut = await run("sys.feedback 1, s+1, 3");
+  check(
+    "sys.feedback closes the loop",
+    fbOut.includes("Closed loop") && fbOut.includes("0.75") &&
+      fbOut.includes("Gain margin"),
+    fbOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
+  const rlOut = await run("sys.rlocus 1, s^3 + 3s^2 + 2s");
+  check(
+    "sys.rlocus renders and finds critical gain",
+    rlOut.includes("Root locus") && rlOut.includes("unstable near K"),
+    rlOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
+  const plotOut = await run("plot sin(x)/x, -20, 20");
+  const plotHasChart = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => !!el.querySelector("canvas"),
+  );
+  check(
+    "plot verb charts an expression",
+    plotOut.includes("plot") && plotHasChart,
+    plotOut.replace(/\n/g, " ").slice(0, 60),
+  );
+
+  await run("f_c := 2000");
+  const fcOut = await run("dsp.butter lowpass, 4, f_c, 48000");
+  check(
+    "session variable resolves into plugin args",
+    fcOut.includes("2000 Hz") && fcOut.includes("Butterworth"),
+    fcOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
   // --- console UX overhaul: reference panel, autocomplete, cell actions ----
   await page.waitForFunction(
     () =>

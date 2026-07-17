@@ -7,6 +7,7 @@
   import ResultDefinite from "./ResultDefinite.svelte";
   import ResultEvaluate from "./ResultEvaluate.svelte";
   import PluginResult from "./PluginResult.svelte";
+  import SeriesChart from "./SeriesChart.svelte";
   import SpanHighlight from "./SpanHighlight.svelte";
   import Katex from "./Katex.svelte";
 
@@ -17,7 +18,8 @@
     outcome &&
       outcome.kind !== "error" &&
       outcome.kind !== "assignment" &&
-      outcome.kind !== "plugin"
+      outcome.kind !== "plugin" &&
+      outcome.kind !== "chart"
       ? (outcome.computedFrom ?? null)
       : null,
   );
@@ -44,6 +46,16 @@
           command={outcome.command}
           result={outcome.result}
         />
+      {:else if outcome.kind === "chart"}
+        <div class="chart-result">
+          <p class="chart-title">{outcome.title}</p>
+          <SeriesChart
+            x={outcome.x}
+            series={outcome.series}
+            xlabel={outcome.xlabel}
+            ylabel={outcome.ylabel}
+          />
+        </div>
       {:else if outcome.kind === "assignment"}
         <div class="assignment">
           <Katex latex={outcome.latex} display />
@@ -116,6 +128,18 @@
   .assignment-note {
     margin: 0.5rem 0 0;
     font-size: 0.82rem;
+    color: var(--fg-muted);
+  }
+  .chart-result {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    min-width: 0;
+  }
+  .chart-title {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
     color: var(--fg-muted);
   }
 </style>

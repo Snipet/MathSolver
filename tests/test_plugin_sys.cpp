@@ -184,6 +184,60 @@ TEST_CASE("sys: first-order step matches the exact exponential") {
 }
 
 // ---------------------------------------------------------------------------
+// Margins, feedback, root locus
+// ---------------------------------------------------------------------------
+
+TEST_CASE("sys: textbook margins of 1/(s(s+1)(s+2))") {
+    // Classic result: phase crossover at w = sqrt(2), |L| there = 1/6
+    // -> GM = 20 log10 6 = 15.56 dB; gain crossover ~0.446 -> PM = 53.4 deg.
+    const RationalTF l = sys::make_tf("1", "s^3 + 3s^2 + 2s");
+    const sys::Margins m = sys::compute_margins(l, 1e-3, 1e3);
+    REQUIRE(!m.gain.empty());
+    CHECK(std::abs(m.gain.front().db - 15.563) < 0.05);
+    CHECK(std::abs(m.gain.front().freq - std::sqrt(2.0)) < 1e-3);
+    REQUIRE(!m.phase.empty());
+    CHECK(std::abs(m.phase.front().deg - 53.4) < 0.5);
+    CHECK(std::abs(m.phase.front().freq - 0.4457) < 1e-3);
+}
+
+TEST_CASE("sys: margins report no crossing when there is none") {
+    // 1/(s+1): |H| <= 1 with max phase lag 90 deg — neither crossover exists.
+    const RationalTF h = sys::make_tf("1", "s + 1");
+    const sys::Margins m = sys::compute_margins(h, 1e-3, 1e3);
+    CHECK(m.gain.empty());
+    CHECK(m.phase.empty());
+}
+
+TEST_CASE("sys: unity feedback closes the loop correctly") {
+    // G = 1/(s+1), K = 1: T = 1/(s+2).
+    const RationalTF g = sys::make_tf("1", "s + 1");
+    const RationalTF t = sys::feedback_unity(g, 1.0);
+    REQUIRE(t.den.size() == 2);
+    CHECK(std::abs(t.den[0] - 2.0) < 1e-12);
+    CHECK(std::abs(t.den[1] - 1.0) < 1e-12);
+    REQUIRE(t.num.size() == 1);
+    CHECK(std::abs(t.num[0] - 1.0) < 1e-12);
+    // K = 3: T = 3/(s+4), DC gain 3/4.
+    const RationalTF t3 = sys::feedback_unity(g, 3.0);
+    CHECK(std::abs(sys::dc_gain(t3) - 0.75) < 1e-12);
+}
+
+TEST_CASE("sys: root locus starts at the open-loop poles and moves") {
+    const RationalTF g = sys::make_tf("1", "(s+1)(s+2)");
+    const auto branches = sys::root_locus(g, {1e-6, 1.0, 100.0});
+    REQUIRE(branches.size() == 3);
+    // K -> 0: closed poles at the open poles -1, -2.
+    const auto first = sorted_by_re(branches.front());
+    CHECK(std::abs(first[0] - cd{-2.0, 0.0}) < 1e-3);
+    CHECK(std::abs(first[1] - cd{-1.0, 0.0}) < 1e-3);
+    // Large K: this locus breaks away and goes complex at Re = -1.5.
+    const auto last = branches.back();
+    REQUIRE(last.size() == 2);
+    CHECK(std::abs(last[0].real() + 1.5) < 1e-6);
+    CHECK(std::abs(last[0].imag()) > 5.0); // far up the asymptote
+}
+
+// ---------------------------------------------------------------------------
 // Command layer
 // ---------------------------------------------------------------------------
 
@@ -214,6 +268,44 @@ TEST_CASE("sys: ode command derives and analyzes H(s)") {
     CHECK_THAT(out, ContainsSubstring("s^2 + 3 s + 2"));
     CHECK_THAT(out, ContainsSubstring("\"Derived from\""));
     CHECK_THAT(out, ContainsSubstring("\"Stability\",\"stable\""));
+}
+
+TEST_CASE("sys: tf command reports margins with crossover markers") {
+    const std::string out = sys_plugin().invoke("tf", {"1", "s^3 + 3s^2 + 2s"});
+    CHECK_THAT(out, ContainsSubstring("\"Gain margin\",\"15.56 dB"));
+    CHECK_THAT(out, ContainsSubstring("\"Phase margin\",\"53.4"));
+    CHECK_THAT(out, ContainsSubstring("\\u03c9pc"));
+    CHECK_THAT(out, ContainsSubstring("\\u03c9gc"));
+    // No crossings -> infinity rows, no markers.
+    const std::string flat = sys_plugin().invoke("tf", {"1", "s + 1"});
+    CHECK_THAT(flat, ContainsSubstring("∞ (no -180° crossing)"));
+    CHECK_THAT(flat, ContainsSubstring("∞ (no 0 dB crossing)"));
+}
+
+TEST_CASE("sys: feedback command analyzes the closed loop") {
+    const std::string out = sys_plugin().invoke("feedback", {"1", "s + 1", "3"});
+    CHECK_THAT(out, ContainsSubstring("\"ok\":true"));
+    CHECK_THAT(out, ContainsSubstring("Closed loop"));
+    CHECK_THAT(out, ContainsSubstring("s + 4"));
+    CHECK_THAT(out, ContainsSubstring("K = 3"));
+    CHECK_THAT(out, ContainsSubstring("\"DC gain\",\"0.75\""));
+    CHECK_THAT(sys_plugin().invoke("feedback", {"1", "s + 1", "abc"}),
+               ContainsSubstring("must be a number"));
+}
+
+TEST_CASE("sys: rlocus command renders the sweep") {
+    const std::string out =
+        sys_plugin().invoke("rlocus", {"1", "(s+1)(s+2)", "50"});
+    CHECK_THAT(out, ContainsSubstring("\"ok\":true"));
+    CHECK_THAT(out, ContainsSubstring("Root locus"));
+    CHECK_THAT(out, ContainsSubstring("open-loop poles"));
+    CHECK_THAT(out, ContainsSubstring("\"points\":true"));
+    CHECK_THAT(out, ContainsSubstring("stable for the whole sweep"));
+    // An unstable-at-high-K loop reports the critical gain: the classic
+    // 1/(s(s+1)(s+2)) goes unstable at K = 6.
+    const std::string crit =
+        sys_plugin().invoke("rlocus", {"1", "s^3 + 3s^2 + 2s", "100"});
+    CHECK_THAT(crit, ContainsSubstring("unstable near K"));
 }
 
 TEST_CASE("sys: c2d discretizes through the dsp zpk machinery") {

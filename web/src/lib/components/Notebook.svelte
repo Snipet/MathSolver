@@ -23,7 +23,11 @@
     },
     {
       title: "Calculus",
-      items: ["diff sin(x^2), x", "integrate x*sin(x), x", "integrate sin(x), x, 0, pi"],
+      items: [
+        "diff sin(x^2), x",
+        "integrate x*sin(x), x",
+        "plot sin(x)/x, -20, 20",
+      ],
     },
     {
       title: "Solve",

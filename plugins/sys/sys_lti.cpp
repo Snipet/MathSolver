@@ -6,6 +6,8 @@
 #include <cctype>
 #include <cmath>
 #include <format>
+#include <limits>
+#include <numbers>
 
 #include "mathsolver/mathsolver.hpp"
 
@@ -305,6 +307,138 @@ double dc_gain(const RationalTF& tf) {
         return std::numeric_limits<double>::infinity();
     }
     return tf.num.front() / tf.den.front();
+}
+
+// --- stability margins ------------------------------------------------------
+
+namespace {
+
+/// Continuous phase of H(jw) in radians (principal value; callers track
+/// wrap-around across scan steps by keeping steps small).
+double phase_at(const RationalTF& tf, double w) {
+    return std::arg(tf_eval(tf, cd{0.0, w}));
+}
+
+double mag_at(const RationalTF& tf, double w) {
+    return std::abs(tf_eval(tf, cd{0.0, w}));
+}
+
+/// Bisection refinement of a bracketed sign change of `f` on [a, b].
+template <typename F>
+double refine_crossing(F&& f, double a, double b) {
+    double fa = f(a);
+    for (int it = 0; it < 80; ++it) {
+        const double m = 0.5 * (a + b);
+        const double fm = f(m);
+        if ((fm > 0.0) == (fa > 0.0)) {
+            a = m;
+            fa = fm;
+        } else {
+            b = m;
+        }
+    }
+    return 0.5 * (a + b);
+}
+
+} // namespace
+
+Margins compute_margins(const RationalTF& tf, double wmin, double wmax) {
+    Margins m;
+    constexpr int kScan = 2000;
+    double prev_w = wmin;
+    // Track phase continuously (unwrap between scan samples) so the -180
+    // crossing detection survives principal-value jumps.
+    double prev_phase = phase_at(tf, wmin);
+    double unwrap = 0.0;
+    double prev_mag = mag_at(tf, wmin);
+    for (int i = 1; i < kScan; ++i) {
+        const double t = static_cast<double>(i) / (kScan - 1);
+        const double w = wmin * std::pow(wmax / wmin, t);
+        double ph = phase_at(tf, w);
+        double cont = ph + unwrap;
+        if (cont - prev_phase > std::numbers::pi) {
+            unwrap -= 2.0 * std::numbers::pi;
+            cont = ph + unwrap;
+        } else if (prev_phase - cont > std::numbers::pi) {
+            unwrap += 2.0 * std::numbers::pi;
+            cont = ph + unwrap;
+        }
+        const double mag = mag_at(tf, w);
+
+        // Phase crossover(s): continuous phase passes an odd multiple of pi,
+        // i.e. H crosses the negative real axis. The principal phase JUMPS
+        // there (-pi -> +pi), so refine on Im H(jw), which genuinely changes
+        // sign at the crossing (and cannot vanish elsewhere in a small
+        // bracket that stays near the negative axis).
+        const double pa = (prev_phase + std::numbers::pi) / (2.0 * std::numbers::pi);
+        const double pb = (cont + std::numbers::pi) / (2.0 * std::numbers::pi);
+        if (std::floor(pa) != std::floor(pb)) {
+            const double wc = refine_crossing(
+                [&](double x) { return tf_eval(tf, cd{0.0, x}).imag(); }, prev_w,
+                w);
+            const double g = mag_at(tf, wc);
+            if (g > 1e-12) {
+                m.gain.push_back({-20.0 * std::log10(g), wc});
+            }
+        }
+        // Gain crossover: |H| passes through 1.
+        if ((prev_mag > 1.0) != (mag > 1.0)) {
+            const double wc = refine_crossing(
+                [&](double x) { return mag_at(tf, x) - 1.0; }, prev_w, w);
+            // Phase margin relative to -180: PM = 180 + phase(wc), using the
+            // continuous phase at the bracket.
+            const double ph_wc = phase_at(tf, wc) + unwrap;
+            double pm = 180.0 + ph_wc * 180.0 / std::numbers::pi;
+            // Fold to the conventional (-180, 180] band.
+            while (pm > 180.0) pm -= 360.0;
+            while (pm <= -180.0) pm += 360.0;
+            m.phase.push_back({pm, wc});
+        }
+
+        prev_w = w;
+        prev_phase = cont;
+        prev_mag = mag;
+    }
+    return m;
+}
+
+// --- feedback and root locus ------------------------------------------------
+
+RationalTF feedback_unity(const RationalTF& g, double k) {
+    // T = K num / (den + K num).
+    RationalTF t;
+    t.num.assign(g.den.size(), 0.0);
+    t.den = g.den;
+    for (std::size_t i = 0; i < g.num.size(); ++i) {
+        t.num[i] = k * g.num[i];
+        t.den[i] += k * g.num[i];
+    }
+    trim_leading(t.num);
+    trim_leading(t.den);
+    if (near_zero(t.den.back())) {
+        throw SysError("the closed loop degenerates (denominator vanishes)");
+    }
+    const double lead = t.den.back();
+    for (double& c : t.den) c /= lead;
+    for (double& c : t.num) c /= lead;
+    return t;
+}
+
+std::vector<std::vector<cd>> root_locus(const RationalTF& g,
+                                        const std::vector<double>& gains) {
+    std::vector<std::vector<cd>> out;
+    out.reserve(gains.size());
+    for (const double k : gains) {
+        std::vector<double> poly = g.den;
+        if (g.num.size() > poly.size()) {
+            poly.resize(g.num.size(), 0.0);
+        }
+        for (std::size_t i = 0; i < g.num.size(); ++i) {
+            poly[i] += k * g.num[i];
+        }
+        out.push_back(poly_roots(poly));
+    }
+    return out;
 }
 
 // --- time simulation --------------------------------------------------------
