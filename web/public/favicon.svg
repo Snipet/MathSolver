@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="MathSolver">
+  <!-- Two-tone mark: indigo rounded square + white integral-x glyph.
+       Solid mid-indigo reads clearly against both light and dark tab strips. -->
+  <rect x="1" y="1" width="30" height="30" rx="7" fill="#4f46e5"/>
+  <g fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round">
+    <!-- integral sign -->
+    <path d="M19.8 7.2c0-2-1.2-3.2-2.8-3.2-2.2 0-3.2 1.8-3.2 4v16c0 2.2-1 4-3.2 4-1.6 0-2.8-1.2-2.8-3.2"/>
+    <!-- x -->
+    <path d="M20.8 16.8l5 6.8"/>
+    <path d="M25.8 16.8l-5 6.8"/>
+  </g>
+</svg>

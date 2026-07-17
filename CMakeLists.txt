@@ -24,6 +24,16 @@ if(EMSCRIPTEN)
     # The whole library relies on C++ exceptions; use native wasm EH.
     add_compile_options(-fwasm-exceptions)
     add_link_options(-fwasm-exceptions)
+    # Size tuning (measured 2026-07-16, emcc 6.0.3, all 27 smoke checks pass):
+    # -Oz -flto at compile AND link shrinks mathsolver.wasm from 827 KB raw /
+    # 306 KB gzip (Release -O3, no link opt) to 549 KB / 233 KB with no
+    # measurable slowdown on numeric solve/integrate spot checks. Also tried:
+    # -O2 (bigger), -sASSERTIONS=0 / -sFILESYSTEM=0 / -sTEXTDECODER=2 (already
+    # defaults at link -Oz — byte-identical output), --closure 1 (broken in
+    # this emscripten install), extra wasm-opt strip pass (gzip got larger).
+    set(CMAKE_CXX_FLAGS_RELEASE "-Oz -DNDEBUG")
+    add_compile_options(-flto)
+    add_link_options(-Oz -flto)
 endif()
 
 add_library(mathsolver_warnings INTERFACE)
