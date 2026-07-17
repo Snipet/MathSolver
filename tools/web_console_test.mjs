@@ -254,6 +254,13 @@ try {
     rlOut.replace(/\n/g, " ").slice(0, 80),
   );
 
+  const tfzOut = await run("sys.tfz z, z^2 - 0.5z + 0.06, 8000");
+  check(
+    "sys.tfz renders z-plane analysis",
+    tfzOut.includes("|z| = 1") && tfzOut.includes("Pole-zero map"),
+    tfzOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
   const plotOut = await run("plot sin(x)/x, -20, 20");
   const plotHasChart = await page.$eval(
     ".cells .cell:last-child",

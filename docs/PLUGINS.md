@@ -146,6 +146,7 @@ substeps chosen from the fastest pole).
 | `sys.ode <LTI ODE in y and u>` | Convert `y'' + 3y' + 2y = u' + u` (zero initial conditions; decimal coefficients, primes for derivatives, input on either side) to H(s), then the same analysis. |
 | `sys.feedback <num>, <den>[, <K>]` | Closed loop K·G/(1 + K·G) under unity feedback, run through the full analysis. |
 | `sys.rlocus <num>, <den>[, <K max>]` | Root locus: closed-loop pole sweep (160 gains over four decades) as a scatter, with open-loop poles/zeros marked and the smallest destabilizing K reported. |
+| `sys.tfz <num>, <den>, <fs Hz>` | Analyze a **discrete** transfer function H(z) (positive powers of z): poles/zeros with \|z\|/angle, stability by \|pole\| < 1, pole-zero map with the **unit circle** (equal-aspect), magnitude/phase response, and step + impulse from the difference equation. |
 | `sys.c2d <num>, <den>, <fs Hz>` | Discretize via the bilinear transform into digital biquads — reusing the dsp plugin's public `Zpk`/`bilinear_zpk`/`zpk_to_biquads` machinery — with the digital-vs-analog magnitude overlay. |
 
 Every analysis additionally reports **classical stability margins** (gain

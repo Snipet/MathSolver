@@ -28,14 +28,19 @@ struct RationalTF {
     std::vector<double> den; ///< ascending; normalized so den.back() == 1
 };
 
-/// Parse `text` as a polynomial in s with numeric coefficients (degree <= 12)
-/// via the CAS: c_k = f^(k)(0) / k!. Throws SysError with a usable message.
-std::vector<double> poly_from_expr(const std::string& text, int max_degree = 12);
+/// Parse `text` as a polynomial in `var` with numeric coefficients
+/// (degree <= max_degree) via the CAS: c_k = f^(k)(0) / k!. Throws SysError
+/// with a usable message.
+std::vector<double> poly_from_expr(const std::string& text,
+                                   const std::string& var = "s",
+                                   int max_degree = 12);
 
 /// Build a proper transfer function from numerator/denominator polynomial
 /// text; normalizes the denominator monic. Throws SysError (zero denominator,
-/// improper H, non-polynomials).
+/// improper H, non-polynomials). make_tf reads polynomials in s (Laplace),
+/// make_tfz in z (positive powers).
 RationalTF make_tf(const std::string& num_text, const std::string& den_text);
+RationalTF make_tfz(const std::string& num_text, const std::string& den_text);
 
 /// Parse an LTI ODE in y (output) and u (input), primes for derivatives:
 ///   "y'' + 3y' + 2y = u' + u",  "2y' - y = 3u"
@@ -93,5 +98,24 @@ struct TimeSim {
     bool biproper = false; ///< D != 0: impulse carries an extra delta(t).
 };
 TimeSim simulate(const RationalTF& tf, double horizon, int points = 400);
+
+// --- discrete-time systems --------------------------------------------------
+//
+// A discrete transfer function H(z) uses the SAME RationalTF storage, but the
+// coefficients are read as POSITIVE powers of z (num[k] multiplies z^k), and
+// the denominator is normalized monic in its highest power. Stability is
+// |pole| < 1 rather than Re(pole) < 0.
+
+/// Sample the discrete impulse and step responses by running the difference
+/// equation for `points` samples (den must be monic in its highest power).
+struct DiscreteSim {
+    std::vector<double> n;       ///< sample index 0..points-1
+    std::vector<double> step;
+    std::vector<double> impulse;
+};
+DiscreteSim simulate_discrete(const RationalTF& tf, int points = 64);
+
+/// H(z) at z = e^{j w}, w = 2 pi f / fs.
+cd tfz_eval(const RationalTF& tf, double f, double fs);
 
 } // namespace mathsolver::plugins::sys

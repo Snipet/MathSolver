@@ -23,6 +23,8 @@
     xlabel?: string;
     ylabel?: string;
     logx?: boolean;
+    /** Equal units-per-pixel on both axes (e.g. pole-zero maps). */
+    equal?: boolean;
     /** Vertical marker lines (e.g. filter cutoffs). */
     vlines?: VLine[];
   }
@@ -33,6 +35,7 @@
     xlabel = "",
     ylabel = "",
     logx = false,
+    equal = false,
     vlines = [],
   }: Props = $props();
 
@@ -166,6 +169,24 @@
     const pad = (hi - lo) * 0.06;
     lo -= pad;
     hi += pad;
+    // Equal aspect (pole-zero maps): match units-per-pixel by widening the
+    // axis with the finer scale around its centre, so a unit circle is round.
+    if (equal && !usableLog) {
+      const uppX = (x1 - x0) / plotW;
+      const uppY = (hi - lo) / plotH;
+      const upp = Math.max(uppX, uppY);
+      if (upp > uppX) {
+        const cx = (x0 + x1) / 2;
+        const half = (upp * plotW) / 2;
+        x0 = cx - half;
+        x1 = cx + half;
+      } else {
+        const cy = (lo + hi) / 2;
+        const half = (upp * plotH) / 2;
+        lo = cy - half;
+        hi = cy + half;
+      }
+    }
     const py = (v: number) => PAD.t + (1 - (v - lo) / (hi - lo)) * plotH;
 
     ctx.clearRect(0, 0, w, HEIGHT);

@@ -196,6 +196,7 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   sys.ode y'' + 3y' + 2y = u' + u        → ODE to transfer function
   sys.feedback 1, s(s+1)(s+2), 2         → closed loop under gain-K feedback
   sys.rlocus 1, s^3 + 3s^2 + 2s          → root locus + critical gain
+  sys.tfz z, z^2 - 0.5z + 0.06, 8000     → discrete H(z): unit circle, |p|<1
   sys.c2d 1, s+1, 100                    → discretize H(s) to digital biquads
   plot sin(x)/x, -20, 20                 → chart any expression inline
   plugins                                → catalog of compiled-in plugins

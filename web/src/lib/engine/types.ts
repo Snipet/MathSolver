@@ -107,6 +107,8 @@ export type PluginBlock =
       xlabel?: string;
       ylabel?: string;
       logx?: boolean;
+      /** Equal units-per-pixel on both axes (e.g. pole-zero maps). */
+      equal?: boolean;
       x: number[];
       series: {
         label: string;

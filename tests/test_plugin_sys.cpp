@@ -308,6 +308,69 @@ TEST_CASE("sys: rlocus command renders the sweep") {
     CHECK_THAT(crit, ContainsSubstring("unstable near K"));
 }
 
+// ---------------------------------------------------------------------------
+// Discrete-time systems (z-domain)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("sys: make_tfz reads polynomials in z and stays proper") {
+    const RationalTF tf = sys::make_tfz("z", "z^2 - 0.5z + 0.06");
+    REQUIRE(tf.den.size() == 3);
+    CHECK(std::abs(tf.den[2] - 1.0) < 1e-12); // monic in highest power
+    CHECK(std::abs(tf.den[1] + 0.5) < 1e-12);
+    CHECK(std::abs(tf.den[0] - 0.06) < 1e-12);
+    CHECK_THROWS_AS(sys::make_tfz("z^3", "z^2 + 1"), sys::SysError); // improper
+    CHECK_THROWS_AS(sys::make_tfz("s + 1", "z + 1"), sys::SysError); // wrong var
+}
+
+TEST_CASE("sys: discrete first-order impulse/step match the closed forms") {
+    // H(z) = z/(z - a): impulse h[n] = a^n, step s[n] = (1 - a^{n+1})/(1 - a).
+    const double a = 0.8;
+    const RationalTF tf = sys::make_tfz("z", "z - 0.8");
+    const sys::DiscreteSim sim = sys::simulate_discrete(tf, 20);
+    for (int n = 0; n < 20; ++n) {
+        CHECK(std::abs(sim.impulse[static_cast<std::size_t>(n)] -
+                       std::pow(a, n)) < 1e-9);
+        const double step = (1.0 - std::pow(a, n + 1)) / (1.0 - a);
+        CHECK(std::abs(sim.step[static_cast<std::size_t>(n)] - step) < 1e-9);
+    }
+}
+
+TEST_CASE("sys: discrete moving-average impulse is the tap set") {
+    // H(z) = (z^2 + z + 1)/(3 z^2): a 3-tap averager, h = [1/3, 1/3, 1/3].
+    const RationalTF tf = sys::make_tfz("z^2 + z + 1", "3z^2");
+    const sys::DiscreteSim sim = sys::simulate_discrete(tf, 6);
+    CHECK(std::abs(sim.impulse[0] - 1.0 / 3.0) < 1e-12);
+    CHECK(std::abs(sim.impulse[1] - 1.0 / 3.0) < 1e-12);
+    CHECK(std::abs(sim.impulse[2] - 1.0 / 3.0) < 1e-12);
+    CHECK(std::abs(sim.impulse[3]) < 1e-12); // FIR: dies after 3 taps
+    // DC gain (z = 1) is 1.
+    CHECK(std::abs(sys::tfz_eval(tf, 0.0, 8000.0).real() - 1.0) < 1e-12);
+}
+
+TEST_CASE("sys: discrete stability is |pole| < 1") {
+    // Poles inside the circle.
+    const auto stable = sys::poly_roots(sys::make_tfz("z", "z^2 - 0.5z + 0.06").den);
+    for (const cd& p : stable) CHECK(std::abs(p) < 1.0);
+    // A pole at z = 1.2 is unstable.
+    const auto unstable = sys::poly_roots(sys::make_tfz("1", "z - 1.2").den);
+    CHECK(std::abs(unstable.front()) > 1.0);
+}
+
+TEST_CASE("sys: tfz command renders the z-plane analysis") {
+    const std::string out =
+        sys_plugin().invoke("tfz", {"z", "z^2 - 0.5z + 0.06", "8000"});
+    CHECK_THAT(out, ContainsSubstring("\"ok\":true"));
+    CHECK_THAT(out, ContainsSubstring("Pole-zero map (z-plane)"));
+    CHECK_THAT(out, ContainsSubstring("unit circle"));
+    CHECK_THAT(out, ContainsSubstring("\"equal\":true"));
+    CHECK_THAT(out, ContainsSubstring("inside |z| = 1"));
+    CHECK_THAT(out, ContainsSubstring("Max |pole|"));
+    CHECK_THAT(sys_plugin().invoke("tfz", {"1", "z - 1.2", "8000"}),
+               ContainsSubstring("unstable (pole outside"));
+    CHECK_THAT(sys_plugin().invoke("tfz", {"z", "z + 1"}),
+               ContainsSubstring("usage: sys.tfz"));
+}
+
 TEST_CASE("sys: c2d discretizes through the dsp zpk machinery") {
     const std::string out = sys_plugin().invoke("c2d", {"1", "s + 1", "100"});
     CHECK_THAT(out, ContainsSubstring("\"ok\":true"));

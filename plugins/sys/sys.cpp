@@ -492,6 +492,185 @@ std::string cmd_rlocus(const std::vector<std::string>& args) {
     }
 }
 
+// --- discrete-time analysis (z-domain) --------------------------------------
+
+std::string zpoly_text(const std::vector<double>& c) {
+    // Reuse poly_text but rename the variable s -> z.
+    std::string s = poly_text(c);
+    for (char& ch : s) {
+        if (ch == 's') ch = 'z';
+    }
+    return s;
+}
+
+std::string z_roots_table(const Analysis& a) {
+    std::string rows = "[";
+    bool first = true;
+    const auto add_rows = [&](const std::vector<cd>& roots, const char* type) {
+        for (const cd& r : roots) {
+            if (!first) rows += ",";
+            first = false;
+            rows += std::format("[{},{},{},{},{}]", jstr(type), jnum(r.real()),
+                                jnum(r.imag()), jnum(std::abs(r)),
+                                jnum(std::arg(r) * 180.0 / std::numbers::pi));
+        }
+    };
+    add_rows(a.poles, "pole");
+    add_rows(a.zeros, "zero");
+    rows += "]";
+    return std::format(
+        "{{\"type\":\"table\",\"title\":\"Poles and zeros\","
+        "\"columns\":[\"type\",\"Re\",\"Im\",\"|z|\",\"angle (deg)\"],"
+        "\"rows\":{}}}",
+        rows);
+}
+
+/// Pole-zero map with the unit circle drawn (equal aspect), poles as x and
+/// zeros as o. The circle is a connected line traced by angle, so it renders
+/// as a circle regardless of x monotonicity.
+std::string z_pzmap_block(const Analysis& a) {
+    constexpr int kCircle = 121;
+    std::string xs = "[";
+    std::string circle = "[";
+    std::string poles = "[";
+    std::string zeros = "[";
+    const auto append = [&](std::string& dst, const std::string& v) {
+        if (dst.size() > 1) dst += ",";
+        dst += v;
+    };
+    for (int i = 0; i < kCircle; ++i) {
+        const double th = 2.0 * std::numbers::pi * i / (kCircle - 1);
+        append(xs, jnum(std::cos(th)));
+        append(circle, jnum(std::sin(th)));
+        append(poles, "null");
+        append(zeros, "null");
+    }
+    for (const cd& p : a.poles) {
+        append(xs, jnum(p.real()));
+        append(circle, "null");
+        append(poles, jnum(p.imag()));
+        append(zeros, "null");
+    }
+    for (const cd& z : a.zeros) {
+        append(xs, jnum(z.real()));
+        append(circle, "null");
+        append(poles, "null");
+        append(zeros, jnum(z.imag()));
+    }
+    xs += "]";
+    circle += "]";
+    poles += "]";
+    zeros += "]";
+    std::string series = std::format(
+        "[{{\"label\":\"unit circle\",\"ys\":{}}},"
+        "{{\"label\":\"poles\",\"ys\":{},\"points\":true,\"shape\":\"x\"}}",
+        circle, poles);
+    if (!a.zeros.empty()) {
+        series += std::format(
+            ",{{\"label\":\"zeros\",\"ys\":{},\"points\":true,\"shape\":\"o\"}}",
+            zeros);
+    }
+    series += "]";
+    return std::format(
+        "{{\"type\":\"series\",\"title\":\"Pole-zero map (z-plane)\","
+        "\"xlabel\":\"Re\",\"ylabel\":\"Im\",\"equal\":true,\"x\":{},"
+        "\"series\":{}}}",
+        xs, series);
+}
+
+std::string z_response_blocks(const RationalTF& tf, double fs) {
+    constexpr int kPoints = 300;
+    std::vector<double> f, mag, phase;
+    const double lo = fs / 2.0 * 1e-3;
+    const double hi = fs / 2.0 * 0.999;
+    double prev = 0.0;
+    bool have = false;
+    for (int i = 0; i < kPoints; ++i) {
+        const double t = static_cast<double>(i) / (kPoints - 1);
+        const double ff = lo * std::pow(hi / lo, t);
+        const cd h = sys::tfz_eval(tf, ff, fs);
+        f.push_back(ff);
+        mag.push_back(20.0 * std::log10(std::abs(h)));
+        double ph = std::arg(h);
+        if (have) {
+            ph += 2.0 * std::numbers::pi *
+                  std::round((prev - ph) / (2.0 * std::numbers::pi));
+        }
+        if (std::isfinite(ph)) {
+            prev = ph;
+            have = true;
+        }
+        phase.push_back(ph * 180.0 / std::numbers::pi);
+    }
+    return std::format(
+        "{{\"type\":\"series\",\"title\":\"Magnitude response\","
+        "\"xlabel\":\"frequency (Hz)\",\"ylabel\":\"|H| (dB)\",\"logx\":true,"
+        "\"x\":{},\"series\":[{{\"label\":\"|H(e^{{j\\u03c9}})|\",\"ys\":{}}}]}},"
+        "{{\"type\":\"series\",\"title\":\"Phase response\","
+        "\"xlabel\":\"frequency (Hz)\",\"ylabel\":\"phase (deg)\",\"logx\":true,"
+        "\"x\":{},\"series\":[{{\"label\":\"arg H\",\"ys\":{}}}]}}",
+        jnum_array(f), jnum_array(mag), jnum_array(f), jnum_array(phase));
+}
+
+std::string z_time_block(const RationalTF& tf) {
+    const sys::DiscreteSim sim = sys::simulate_discrete(tf, 64);
+    return std::format(
+        "{{\"type\":\"series\",\"title\":\"Time response\","
+        "\"xlabel\":\"n (samples)\",\"ylabel\":\"amplitude\","
+        "\"x\":{},\"series\":[{{\"label\":\"step\",\"ys\":{}}},"
+        "{{\"label\":\"impulse\",\"ys\":{}}}]}}",
+        jnum_array(sim.n), jnum_array(sim.step), jnum_array(sim.impulse));
+}
+
+std::string cmd_tfz(const std::vector<std::string>& args) {
+    if (args.size() != 3) {
+        return error_json(
+            "usage: sys.tfz <num poly in z>, <den poly in z>, <fs Hz>   "
+            "(positive powers of z)");
+    }
+    double fs = 0.0;
+    try {
+        std::size_t pos = 0;
+        fs = std::stod(args[2], &pos);
+        if (pos != args[2].size() || !(fs > 0.0)) {
+            throw std::invalid_argument("fs");
+        }
+    } catch (const std::exception&) {
+        return error_json(
+            std::format("sample rate must be a positive number, got '{}'", args[2]));
+    }
+    try {
+        const RationalTF tf = sys::make_tfz(args[0], args[1]);
+        Analysis a;
+        a.poles = sys::poly_roots(tf.den);
+        a.zeros = sys::poly_roots(tf.num);
+        double max_r = 0.0;
+        for (const cd& p : a.poles) {
+            max_r = std::max(max_r, std::abs(p));
+        }
+        const bool stable = max_r < 1.0 - 1e-9;
+        const bool marginal = std::abs(max_r - 1.0) <= 1e-9;
+        const char* verdict = stable      ? "stable (all poles inside |z| = 1)"
+                              : marginal   ? "marginally stable (pole on |z| = 1)"
+                                           : "unstable (pole outside |z| = 1)";
+        const double dc = sys::tfz_eval(tf, 0.0, fs).real(); // z = 1
+        const std::string kv = std::format(
+            "{{\"type\":\"kv\",\"items\":[[\"H(z)\",{}],[\"Order\",\"{}\"],"
+            "[\"Stability\",{}],[\"Max |pole|\",\"{:.4g}\"],[\"DC gain\",\"{:g}\"],"
+            "[\"Sample rate\",\"{} Hz\"]]}}",
+            jstr(std::format("({}) / ({})", zpoly_text(tf.num), zpoly_text(tf.den))),
+            tf.den.size() - 1, jstr(verdict), max_r, dc, fs);
+        return std::format(
+            "{{\"ok\":true,\"title\":{},\"blocks\":[{},{},{},{},{}]}}",
+            jstr(std::format("H(z) = ({}) / ({}) @ {} Hz", zpoly_text(tf.num),
+                             zpoly_text(tf.den), fs)),
+            kv, z_roots_table(a), z_pzmap_block(a), z_response_blocks(tf, fs),
+            z_time_block(tf));
+    } catch (const sys::SysError& e) {
+        return error_json(e.what());
+    }
+}
+
 std::string cmd_c2d(const std::vector<std::string>& args) {
     if (args.size() != 3) {
         return error_json("usage: sys.c2d <num poly in s>, <den poly in s>, <fs Hz>");
@@ -582,9 +761,9 @@ std::string cmd_c2d(const std::vector<std::string>& args) {
 class SysPlugin final : public Plugin {
   public:
     std::string_view name() const override { return "sys"; }
-    std::string_view version() const override { return "0.2.0"; }
+    std::string_view version() const override { return "0.3.0"; }
     std::string_view summary() const override {
-        return "Continuous-time LTI systems: transfer functions, ODE -> H(s), "
+        return "LTI systems: transfer functions (s and z), ODE -> H(s), "
                "feedback, margins, root locus, discretization";
     }
     std::vector<CommandInfo> commands() const override {
@@ -597,6 +776,8 @@ class SysPlugin final : public Plugin {
              "sys.feedback <num poly in s>, <den poly in s>[, <K>]"},
             {"rlocus", "Root locus: closed-loop poles as K sweeps",
              "sys.rlocus <num poly in s>, <den poly in s>[, <K max>]"},
+            {"tfz", "Analyze a discrete transfer function H(z) (positive powers)",
+             "sys.tfz <num poly in z>, <den poly in z>, <fs Hz>"},
             {"c2d", "Discretize H(s) to digital biquads (bilinear)",
              "sys.c2d <num poly in s>, <den poly in s>, <fs Hz>"},
         };
@@ -608,6 +789,7 @@ class SysPlugin final : public Plugin {
             if (command == "ode") return cmd_ode(args);
             if (command == "feedback") return cmd_feedback(args);
             if (command == "rlocus") return cmd_rlocus(args);
+            if (command == "tfz") return cmd_tfz(args);
             if (command == "c2d") return cmd_c2d(args);
             return error_json(std::format("sys has no command '{}'", command));
         } catch (const std::exception& e) {

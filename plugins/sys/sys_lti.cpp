@@ -28,7 +28,8 @@ void trim_leading(std::vector<double>& c) {
 
 } // namespace
 
-std::vector<double> poly_from_expr(const std::string& text, int max_degree) {
+std::vector<double> poly_from_expr(const std::string& text, const std::string& var,
+                                   int max_degree) {
     Expr e;
     try {
         e = simplify(parse_expression(text));
@@ -36,11 +37,11 @@ std::vector<double> poly_from_expr(const std::string& text, int max_degree) {
         throw SysError(std::format("cannot parse '{}': {}", text, err.what()));
     }
     for (const std::string& sym : free_symbols(e)) {
-        if (sym != "s") {
+        if (sym != var) {
             throw SysError(std::format(
-                "'{}' contains the symbol '{}' — polynomials must be in s with "
+                "'{}' contains the symbol '{}' — polynomials must be in {} with "
                 "numeric coefficients",
-                text, sym));
+                text, sym, var));
         }
     }
     std::vector<double> coeffs;
@@ -50,7 +51,7 @@ std::vector<double> poly_from_expr(const std::string& text, int max_degree) {
         if (k > 0) {
             factorial *= k;
             try {
-                d = simplify(differentiate(d, "s"));
+                d = simplify(differentiate(d, var));
             } catch (const Error& err) {
                 throw SysError(std::format("cannot differentiate '{}': {}", text,
                                            err.what()));
@@ -61,21 +62,21 @@ std::vector<double> poly_from_expr(const std::string& text, int max_degree) {
         }
         double value = 0.0;
         try {
-            value = evaluate(d, Bindings{{"s", 0.0}});
+            value = evaluate(d, Bindings{{var, 0.0}});
         } catch (const Error&) {
             throw SysError(std::format(
-                "'{}' is not a polynomial in s (degree <= {}) with numeric "
+                "'{}' is not a polynomial in {} (degree <= {}) with numeric "
                 "coefficients",
-                text, max_degree));
+                text, var, max_degree));
         }
         coeffs.push_back(value / factorial);
         // Termination check happens on the NEXT round via the derivative; a
         // non-polynomial (sin, exp, 1/s) never reaches the zero expression.
         if (k == max_degree) {
-            const Expr next = simplify(differentiate(d, "s"));
+            const Expr next = simplify(differentiate(d, var));
             if (!(next->kind() == Kind::Number && next->number().is_zero())) {
                 throw SysError(std::format(
-                    "'{}' is not a polynomial in s of degree <= {}", text,
+                    "'{}' is not a polynomial in {} of degree <= {}", text, var,
                     max_degree));
             }
         }
@@ -87,22 +88,35 @@ std::vector<double> poly_from_expr(const std::string& text, int max_degree) {
     return coeffs;
 }
 
-RationalTF make_tf(const std::string& num_text, const std::string& den_text) {
+namespace {
+
+RationalTF make_tf_in(const std::string& num_text, const std::string& den_text,
+                      const std::string& var, const char* domain) {
     RationalTF tf;
-    tf.num = poly_from_expr(num_text);
-    tf.den = poly_from_expr(den_text);
+    tf.num = poly_from_expr(num_text, var);
+    tf.den = poly_from_expr(den_text, var);
     if (tf.den.size() == 1 && near_zero(tf.den[0])) {
         throw SysError("the denominator is identically zero");
     }
     if (tf.num.size() > tf.den.size()) {
         throw SysError(std::format(
-            "H(s) must be proper: numerator degree {} exceeds denominator degree {}",
-            tf.num.size() - 1, tf.den.size() - 1));
+            "{} must be proper: numerator degree {} exceeds denominator degree {}",
+            domain, tf.num.size() - 1, tf.den.size() - 1));
     }
     const double lead = tf.den.back();
     for (double& c : tf.den) c /= lead;
     for (double& c : tf.num) c /= lead;
     return tf;
+}
+
+} // namespace
+
+RationalTF make_tf(const std::string& num_text, const std::string& den_text) {
+    return make_tf_in(num_text, den_text, "s", "H(s)");
+}
+
+RationalTF make_tfz(const std::string& num_text, const std::string& den_text) {
+    return make_tf_in(num_text, den_text, "z", "H(z)");
 }
 
 // --- ODE parsing ------------------------------------------------------------
@@ -526,6 +540,59 @@ TimeSim simulate(const RationalTF& tf, double horizon, int points) {
         }
     }
     return out;
+}
+
+// --- discrete-time ----------------------------------------------------------
+
+DiscreteSim simulate_discrete(const RationalTF& tf, int points) {
+    // Positive-power coefficients -> difference-equation taps. With den monic
+    // of degree N, multiply through by z^-N:
+    //   b[i] = num[N-i]  (num zero-padded),  a[i] = den[N-i],  a[0] = 1.
+    const std::size_t N = tf.den.size() - 1;
+    std::vector<double> b(N + 1, 0.0);
+    std::vector<double> a(N + 1, 0.0);
+    for (std::size_t i = 0; i <= N; ++i) {
+        a[i] = tf.den[N - i];
+        const std::size_t src = N - i;
+        b[i] = src < tf.num.size() ? tf.num[src] : 0.0;
+    }
+    const double a0 = a[0] == 0.0 ? 1.0 : a[0];
+
+    DiscreteSim sim;
+    const auto run = [&](bool step) {
+        std::vector<double> x(N + 1, 0.0);
+        std::vector<double> y(N + 1, 0.0);
+        std::vector<double> out;
+        for (int n = 0; n < points; ++n) {
+            // Shift histories.
+            for (std::size_t k = N; k > 0; --k) {
+                x[k] = x[k - 1];
+                y[k] = y[k - 1];
+            }
+            x[0] = step ? 1.0 : (n == 0 ? 1.0 : 0.0);
+            double acc = 0.0;
+            for (std::size_t i = 0; i <= N; ++i) {
+                acc += b[i] * x[i];
+            }
+            for (std::size_t i = 1; i <= N; ++i) {
+                acc -= a[i] * y[i];
+            }
+            y[0] = acc / a0;
+            out.push_back(y[0]);
+        }
+        return out;
+    };
+    sim.impulse = run(false);
+    sim.step = run(true);
+    for (int n = 0; n < points; ++n) {
+        sim.n.push_back(static_cast<double>(n));
+    }
+    return sim;
+}
+
+cd tfz_eval(const RationalTF& tf, double f, double fs) {
+    const cd z = std::polar(1.0, 2.0 * std::numbers::pi * f / fs);
+    return tf_eval(tf, z);
 }
 
 } // namespace mathsolver::plugins::sys
