@@ -41,6 +41,7 @@ if(Python3_FOUND)
                 --binary $<TARGET_FILE:mathsolver>
                 ${CMAKE_SOURCE_DIR}/tests/acceptance/cases.tsv
                 ${CMAKE_SOURCE_DIR}/tests/acceptance/printer_cases.tsv
-                ${CMAKE_SOURCE_DIR}/tests/acceptance/eval_cases.tsv)
+                ${CMAKE_SOURCE_DIR}/tests/acceptance/eval_cases.tsv
+                ${CMAKE_SOURCE_DIR}/tests/acceptance/v04_cases.tsv)
     set_tests_properties(acceptance_battery PROPERTIES LABELS acceptance TIMEOUT 300)
 endif()
