@@ -118,6 +118,34 @@ Input accepts both LaTeX (`\frac{1}{2}`, `\sin{x}`, `\sqrt[3]{x}`, `\pi`,
 `\alpha`) and plain style (`1/2`, `sin(x)`, `pi`) with implicit
 multiplication (`2x`, `(x+1)(x-2)`).
 
+## Web app
+
+The same engine, compiled to WebAssembly, powers a static single-page app in
+[`web/`](web) (Svelte + Vite): simplify/expand/factor, solve equations and
+linear systems, differentiate, integrate (indefinite and definite), evaluate
+numerically, and plot functions (with optional derivative and antiderivative
+overlays). Results render as KaTeX with copyable plain text, a live "as
+parsed" preview underlines errors in place, and a computation history
+persists locally. All computation runs in your browser via WebAssembly —
+nothing is sent to a server, and the built site is plain static files with
+no backend.
+
+Prerequisites: [Emscripten](https://emscripten.org) (`brew install
+emscripten`) and Node.js.
+
+```sh
+tools/build_wasm.sh        # compile the engine to WASM, stage into web/src/lib/wasm
+cd web
+npm install
+npm run build              # static site in web/dist/
+npm run preview            # serve the build locally
+```
+
+For development, `npm run dev` starts a hot-reloading dev server (re-run
+`tools/build_wasm.sh` after engine changes); `npm run check` type-checks the
+Svelte/TypeScript sources, and `node ../tools/wasm_smoke.mjs` exercises every
+WASM binding directly.
+
 ## Features
 
 - **Parser** — LaTeX-style grammar with caret-underlined error diagnostics.

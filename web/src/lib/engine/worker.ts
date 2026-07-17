@@ -12,9 +12,16 @@ function post(msg: WorkerResponse) {
   (self as unknown as Worker).postMessage(msg);
 }
 
+function describe(e: unknown): string {
+  // Emscripten aborts often throw numbers/strings rather than Errors.
+  if (e instanceof Error) return e.message;
+  if (typeof e === "string") return e;
+  return `engine internal error (${String(e)})`;
+}
+
 modulePromise.then(
   () => post({ id: -1, ready: true }),
-  (e: unknown) => post({ id: -1, ok: false, error: `engine failed to load: ${e}` } as never),
+  (e: unknown) => post({ id: -1, ready: false, error: describe(e) }),
 );
 
 self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
@@ -28,6 +35,6 @@ self.onmessage = async (ev: MessageEvent<WorkerRequest>) => {
     }
     post({ id, ok: true, result: JSON.parse(f(...args)) });
   } catch (e) {
-    post({ id, ok: false, error: e instanceof Error ? e.message : String(e) });
+    post({ id, ok: false, error: describe(e) });
   }
 };

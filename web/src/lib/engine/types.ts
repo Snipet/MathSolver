@@ -109,4 +109,5 @@ export interface WorkerRequest {
 export type WorkerResponse =
   | { id: number; ok: true; result: unknown }
   | { id: number; ok: false; error: string }
-  | { id: -1; ready: true };
+  | { id: -1; ready: true }
+  | { id: -1; ready: false; error: string };

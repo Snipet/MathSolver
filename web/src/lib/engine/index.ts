@@ -14,20 +14,37 @@ interface Pending {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface ReadyWaiter {
+  resolve: () => void;
+  reject: (e: Error) => void;
+}
+
 let worker: Worker | null = null;
 let nextId = 1;
 const pending = new Map<number, Pending>();
-let readyResolvers: (() => void)[] = [];
+let readyWaiters: ReadyWaiter[] = [];
 let isReady = false;
+let readyError: Error | null = null;
+
+function failReady(err: Error) {
+  readyError = err;
+  readyWaiters.forEach((r) => r.reject(err));
+  readyWaiters = [];
+}
 
 function spawn(): Worker {
   const w = new Worker(new URL("./worker.ts", import.meta.url), { type: "module" });
   w.onmessage = (ev: MessageEvent<WorkerResponse>) => {
     const msg = ev.data;
-    if (msg.id === -1) {
-      isReady = true;
-      readyResolvers.forEach((r) => r());
-      readyResolvers = [];
+    if ("ready" in msg) {
+      if (msg.ready) {
+        isReady = true;
+        readyWaiters.forEach((r) => r.resolve());
+        readyWaiters = [];
+      } else {
+        failReady(new Error(`engine failed to load: ${msg.error}`));
+        failAll(readyError!);
+      }
       return;
     }
     const p = pending.get(msg.id);
@@ -38,7 +55,9 @@ function spawn(): Worker {
     else p.reject(new Error(msg.error));
   };
   w.onerror = (e) => {
-    failAll(new Error(`engine worker error: ${e.message}`));
+    const err = new Error(`engine worker error: ${e.message || "failed to start"}`);
+    if (!isReady) failReady(err);
+    failAll(err);
   };
   return w;
 }
@@ -54,6 +73,7 @@ function failAll(err: Error) {
 function ensureWorker(): Worker {
   if (!worker) {
     isReady = false;
+    readyError = null;
     worker = spawn();
   }
   return worker;
@@ -66,11 +86,15 @@ function restart() {
   failAll(new Error("computation timed out; the engine was restarted"));
 }
 
-/** Resolves once the WASM module has finished loading. */
+/**
+ * Resolves once the WASM module has finished loading; rejects if the module
+ * (or the worker itself) failed to load.
+ */
 export function engineReady(): Promise<void> {
   ensureWorker();
   if (isReady) return Promise.resolve();
-  return new Promise((resolve) => readyResolvers.push(resolve));
+  if (readyError) return Promise.reject(readyError);
+  return new Promise((resolve, reject) => readyWaiters.push({ resolve, reject }));
 }
 
 export function call<F extends EngineFn>(
@@ -79,6 +103,7 @@ export function call<F extends EngineFn>(
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<EngineApi[F][1]> {
   const w = ensureWorker();
+  if (readyError) return Promise.reject(readyError);
   const id = nextId++;
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
