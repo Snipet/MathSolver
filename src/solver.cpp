@@ -1080,9 +1080,25 @@ SolveResult numeric_core(const Expr& f, const Equation& eq, std::string_view sym
 
     // Exact grid hits and sign-change brackets.
     for (int i = 0; i < n; ++i) {
-        if (vs[i] && *vs[i] == 0.0) {
-            roots.push_back({ts[i], false});
+        if (!vs[i] || *vs[i] != 0.0) {
+            continue;
         }
+        // Classify by the sign of the nearest nonzero neighbours: a zero the
+        // curve crosses is a genuine sign-change root, while one it only
+        // touches (both sides share a sign) is a tangency/even-multiplicity
+        // root and must carry the note (DESIGN §9 step 4) — the same as when
+        // the touch point falls between grid nodes instead of exactly on one.
+        int l = i - 1;
+        while (l >= 0 && (!vs[l] || *vs[l] == 0.0)) {
+            --l;
+        }
+        int r = i + 1;
+        while (r < n && (!vs[r] || *vs[r] == 0.0)) {
+            ++r;
+        }
+        const bool tangency =
+            (l >= 0 && r < n) && ((*vs[l] > 0.0) == (*vs[r] > 0.0));
+        roots.push_back({ts[i], tangency});
     }
     for (int i = 0; i + 1 < n; ++i) {
         if (!vs[i] || !vs[i + 1]) {
