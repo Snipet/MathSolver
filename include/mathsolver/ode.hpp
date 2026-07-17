@@ -12,9 +12,12 @@
 namespace mathsolver {
 
 struct DsolveResult {
-    Expr solution;   ///< y(t), exact.
-    Expr transform;  ///< Y(s) in partial-fraction form (the inverted object).
+    Expr solution;   ///< y(t) when explicit; F(t, y) with F = 0 when implicit.
+    Expr transform;  ///< Laplace path only: Y(s) in partial-fraction form
+                     ///< (null for the first-order methods).
     int order = 0;   ///< Highest derivative of y in the equation.
+    bool implicit = false;  ///< solution is a relation F(t, y) = 0.
+    std::string method;
     /// Initial conditions that were not given and were assumed zero,
     /// e.g. "assuming y'(0) = 0".
     std::vector<std::string> warnings;
@@ -32,6 +35,12 @@ struct DsolveResult {
 /// "y(0)=1", "y'(0)=0", ... (any order k < n; omitted conditions default to
 /// zero and are reported in warnings).  Resonant forcing is handled
 /// (t·sin/t·cos inverses for repeated quadratic factors).
+///
+/// Equations spelled "y' = f(t, y)" route to first-order methods instead:
+/// linear (integrating factor, p(t) arbitrary where ∫p integrates),
+/// Bernoulli (v = y^(1-m)), and separable (∫dy/h = ∫g dt, inverted for y
+/// when solve() can; an implicit relation with a warning otherwise).  With
+/// no initial condition the general solution keeps a symbolic constant C.
 ///
 /// Throws Error with a user-presentable message for malformed equations,
 /// non-numeric coefficients, out-of-range conditions, or forcing terms with

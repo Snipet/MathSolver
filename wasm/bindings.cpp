@@ -601,10 +601,11 @@ std::string ms_dsolve(std::string ode, std::string conditions_csv) {
         const DsolveResult r = dsolve(ode, conditions);
         return std::format(
             "{{\"ok\":true,{},\"transformPlain\":{},\"transformLatex\":{},"
-            "\"warnings\":{}}}",
+            "\"implicit\":{},\"method\":{},\"warnings\":{}}}",
             rendered_fields(r.solution),
-            jstr(to_string(r.transform, PrintStyle::Plain)),
-            jstr(to_string(r.transform, PrintStyle::LaTeX)),
+            jstr(r.transform ? to_string(r.transform, PrintStyle::Plain) : ""),
+            jstr(r.transform ? to_string(r.transform, PrintStyle::LaTeX) : ""),
+            r.implicit ? "true" : "false", jstr(r.method),
             jarr_str(r.warnings));
     });
 }

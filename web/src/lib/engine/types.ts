@@ -61,6 +61,8 @@ export type DsolveResult =
       ok: true;
       transformPlain: string;
       transformLatex: string;
+      implicit: boolean;
+      method: string;
       warnings: string[];
     } & Rendered)
   | EngineError;

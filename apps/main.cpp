@@ -705,9 +705,15 @@ void run_dsolve(const std::string& input, PrintStyle style) {
     const std::vector<std::string> parts = split_top_level(input, ',');
     const DsolveResult res =
         dsolve(parts[0], {parts.begin() + 1, parts.end()});
-    std::println("y(t) = {}", to_string(res.solution, style));
-    std::println("Y(s) = {}", to_string(res.transform, style));
-    std::println("method: laplace transform + partial fractions");
+    if (res.implicit) {
+        std::println("implicit solution: {} = 0", to_string(res.solution, style));
+    } else {
+        std::println("y(t) = {}", to_string(res.solution, style));
+    }
+    if (res.transform) {
+        std::println("Y(s) = {}", to_string(res.transform, style));
+    }
+    std::println("method: {}", res.method);
     for (const std::string& w : res.warnings) {
         std::println("warning: {}", w);
     }

@@ -7,11 +7,19 @@
   let { result }: { result: Ok<DsolveResult> } = $props();
 </script>
 
-<Katex latex={`y(t) = ${result.latex}`} display />
-<p class="transform">
-  <span class="lead">via</span>
-  <Katex latex={`Y(s) = ${result.transformLatex}`} />
-</p>
+{#if result.implicit}
+  <Katex latex={`${result.latex} = 0`} display />
+{:else}
+  <Katex latex={`y(t) = ${result.latex}`} display />
+{/if}
+{#if result.transformLatex}
+  <p class="transform">
+    <span class="lead">via</span>
+    <Katex latex={`Y(s) = ${result.transformLatex}`} />
+  </p>
+{:else if result.method}
+  <p class="transform"><span class="lead">method</span>{result.method}</p>
+{/if}
 {#each result.warnings as w (w)}
   <p class="warning">{w}</p>
 {/each}

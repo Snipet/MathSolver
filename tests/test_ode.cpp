@@ -131,6 +131,98 @@ TEST_CASE("dsolve: fractional and starred coefficients parse") {
                  [](double t) { return 2.0 * std::exp(-2.0 * t); });
 }
 
+// ---------------------------------------------------------------------------
+// First-order methods (y' = f(t, y))
+// ---------------------------------------------------------------------------
+
+TEST_CASE("dsolve first-order: variable-coefficient linear equations") {
+    // y' = -2ty, y(0)=1 -> e^{-t^2}.
+    check_dsolve("y' = -2t*y", {"y(0)=1"},
+                 [](double t) { return std::exp(-t * t); });
+    // y' = -2ty + t, y(0)=0 -> (1 - e^{-t^2})/2.
+    check_dsolve("y' = -2t*y + t", {"y(0)=0"}, [](double t) {
+        return (1.0 - std::exp(-t * t)) / 2.0;
+    });
+    // Constant-coefficient through the same door: y' = -2y + e^(-t).
+    check_dsolve("y' = -2y + e^(-t)", {"y(0)=0"}, [](double t) {
+        return std::exp(-t) - std::exp(-2 * t);
+    });
+}
+
+TEST_CASE("dsolve first-order: separable equations invert explicitly") {
+    // y' = y^2, y(0)=1 -> 1/(1-t) (valid t < 1).
+    {
+        const DsolveResult r = dsolve("y' = y^2", {"y(0)=1"});
+        CHECK(!r.implicit);
+        for (const double t : {0.0, 0.3, 0.7}) {
+            const double got = evaluate(r.solution, Bindings{{"t", t}});
+            CHECK(std::abs(got - 1.0 / (1.0 - t)) < 1e-9);
+        }
+    }
+    // y' = t/y, y(0)=2 -> sqrt(t^2 + 4).
+    {
+        const DsolveResult r = dsolve("y' = t/y", {"y(0)=2"});
+        CHECK(!r.implicit);
+        for (const double t : {0.0, 0.5, 1.5}) {
+            const double got = evaluate(r.solution, Bindings{{"t", t}});
+            CHECK(std::abs(got - std::sqrt(t * t + 4.0)) < 1e-9);
+        }
+    }
+}
+
+TEST_CASE("dsolve first-order: bernoulli substitution") {
+    // y' = -y + e^t y^2, y(0)=1 -> e^{-t}/(1-t)... derived: v = 1/y gives
+    // v' = v - e^t, v = (1 - t) e^t, so y = e^{-t}/(1 - t).
+    const DsolveResult r = dsolve("y' = -y + e^t * y^2", {"y(0)=1"});
+    CHECK(!r.implicit);
+    for (const double t : {0.0, 0.4, 0.8}) {
+        const double got = evaluate(r.solution, Bindings{{"t", t}});
+        const double want = std::exp(-t) / (1.0 - t);
+        CHECK(std::abs(got - want) < 1e-9 * (1.0 + std::abs(want)));
+    }
+}
+
+TEST_CASE("dsolve first-order: general solution keeps a symbolic C") {
+    const DsolveResult r = dsolve("y' = -2y", {});
+    CHECK(!r.warnings.empty());
+    // y = C e^{-2t}: check the residual y' + 2y = 0 for a sample C.
+    const Expr y = r.solution;
+    const Expr dy = differentiate(y, "t");
+    for (const double c : {1.5, -0.5}) {
+        for (const double t : {0.2, 1.1}) {
+            const Bindings b{{"t", t}, {"C", c}};
+            CHECK(std::abs(evaluate(dy, b) + 2.0 * evaluate(y, b)) < 1e-9);
+        }
+    }
+}
+
+TEST_CASE("dsolve first-order: implicit fallback is honest") {
+    // y' = 1 + y^2, y(0)=0 -> y = tan(t); inverting atan may or may not be
+    // supported — either an explicit tan(t) or an implicit relation that
+    // the true solution satisfies.
+    const DsolveResult r = dsolve("y' = 1 + y^2", {"y(0)=0"});
+    for (const double t : {0.2, 0.6, 1.0}) {
+        const double truth = std::tan(t);
+        if (r.implicit) {
+            const double residual =
+                evaluate(r.solution, Bindings{{"t", t}, {"y", truth}});
+            CHECK(std::abs(residual) < 1e-9);
+        } else {
+            CHECK(std::abs(evaluate(r.solution, Bindings{{"t", t}}) - truth) <
+                  1e-9 * (1.0 + std::abs(truth)));
+        }
+    }
+}
+
+TEST_CASE("dsolve first-order: errors") {
+    CHECK_THROWS_WITH(dsolve("y' = sin(t*y)", {"y(0)=1"}),
+                      ContainsSubstring("no method applies"));
+    CHECK_THROWS_WITH(dsolve("y' = y", {"y(0)=1", "y(1)=2"}),
+                      ContainsSubstring("one initial condition"));
+    CHECK_THROWS_WITH(dsolve("y' = -y + e^t * y^2", {"y(0)=0"}),
+                      ContainsSubstring("singular"));
+}
+
 TEST_CASE("dsolve: error messages are specific") {
     CHECK_THROWS_WITH(dsolve("y'' + y", {}), ContainsSubstring("'='"));
     CHECK_THROWS_WITH(dsolve("2y = 0", {}),
