@@ -70,7 +70,9 @@ struct KnownName {
     NameKind kind;
 };
 
-constexpr std::array<KnownName, 39> kKnownNames{{
+constexpr std::array<KnownName, 43> kKnownNames{{
+    {"digamma", NameKind::Function}, {"erfc", NameKind::Function},
+    {"erf", NameKind::Function},     {"psi", NameKind::Greek},
     {"arcsinh", NameKind::Function}, {"arccosh", NameKind::Function},
     {"arctanh", NameKind::Function}, {"asinh", NameKind::Function},
     {"acosh", NameKind::Function},  {"atanh", NameKind::Function},
@@ -304,7 +306,18 @@ private:
                 pos_ += k->name.size();
                 switch (k->kind) {
                 case NameKind::Function: push_func(std::string(k->name), begin, pos_); break;
-                case NameKind::Greek: push_symbol(std::string(k->name), begin, pos_); break;
+                case NameKind::Greek:
+                    // A greek name applied to a parenthesized argument is a
+                    // function call when one exists: gamma(x) and psi(x) are
+                    // the gamma/digamma functions, bare gamma/psi stay
+                    // symbols.
+                    if (pos_ == run_end && pos_ < src_.size() && src_[pos_] == '(' &&
+                        function_from_name(k->name)) {
+                        push_func(std::string(k->name), begin, pos_);
+                    } else {
+                        push_symbol(std::string(k->name), begin, pos_);
+                    }
+                    break;
                 case NameKind::Pi: push_constant(ConstantId::Pi, begin, pos_); break;
                 case NameKind::Euler: push_constant(ConstantId::E, begin, pos_); break;
                 case NameKind::Imaginary:

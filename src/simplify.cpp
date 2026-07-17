@@ -893,6 +893,67 @@ Expr apply_fn_rules(const Expr& e) {
             // acosh(cosh(x)) needs x >= 0; left alone.
             return e;
         }
+        case FunctionId::Gamma: {
+            if (const Rational* n = as_number(u)) {
+                if (n->den() == 1 && n->num() >= 1 && n->num() <= 21) {
+                    long long f = 1;
+                    for (long long k = 2; k < n->num(); ++k) {
+                        f *= k;
+                    }
+                    return make_num(f); // gamma(n) = (n-1)!
+                }
+                if (n->den() == 2) {
+                    // gamma(k + 1/2): exact rational multiple of sqrt(pi)
+                    // (DLMF 5.4.6/5.4.8), kept for |k| <= 10 so the exact
+                    // 64-bit rationals stay in range.
+                    const long long k = (n->num() - 1) / 2;
+                    if (k >= -10 && k <= 10) {
+                        Rational coeff(1);
+                        if (k >= 0) {
+                            long long num = 1;
+                            for (long long j = 2; j <= 2 * k; ++j) num *= j;
+                            long long den = 1;
+                            for (long long j = 2; j <= k; ++j) den *= j;
+                            long long p4 = 1;
+                            for (long long j = 0; j < k; ++j) p4 *= 4;
+                            coeff = Rational(num) / Rational(den * p4);
+                        } else {
+                            const long long m = -k;
+                            long long num = 1;
+                            for (long long j = 2; j <= m; ++j) num *= j;
+                            long long p4 = 1;
+                            for (long long j = 0; j < m; ++j) p4 *= 4;
+                            long long den = 1;
+                            for (long long j = 2; j <= 2 * m; ++j) den *= j;
+                            coeff = Rational((m % 2 == 0 ? 1 : -1) * num * p4) /
+                                    Rational(den);
+                        }
+                        return make_mul(
+                            {make_num(coeff),
+                             make_pow(make_const(ConstantId::Pi),
+                                      make_num(Rational(1, 2)))});
+                    }
+                }
+            }
+            return e;
+        }
+        case FunctionId::Digamma:
+            return e;
+        case FunctionId::Erf: {
+            if (is_number_value(u, Rational(0))) {
+                return make_num(0);
+            }
+            if (auto pos = negated_argument(u)) {
+                return make_neg(make_fn(id, std::move(*pos)));
+            }
+            return e;
+        }
+        case FunctionId::Erfc: {
+            if (is_number_value(u, Rational(0))) {
+                return make_num(1);
+            }
+            return e;
+        }
         case FunctionId::Cosh: {
             if (is_number_value(u, Rational(0))) {
                 return make_num(1);

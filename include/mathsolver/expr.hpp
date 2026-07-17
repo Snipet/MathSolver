@@ -24,6 +24,7 @@ enum class ConstantId { Pi, E, I };
 
 enum class FunctionId {
     Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Asinh, Acosh, Atanh,
+    Gamma, Digamma, Erf, Erfc,
     Ln, Abs
 };
 

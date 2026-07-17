@@ -55,6 +55,23 @@ Expr chain_factor(FunctionId id, const Expr& u) {
     case FunctionId::Atanh:
         // 1 / (1 - u^2)
         return make_pow(make_sub(make_num(1), make_pow(u, make_num(2))), make_num(-1));
+    case FunctionId::Gamma:
+        // gamma'(u) = gamma(u) * digamma(u)
+        return make_mul({make_fn(FunctionId::Gamma, u), make_fn(FunctionId::Digamma, u)});
+    case FunctionId::Digamma:
+        throw Error("differentiate: the derivative of digamma needs polygamma, "
+                    "which is not supported");
+    case FunctionId::Erf:
+        // 2 e^{-u^2} / sqrt(pi)
+        return make_mul({make_num(2),
+                         make_pow(make_const(ConstantId::Pi), make_num(Rational(-1, 2))),
+                         make_pow(make_const(ConstantId::E),
+                                  make_neg(make_pow(u, make_num(2))))});
+    case FunctionId::Erfc:
+        return make_mul({make_num(-2),
+                         make_pow(make_const(ConstantId::Pi), make_num(Rational(-1, 2))),
+                         make_pow(make_const(ConstantId::E),
+                                  make_neg(make_pow(u, make_num(2))))});
     case FunctionId::Ln:
         return make_pow(u, make_num(-1));
     case FunctionId::Abs:

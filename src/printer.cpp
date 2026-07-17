@@ -414,9 +414,15 @@ std::string render_function(const Expr& e, PrintStyle style) {
         return "\\left|" + arg + "\\right|";
     }
     switch (e->function()) {
+        case FunctionId::Gamma:
+            return "\\Gamma\\left(" + arg + "\\right)";
+        case FunctionId::Digamma:
+            return "\\psi\\left(" + arg + "\\right)";
         case FunctionId::Asinh:
         case FunctionId::Acosh:
         case FunctionId::Atanh:
+        case FunctionId::Erf:
+        case FunctionId::Erfc:
             // No dedicated LaTeX commands; \operatorname keeps KaTeX happy.
             return "\\operatorname{" + std::string(function_name(e->function())) +
                    "}\\left(" + arg + "\\right)";

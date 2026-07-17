@@ -26,6 +26,7 @@ add_executable(mathsolver_tests
     test_transform.cpp
     test_ode.cpp
     test_series.cpp
+    test_special.cpp
     test_limit.cpp
     test_discrete.cpp
     test_vector_calculus.cpp

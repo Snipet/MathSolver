@@ -248,6 +248,12 @@ std::optional<Attempt> try_table(const Expr& e, const std::string& sym) {
                     "the antiderivative of abs(...) is piecewise and out of scope"};
                 return bad;
             }
+            case FunctionId::Gamma:
+            case FunctionId::Digamma:
+            case FunctionId::Erf:
+            case FunctionId::Erfc:
+                // No linear-argument table forms; later stages may still apply.
+                return std::nullopt;
         }
         Attempt res;
         res.ok = true;
@@ -373,6 +379,35 @@ std::optional<Attempt> try_table(const Expr& e, const std::string& sym) {
             }
         }
         return std::nullopt;
+    }
+
+    // Gaussian exponent: e^(quadratic with numeric negative leading
+    // coefficient) has no elementary antiderivative but a classic erf form,
+    // by completing the square: with the exponent -a(x - m)^2 + s,
+    // the integral is e^s sqrt(pi)/(2 sqrt(a)) erf(sqrt(a)(x - m)).
+    if (is_constant_e(base)) {
+        const auto q = polynomial_coefficients(expo, sym);
+        if (q && q->size() == 3 && is_number((*q)[2]) &&
+            (*q)[2]->number() < Rational(0)) {
+            const Rational a = -(*q)[2]->number();
+            const Expr& c1 = (*q)[1];
+            const Expr& c0 = (*q)[0];
+            const Expr m = simplify(make_div(c1, make_num(a * Rational(2))));
+            const Expr s = simplify(make_add(
+                {c0, make_div(square(c1), make_num(a * Rational(4)))}));
+            const Expr root_a = simplify(sqrt_of(make_num(a)));
+            const Expr arg = simplify(
+                make_mul({root_a, make_sub(make_sym(std::string(sym)), m)}));
+            Attempt res;
+            res.ok = true;
+            res.F = simplify(make_mul(
+                {make_pow(make_const(ConstantId::E), s),
+                 make_div(sqrt_of(make_const(ConstantId::Pi)),
+                          make_mul({make_num(2), root_a})),
+                 make_fn(FunctionId::Erf, arg)}));
+            res.methods = {"gaussian (erf)"};
+            return res;
+        }
     }
 
     // Exponentials with a linear exponent: e^u and c^u (numeric c > 0, c != 1).

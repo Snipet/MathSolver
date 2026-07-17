@@ -200,11 +200,18 @@ TEST_CASE("cli: integrate definite prints value = / value ≈") {
     CHECK(contains(exact.output, "value = 2\n"));
     CHECK(contains(exact.output, "method: FTC"));
 
-    const RunResult numeric =
+    // e^(-x^2) is exact now (erf); sin(x)/x still needs the numeric path.
+    const RunResult gauss =
         run_cli({"integrate", "e^(-x^2)", "x", "--from", "0", "--to", "1"});
+    INFO(gauss.output);
+    CHECK(gauss.exit_code == 0);
+    CHECK(contains(gauss.output, "value = sqrt(pi)*erf(1)/2"));
+
+    const RunResult numeric =
+        run_cli({"integrate", "sin(x)/x", "x", "--from", "1", "--to", "2"});
     INFO(numeric.output);
     CHECK(numeric.exit_code == 0);
-    CHECK(contains(numeric.output, "value ≈ 0.7468241328"));
+    CHECK(contains(numeric.output, "value ≈ 0.65932"));
     CHECK(contains(numeric.output, "method: numeric (adaptive Simpson)"));
 }
 

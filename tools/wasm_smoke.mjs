@@ -33,7 +33,8 @@ check("derivative", ms.derivative("sin(x^2)", "x"), (r) => r.ok && r.plain === "
 check("integrate", ms.integrate("x*sin(x)", "x"), (r) => r.ok && r.solved && r.plain.includes("-x*cos(x)"), "-x*cos(x) + sin(x)");
 check("integrate honesty", ms.integrate("e^(x^2)", "x"), (r) => r.ok && !r.solved, "unsolved");
 check("definite exact", ms.integrateDefinite("sin(x)", "x", "0", "pi"), (r) => r.ok && r.status === "exact" && r.plain === "2", "value 2");
-check("definite numeric", ms.integrateDefinite("e^(-x^2)", "x", "0", "1"), (r) => r.ok && r.status === "numeric" && Math.abs(r.approx - 0.7468241328) < 1e-6, "~0.746824");
+check("definite gaussian exact (erf)", ms.integrateDefinite("e^(-x^2)", "x", "0", "1"), (r) => r.ok && r.status === "exact" && r.plain.includes("erf"), "sqrt(pi)*erf(1)/2");
+check("definite numeric", ms.integrateDefinite("sin(x)/x", "x", "1", "2"), (r) => r.ok && r.status === "numeric" && Math.abs(r.approx - 0.6593299064) < 1e-6, "~0.659330");
 check("definite divergent", ms.integrateDefinite("1/x", "x", "-1", "2"), (r) => r.ok && r.status === "unsolved", "unsolved (divergent)");
 check("solve exact", ms.solve("x^2 = 4", "x", 0, 0, false), (r) => r.ok && r.status === "solved" && r.solutions.length === 2 && r.solutions.map((s) => s.plain).sort().join(",") === "-2,2", "roots -2, 2");
 check("solve bare expr", ms.solve("x^2 - 9", "x", 0, 0, false), (r) => r.ok && r.solutions.length === 2, "expr treated as = 0");

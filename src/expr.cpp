@@ -28,6 +28,10 @@ std::string_view function_name(FunctionId id) {
         case FunctionId::Asinh: return "asinh";
         case FunctionId::Acosh: return "acosh";
         case FunctionId::Atanh: return "atanh";
+        case FunctionId::Gamma: return "gamma";
+        case FunctionId::Digamma: return "digamma";
+        case FunctionId::Erf: return "erf";
+        case FunctionId::Erfc: return "erfc";
         case FunctionId::Ln: return "ln";
         case FunctionId::Abs: return "abs";
     }
@@ -47,6 +51,10 @@ std::optional<FunctionId> function_from_name(std::string_view name) {
     if (name == "asinh" || name == "arcsinh") return FunctionId::Asinh;
     if (name == "acosh" || name == "arccosh") return FunctionId::Acosh;
     if (name == "atanh" || name == "arctanh") return FunctionId::Atanh;
+    if (name == "gamma") return FunctionId::Gamma;
+    if (name == "digamma" || name == "psi") return FunctionId::Digamma;
+    if (name == "erf") return FunctionId::Erf;
+    if (name == "erfc") return FunctionId::Erfc;
     if (name == "ln") return FunctionId::Ln;
     if (name == "abs") return FunctionId::Abs;
     return std::nullopt;
