@@ -111,6 +111,25 @@ TEST_CASE("directional derivative normalizes a Pythagorean direction") {
     CHECK(std::abs(ev(d, Bindings{{"x", 1.0}, {"y", 2.0}}) - 4.4) < 1e-9);
 }
 
+TEST_CASE("directional derivative normalizes every constant direction") {
+    // Irrational norm (1,1): 1/sqrt(2) scale.
+    const Expr d1 = directional_derivative(P("x"), XY, {P("1"), P("1")});
+    CHECK(std::abs(ev(d1, Bindings{{"x", 0.0}, {"y", 0.0}}) -
+                   1.0 / std::sqrt(2.0)) < 1e-9);
+    // Constant-but-transcendental norm (pi, 0): the review found this was
+    // silently left un-normalized; it must give exactly 1 for f = x.
+    const Expr d2 = directional_derivative(P("x"), XY, {P("pi"), P("0")});
+    CHECK(std::abs(ev(d2, Bindings{{"x", 0.0}, {"y", 0.0}}) - 1.0) < 1e-9);
+    // Zero vector: undefined, not 0.
+    CHECK_THROWS_AS(directional_derivative(P("x"), XY, {P("0"), P("0")}),
+                    Error);
+}
+
+TEST_CASE("duplicate variables are rejected") {
+    CHECK_THROWS_AS(gradient(P("x^2"), {"x", "x"}), Error);
+    CHECK_THROWS_AS(divergence({P("x"), P("y")}, {"y", "y"}), Error);
+}
+
 TEST_CASE("vector and matrix rendering round-trips through the parser") {
     const ExprVec g = gradient(P("x^2 + y^2"), XY);
     CHECK_THAT(vec_to_string(g, PrintStyle::Plain), ContainsSubstring("2*x"));

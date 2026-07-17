@@ -18,6 +18,14 @@ void require_nonempty(const std::vector<std::string>& vars) {
     if (vars.empty()) {
         throw Error("vector calculus: at least one variable is required");
     }
+    for (std::size_t i = 0; i < vars.size(); ++i) {
+        for (std::size_t j = i + 1; j < vars.size(); ++j) {
+            if (vars[i] == vars[j]) {
+                throw Error("vector calculus: duplicate variable '" + vars[i] +
+                            "' in the variable list");
+            }
+        }
+    }
 }
 
 void require_match(const ExprVec& field, const std::vector<std::string>& vars,
@@ -30,15 +38,19 @@ void require_match(const ExprVec& field, const std::vector<std::string>& vars,
 }
 
 /// Square root of a nonnegative exact rational, when it is itself rational.
+/// The candidate check divides instead of squaring: c*c overflows (UB) for
+/// values near LLONG_MAX, which the rest of the library never risks.
 std::optional<Rational> exact_sqrt(const Rational& r) {
     if (r.num() < 0) {
         return std::nullopt;
     }
     auto isqrt = [](long long n) -> std::optional<long long> {
         if (n < 0) return std::nullopt;
-        long long s = static_cast<long long>(std::llround(std::sqrt(static_cast<double>(n))));
+        if (n == 0) return 0;
+        const long long s = static_cast<long long>(
+            std::llround(std::sqrt(static_cast<double>(n))));
         for (long long c : {s - 1, s, s + 1}) {
-            if (c >= 0 && c * c == n) return c;
+            if (c > 0 && n / c == c && n % c == 0) return c;
         }
         return std::nullopt;
     };
@@ -143,19 +155,31 @@ Expr directional_derivative(const Expr& f, const std::vector<std::string>& vars,
                     " components but " + std::to_string(vars.size()) +
                     " variables were given");
     }
-    // Normalize when the squared norm is an exact perfect square.
+    // Normalize whenever the direction is constant (no free symbols): exact
+    // rational scale for perfect squares, symbolic 1/sqrt otherwise. A
+    // direction with free symbols stays un-normalized (documented).
     std::vector<Expr> sq;
     for (const Expr& c : direction) {
         sq.push_back(make_pow(c, make_num(2)));
     }
     const Expr norm2 = simplify(make_add(std::move(sq)));
     Expr scale = make_num(1);
-    if (norm2->kind() == Kind::Number) {
-        const auto root = exact_sqrt(norm2->number());
-        if (root && !root->is_zero()) {
-            scale = make_div(make_num(1), make_num(*root));
-        } else if (!root) {
-            // Irrational norm: divide by sqrt(norm2) symbolically.
+    if (free_symbols(norm2).empty()) {
+        if (norm2->kind() == Kind::Number) {
+            if (norm2->number().is_zero()) {
+                throw Error("directional derivative: the direction is the "
+                            "zero vector");
+            }
+            if (norm2->number() < Rational{0}) {
+                throw Error("directional derivative: the direction has a "
+                            "negative squared norm (not a real direction)");
+            }
+            const auto root = exact_sqrt(norm2->number());
+            scale = root ? make_div(make_num(1), make_num(*root))
+                         : make_div(make_num(1), make_sqrt(norm2));
+        } else {
+            // Constant but irrational (e.g. (pi, 0)): 1/sqrt(norm2), which
+            // simplify folds where the power rules allow.
             scale = make_div(make_num(1), make_sqrt(norm2));
         }
     }

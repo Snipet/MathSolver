@@ -37,8 +37,10 @@ ExprMat jacobian(const ExprVec& field, const std::vector<std::string>& vars);
 /// Hessian H_ij = ∂²f/∂x_i∂x_j (symmetric).
 ExprMat hessian(const Expr& f, const std::vector<std::string>& vars);
 
-/// Directional derivative ∇f·d̂ (the direction is normalized when it has a
-/// numeric norm; left un-normalized for symbolic directions).
+/// Directional derivative ∇f·d̂. Constant directions (no free symbols) are
+/// normalized — exactly for perfect-square norms, via 1/sqrt otherwise; a
+/// direction containing free symbols is used as given (un-normalized).
+/// Throws for the zero vector and for negative squared norms.
 Expr directional_derivative(const Expr& f, const std::vector<std::string>& vars,
                             const ExprVec& direction);
 

@@ -42,6 +42,7 @@
     const { x, y, u, v } = result;
     const { scale, sx, sy, maxMag } = geom;
     const out: {
+      id: number;
       x1: number;
       y1: number;
       x2: number;
@@ -53,10 +54,14 @@
       const vv = v[i];
       if (uu === null || vv === null || !Number.isFinite(uu) || !Number.isFinite(vv))
         continue;
+      // A (near-)zero vector would render as a stray arrowhead.
+      if (Math.hypot(uu, vv) < 1e-12 * (maxMag || 1)) continue;
       const px = sx(x[i]);
       const py = sy(y[i]);
+      if (!Number.isFinite(px) || !Number.isFinite(py)) continue;
       // The chart y-axis points up, so flip the v component for screen space.
       out.push({
+        id: i,
         x1: px,
         y1: py,
         x2: px + uu * scale,
@@ -90,7 +95,7 @@
         <path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke" />
       </marker>
     </defs>
-    {#each arrows as a (a.x1 + "," + a.y1)}
+    {#each arrows as a (a.id)}
       <line
         x1={a.x1}
         y1={a.y1}
