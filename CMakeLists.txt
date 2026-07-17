@@ -20,6 +20,12 @@ if(MATHSOLVER_SANITIZE)
     add_link_options(-fsanitize=address,undefined)
 endif()
 
+if(EMSCRIPTEN)
+    # The whole library relies on C++ exceptions; use native wasm EH.
+    add_compile_options(-fwasm-exceptions)
+    add_link_options(-fwasm-exceptions)
+endif()
+
 add_library(mathsolver_warnings INTERFACE)
 if(MSVC)
     target_compile_options(mathsolver_warnings INTERFACE /W4)
@@ -41,11 +47,27 @@ add_library(mathsolver_core STATIC
 target_include_directories(mathsolver_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(mathsolver_core PRIVATE mathsolver_warnings)
 
-add_executable(mathsolver apps/main.cpp)
-target_link_libraries(mathsolver PRIVATE mathsolver_core mathsolver_warnings)
+if(EMSCRIPTEN)
+    # ES6-module WASM build consumed by the Svelte app in web/.
+    add_executable(mathsolver_wasm wasm/bindings.cpp)
+    target_link_libraries(mathsolver_wasm PRIVATE mathsolver_core mathsolver_warnings)
+    set_target_properties(mathsolver_wasm PROPERTIES OUTPUT_NAME "mathsolver")
+    target_link_options(mathsolver_wasm PRIVATE
+        --bind
+        -sMODULARIZE=1
+        -sEXPORT_ES6=1
+        -sEXPORT_NAME=createMathSolverModule
+        -sENVIRONMENT=web,worker,node
+        -sALLOW_MEMORY_GROWTH=1
+        -sSTACK_SIZE=2097152
+    )
+else()
+    add_executable(mathsolver apps/main.cpp)
+    target_link_libraries(mathsolver PRIVATE mathsolver_core mathsolver_warnings)
 
-option(MATHSOLVER_BUILD_TESTS "Build MathSolver unit tests" ON)
-if(MATHSOLVER_BUILD_TESTS)
-    enable_testing()
-    add_subdirectory(tests)
+    option(MATHSOLVER_BUILD_TESTS "Build MathSolver unit tests" ON)
+    if(MATHSOLVER_BUILD_TESTS)
+        enable_testing()
+        add_subdirectory(tests)
+    endif()
 endif()
