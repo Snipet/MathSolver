@@ -1,0 +1,25 @@
+# MathSolver web + WASM development toolchain.
+#
+# This image lets an "arbitrary machine" develop the website and WASM parts
+# with nothing installed but Docker. It builds on the official Emscripten SDK
+# image, pinned to the exact version CI uses (EMSDK_VERSION in
+# .github/workflows/ci.yml and deploy.yml) — keep the tag below in sync.
+#
+# The base image (Ubuntu 24.04) already ships everything the web/WASM loop
+# needs, so this layer stays intentionally thin:
+#   - emcc / emcmake ....... the Emscripten compiler that builds the engine to WASM
+#   - node / npm ........... bundled with emsdk (Node 22.x), drives the Svelte/Vite app
+#   - cmake, python3, git .. installed in the base image
+FROM emscripten/emsdk:6.0.3
+
+# The repo is bind-mounted at runtime (see compose.yaml) and is owned by the
+# host user, whose UID won't match the container's. Tell git this checkout is
+# trusted so in-container git commands don't error on "dubious ownership".
+RUN git config --system --add safe.directory '*'
+
+WORKDIR /workspace
+
+# Default to a shell; compose.yaml overrides this to run the Vite dev server.
+# The dev-entrypoint (wired up in compose.yaml) builds the WASM module and
+# installs web dependencies on first run.
+CMD ["bash"]
