@@ -279,6 +279,68 @@ void run_diff(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(differentiate(e, var), style));
 }
 
+/// `integrate` (DESIGN.md §8b): indefinite prints `F(x) + C`, definite
+/// (--from/--to, both or neither) prints `value = ...` / `value ≈ ...`;
+/// Unsolved prints `unable to integrate` and still exits 0 — it is an answer.
+void run_integrate(const std::string& input, const std::string& explicit_var,
+                   const std::optional<std::string>& from_text,
+                   const std::optional<std::string>& to_text, PrintStyle style) {
+    if (from_text.has_value() != to_text.has_value()) {
+        throw UsageError{"--from and --to must be given together"};
+    }
+    const Expr e = parse_expression_diag(input);
+    const std::string var =
+        choose_variable(explicit_var, free_symbols(e), "integrate");
+
+    if (!from_text) {
+        const IntegrateResult res = integrate(e, var);
+        if (res.status == IntegrateResult::Status::Integrated) {
+            std::println("{} + C", to_string(res.antiderivative, style));
+        } else {
+            std::println("unable to integrate");
+        }
+        if (!res.method.empty()) {
+            std::println("method: {}", res.method);
+        }
+        for (const std::string& w : res.warnings) {
+            std::println("warning: {}", w);
+        }
+        return;
+    }
+
+    Expr lo;
+    Expr hi;
+    try {
+        lo = parse_expression_diag(*from_text);
+        hi = parse_expression_diag(*to_text);
+    } catch (const Error&) {
+        // Constant folding during parsing can throw (e.g. --to "1/0"); the
+        // §8b bounds contract answers Unsolved, not a hard error.  Syntax
+        // errors throw DiagnosedParseError and keep their caret diagnostic.
+        std::println("unable to integrate");
+        std::println("warning: integration bounds must evaluate to finite numbers");
+        return;
+    }
+    const DefiniteIntegralResult res = integrate_definite(e, var, lo, hi);
+    switch (res.status) {
+    case DefiniteIntegralResult::Status::Exact:
+        std::println("value = {}", to_string(res.value, style));
+        break;
+    case DefiniteIntegralResult::Status::Numeric:
+        std::println("value ≈ {}", res.value->number().to_double());
+        break;
+    case DefiniteIntegralResult::Status::Unsolved:
+        std::println("unable to integrate");
+        break;
+    }
+    if (!res.method.empty()) {
+        std::println("method: {}", res.method);
+    }
+    for (const std::string& w : res.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
 void run_eval(const std::string& input, const Bindings& bindings) {
     const Expr e = parse_expression_diag(input);
     std::println("{}", evaluate(e, bindings));
@@ -481,8 +543,8 @@ void run_debug(const std::string& input) {
 
 void print_usage(std::FILE* out) {
     std::print(out,
-               "MathSolver {} — parse, simplify, differentiate, and solve "
-               "LaTeX-style math\n"
+               "MathSolver {} — parse, simplify, differentiate, integrate, and "
+               "solve LaTeX-style math\n"
                "\n"
                "usage:\n"
                "  mathsolver simplify \"2x + 3x\"\n"
@@ -491,6 +553,8 @@ void print_usage(std::FILE* out) {
                "  mathsolver solve    \"x^2 = 4\" [x] [--range LO HI]\n"
                "  mathsolver solve    \"x + y = 3; x - y = 1\" [x y ...]\n"
                "  mathsolver diff     \"sin(x^2)\" [x]\n"
+               "  mathsolver integrate \"x*sin(x)\" [x]\n"
+               "  mathsolver integrate \"sin(x)\" [x] --from 0 --to pi\n"
                "  mathsolver eval     \"x^2 + y\" x=3 y=0.5\n"
                "  mathsolver latex    \"sqrt(x)/2\"\n"
                "  mathsolver --help | --version\n"
@@ -500,16 +564,18 @@ void print_usage(std::FILE* out) {
                "  --latex        render output in LaTeX instead of plain text\n"
                "  --range LO HI  numeric root-search interval for solve "
                "(default: -100 100)\n"
+               "  --from A --to B  definite-integral bounds for integrate\n"
+               "                 (both or neither; parsed as expressions)\n"
                "\n"
-               "The solve/diff variable may be omitted when the input has exactly\n"
-               "one free symbol. Exit codes: 0 success, 1 parse/math error,\n"
-               "2 usage error; error diagnostics go to stderr.\n",
+               "The solve/diff/integrate variable may be omitted when the input\n"
+               "has exactly one free symbol. Exit codes: 0 success, 1 parse/math\n"
+               "error, 2 usage error; error diagnostics go to stderr.\n",
                k_version);
 }
 
 bool is_known_subcommand(std::string_view s) {
     return s == "simplify" || s == "expand" || s == "factor" || s == "solve" ||
-           s == "diff" || s == "eval" || s == "latex";
+           s == "diff" || s == "integrate" || s == "eval" || s == "latex";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -523,6 +589,8 @@ int run_one_shot(const std::vector<std::string>& args) {
         bool latex = false;
         bool end_of_options = false;
         NumericOptions opts;
+        std::optional<std::string> from_text;
+        std::optional<std::string> to_text;
         std::vector<std::string> positionals;
         for (std::size_t i = 1; i < args.size(); ++i) {
             const std::string& a = args[i];
@@ -565,6 +633,17 @@ int run_one_shot(const std::vector<std::string>& args) {
                 opts.lo = *lo;
                 opts.hi = *hi;
                 i += 2;
+            } else if (!end_of_options && (a == "--from" || a == "--to")) {
+                if (sub != "integrate") {
+                    throw UsageError{
+                        std::format("{} is only valid for 'integrate'", a)};
+                }
+                if (i + 1 >= args.size()) {
+                    throw UsageError{
+                        std::format("{} needs a bound expression", a)};
+                }
+                (a == "--from" ? from_text : to_text) = args[i + 1];
+                ++i;
             } else if (!end_of_options && a.starts_with("--")) {
                 throw UsageError{std::format("unknown option '{}'", a)};
             } else {
@@ -584,7 +663,7 @@ int run_one_shot(const std::vector<std::string>& args) {
             const std::vector<std::string> vars(positionals.begin() + 1,
                                                 positionals.end());
             run_solve_system(input, vars, style);
-        } else if (sub == "solve" || sub == "diff") {
+        } else if (sub == "solve" || sub == "diff" || sub == "integrate") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (usage: mathsolver {} \"<input>\" [var])",
@@ -593,8 +672,10 @@ int run_one_shot(const std::vector<std::string>& args) {
             const std::string var = positionals.size() > 1 ? positionals[1] : "";
             if (sub == "solve") {
                 run_solve(input, var, opts, style);
-            } else {
+            } else if (sub == "diff") {
                 run_diff(input, var, style);
+            } else {
+                run_integrate(input, var, from_text, to_text, style);
             }
         } else if (sub == "eval") {
             Bindings bindings;
@@ -648,6 +729,7 @@ void print_repl_help() {
         "  solve <equation>[, <variable>]\n"
         "  solve <eq>; <eq>[; ...][, <var>, <var>, ...]   (linear system)\n"
         "  diff <expression>[, <variable>]\n"
+        "  integrate <expression>[, <variable>[, <lo>, <hi>]]\n"
         "  eval <expression>, x=1[, y=2 ...]\n"
         "  simplify <expression>      expand <expression>\n"
         "  factor <expression>        latex <expression>\n"
@@ -662,8 +744,8 @@ std::vector<std::string> split_top_level_commas(const std::string& s) {
 
 bool is_repl_command(std::string_view word) {
     return word == "simplify" || word == "expand" || word == "factor" ||
-           word == "solve" || word == "diff" || word == "eval" ||
-           word == "latex" || word == "debug";
+           word == "solve" || word == "diff" || word == "integrate" ||
+           word == "eval" || word == "latex" || word == "debug";
 }
 
 void repl_command(const std::string& command, const std::string& rest) {
@@ -692,6 +774,20 @@ void repl_command(const std::string& command, const std::string& rest) {
         } else {
             run_diff(input, var, PrintStyle::Plain);
         }
+    } else if (command == "integrate") {
+        // integrate <expr>[, <var>[, <lo>, <hi>]] — bounds come as a pair.
+        if (parts.size() == 3 || parts.size() > 4) {
+            throw UsageError{
+                "usage: integrate <expression>[, <variable>[, <lo>, <hi>]]"};
+        }
+        const std::string var = parts.size() >= 2 ? parts[1] : "";
+        std::optional<std::string> from_text;
+        std::optional<std::string> to_text;
+        if (parts.size() == 4) {
+            from_text = parts[2];
+            to_text = parts[3];
+        }
+        run_integrate(input, var, from_text, to_text, PrintStyle::Plain);
     } else if (command == "eval") {
         Bindings bindings;
         for (std::size_t i = 1; i < parts.size(); ++i) {

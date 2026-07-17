@@ -1,8 +1,8 @@
 # MathSolver
 
 A from-scratch computer-algebra system (CAS) in C++23: parse LaTeX-style math,
-simplify and transform expressions, differentiate symbolically, and solve
-equations — exactly where possible, numerically otherwise. No dependencies
+simplify and transform expressions, differentiate and integrate symbolically,
+and solve equations — exactly where possible, numerically otherwise. No dependencies
 beyond the standard library (Catch2 is fetched automatically for tests only).
 
 ## Build
@@ -42,6 +42,33 @@ method: numeric (Newton/bisection)
 warning: numeric search covered [-100, 100]; roots outside this interval are not reported
 ```
 
+Integration — rule-based symbolic antiderivatives (`+ C` is printed for
+you), and definite integrals that use the fundamental theorem of calculus
+when an antiderivative is found and verified, falling back to adaptive
+Simpson quadrature otherwise:
+
+```console
+$ mathsolver integrate "x*sin(x)"
+-x*cos(x) + sin(x) + C
+method: integration by parts + linearity + table
+$ mathsolver integrate "1/(x^2-1)"
+-ln(abs(x + 1))/2 + ln(abs(x - 1))/2 + C
+method: partial fractions
+$ mathsolver integrate "sin(x)" --from 0 --to pi
+value = 2
+method: FTC
+$ mathsolver integrate "e^(-x^2)" --from 0 --to 1
+value ≈ 0.746824132812499
+method: numeric (adaptive Simpson)
+$ mathsolver integrate "e^(x^2)"
+unable to integrate
+warning: no applicable integration rule
+```
+
+An integral the rules cannot handle is reported honestly (`unable to
+integrate`) rather than guessed: every candidate antiderivative is verified
+by differentiating it back before it is printed.
+
 Systems of equations — separate the equations with `;` inside one argument
 (the variables after it are optional when they can be inferred):
 
@@ -59,8 +86,8 @@ no solution (inconsistent system)
 method: gaussian elimination
 ```
 
-The `solve`/`diff` variable is optional when the input has exactly one free
-symbol. `--latex` switches any command's output to LaTeX,
+The `solve`/`diff`/`integrate` variable is optional when the input has
+exactly one free symbol. `--latex` switches any command's output to LaTeX,
 `solve ... --range LO HI` sets the numeric search interval, and
 `mathsolver --help` shows the full synopsis. The `latex` command converts
 without simplifying. Exit codes: 0 success, 1 parse/math error, 2 usage
@@ -83,8 +110,9 @@ cos(x)/x - sin(x)/x^2
 ```
 
 A bare expression is simplified; a bare equation is solved for its single
-free symbol; `help` lists the commands (`solve`, `diff`, `eval`, `expand`,
-`factor`, `latex`, `debug`); errors keep the session alive.
+free symbol; `help` lists the commands (`solve`, `diff`, `integrate`,
+`eval`, `expand`, `factor`, `latex`, `debug` — e.g.
+`integrate sin(x), x, 0, pi`); errors keep the session alive.
 
 Input accepts both LaTeX (`\frac{1}{2}`, `\sin{x}`, `\sqrt[3]{x}`, `\pi`,
 `\alpha`) and plain style (`1/2`, `sin(x)`, `pi`) with implicit
@@ -98,6 +126,12 @@ multiplication (`2x`, `(x+1)(x-2)`).
   `collect`, and best-effort `factor`.
 - **Derivatives** — full symbolic differentiation (chain/product/general
   power rule) over sin/cos/tan, inverse trig, hyperbolics, ln, abs.
+- **Integrals** — rule-based symbolic integration (table forms, linearity,
+  u-substitution, integration by parts, partial fractions via exact linear
+  systems, trig-power identities), every result self-verified by
+  differentiating it back; definite integrals by FTC with a
+  quadrature cross-check, or adaptive Simpson when no antiderivative is
+  found.
 - **Solver** — linear and quadratic (exact, symbolic coefficients OK),
   rational-root peeling for higher degrees, isolation through invertible
   layers (`ln(x+1)=2` → `x = e^2 - 1`), and a Newton/bisection numeric

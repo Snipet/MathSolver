@@ -288,3 +288,36 @@ TEST_CASE("generalized power rule: value preservation at sample points") {
         expect_value_preserving(input);
     }
 }
+
+// ---------------------------------------------------------------------------
+// abs(u) -> u for structurally provably nonnegative u (DESIGN §7).
+// ---------------------------------------------------------------------------
+
+TEST_CASE("simplify: abs of provably nonnegative expressions unwraps") {
+    CHECK(structurally_equal(simplify(parse_expression("abs(e^2)")),
+                             parse_expression("e^2")));
+    CHECK(structurally_equal(simplify(parse_expression("abs(e^x)")),
+                             parse_expression("e^x")));
+    CHECK(structurally_equal(simplify(parse_expression("abs(x^2)")),
+                             parse_expression("x^2")));
+    CHECK(structurally_equal(simplify(parse_expression("abs(sqrt(x))")),
+                             parse_expression("sqrt(x)")));
+    CHECK(structurally_equal(simplify(parse_expression("abs(x^2 + 1)")),
+                             parse_expression("x^2 + 1")));
+    CHECK(structurally_equal(simplify(parse_expression("abs(cosh(x))")),
+                             parse_expression("cosh(x)")));
+    // The motivating end-to-end case: ln(abs(e^2)) -> ln(e^2) -> 2.
+    CHECK(structurally_equal(simplify(parse_expression("ln(abs(e^2))")),
+                             parse_expression("2")));
+}
+
+TEST_CASE("simplify: abs stays when nonnegativity is not provable") {
+    CHECK(structurally_equal(simplify(parse_expression("abs(x)")),
+                             parse_expression("abs(x)")));
+    CHECK(structurally_equal(simplify(parse_expression("abs(sin(x))")),
+                             parse_expression("abs(sin(x))")));
+    CHECK(structurally_equal(simplify(parse_expression("abs(x^3)")),
+                             parse_expression("abs(x^3)")));
+    CHECK(structurally_equal(simplify(parse_expression("abs(x - 1)")),
+                             parse_expression("abs(x - 1)")));
+}

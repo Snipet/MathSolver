@@ -375,9 +375,13 @@ except formal cancellations, which are standard CAS behavior and documented):
   atan at `0, ±1, ±sqrt(3), ±sqrt(3)/3` (recognize the canonical AST shapes
   of these arguments, e.g. `Mul(1/2, Pow(3, 1/2))` for `sqrt(3)/2`,
   `Mul(1/3, Pow(3, 1/2))` for `sqrt(3)/3`).
-- `abs(c)` for numeric `c` → `|c|`; `abs(abs(u)) → abs(u)`;
-  `abs(-u) → abs(u)` (sign pulled as above); `abs(u)^2 → u^2` (even integer
-  powers); `abs(pi) → pi`, `abs(e) → e`.
+- `abs(c)` for numeric `c` → `|c|`; `abs(u) → u` whenever `u` is
+  **structurally provably nonnegative** — nonnegative numbers, the constants
+  pi/e, `abs`/`cosh` applications, even integer powers, even roots
+  (principal value), `e^u`, and sums/products of such (conservative check:
+  unprovable means keep the abs). Subsumes `abs(abs(u))`, `abs(pi)`,
+  `abs(e^x) → e^x`, `abs(x^2) → x^2`. `abs(-u) → abs(u)` (sign pulled as
+  above); `abs(u)^2 → u^2` (even integer powers).
 - Hyperbolic: `sinh(0)=0, cosh(0)=1, tanh(0)=0`, odd/even sign rules.
 - `sqrt` (as `Pow(u, 1/2)`): `sqrt(u^2) → abs(u)`; more generally
   `(u^even)^(1/even)` respects abs.
@@ -456,7 +460,12 @@ guesses. Real domain; antiderivatives of `1/u` use `ln(abs(u))`.
    `(u·asin u + sqrt(1-u^2))/a`; `acos u` → `(u·acos u - sqrt(1-u^2))/a`;
    `atan u` → `(u·atan u - ln(1+u^2)/2)/a`; `cos(u)^(-2)` → `tan(u)/a`;
    `sin(u)^(-2)` → `-cos(u)/(a·sin(u))`; `1/(u^2 + c)` for numeric/param
-   `c > 0` → `atan(u/sqrt(c))/(a·sqrt(c))`; `1/sqrt(c - u^2)` for `c > 0` →
+   `c > 0` → `atan(u/sqrt(c))/(a·sqrt(c))` (equivalently any quadratic
+   denominator with x-free coefficients, by completing the square; a
+   positivity/nonzeroness that cannot be decided for symbolic parameters is
+   *assumed* and stated in an explicit warning — e.g. `"result assumes c >
+   0"` — while a provably negative completed-square constant falls through
+   to later stages); `1/sqrt(c - u^2)` for `c > 0` →
    `asin(u/sqrt(c))/a`. `abs(u)` → `Unsolved` (piecewise result; out of
    scope, warn).
 3. **Polynomial / expansion.** If `expand(e)` is a polynomial in `x` →
@@ -504,11 +513,18 @@ Path: (a) indefinite succeeds → check the *integrand* evaluates finitely on
 a ~64-point grid over `[lo, hi]` (a domain gap or non-finite value → FTC
 unsafe: warn and go numeric); value = `simplify(F(hi) - F(lo))`, status
 `Exact`, method `"FTC"`, cross-checked against the numeric quadrature
-(disagreement > 1e-6 relative → prefer numeric with a warning — FTC across
-an undetected discontinuity loses). (b) Otherwise adaptive Simpson
-(tolerance 1e-10 relative, max depth 40) on the evaluable integrand; status
-`Numeric`, value a decimal-converted Number; integrand not evaluable on the
-interval → `Unsolved`.
+(a *converged* quadrature disagreeing > 1e-6 relative → prefer numeric with
+a warning — FTC across an undetected discontinuity loses). (b) Otherwise
+adaptive Simpson (tolerance 1e-10 relative, max depth 40) on the evaluable
+integrand; status `Numeric`, value a decimal-converted Number. A grid
+failure only at the interval *endpoints* (a removable or endpoint
+singularity, e.g. `sin(x)/x` at 0) → integrate over a slightly shrunken
+open interval, with a warning; an interior gap → `Unsolved`. A quadrature
+that exhausts its depth budget without reaching the tolerance produced an
+untrustworthy number — the integral may be divergent (a pole can sit
+between grid points) — and is never published as a value: status
+`Unsolved` with warning `"numeric quadrature failed to converge; the
+integral may be divergent"`.
 
 **CLI / REPL.** `mathsolver integrate "x*sin(x)" [x]` (variable optional
 when unique) prints `F(x) + C` (the literal ` + C`), then `method:` and

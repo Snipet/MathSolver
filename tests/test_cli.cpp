@@ -177,6 +177,108 @@ TEST_CASE("cli: diff with explicit and inferred variable") {
     CHECK(inferred.output == "2*x*cos(x^2)\n");
 }
 
+TEST_CASE("cli: integrate one-shot prints F(x) + C and the method") {
+    const RunResult r = run_cli({"integrate", "x*sin(x)"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "-x*cos(x) + sin(x) + C"));
+    CHECK(contains(r.output, "method: integration by parts"));
+
+    const RunResult pf = run_cli({"integrate", "1/(x^2-1)", "x"});
+    INFO(pf.output);
+    CHECK(pf.exit_code == 0);
+    CHECK(contains(pf.output, "+ C"));
+    CHECK(contains(pf.output, "method: partial fractions"));
+}
+
+TEST_CASE("cli: integrate definite prints value = / value ≈") {
+    const RunResult exact = run_cli({"integrate", "sin(x)", "--from", "0", "--to", "pi"});
+    INFO(exact.output);
+    CHECK(exact.exit_code == 0);
+    CHECK(contains(exact.output, "value = 2\n"));
+    CHECK(contains(exact.output, "method: FTC"));
+
+    const RunResult numeric =
+        run_cli({"integrate", "e^(-x^2)", "x", "--from", "0", "--to", "1"});
+    INFO(numeric.output);
+    CHECK(numeric.exit_code == 0);
+    CHECK(contains(numeric.output, "value ≈ 0.7468241328"));
+    CHECK(contains(numeric.output, "method: numeric (adaptive Simpson)"));
+}
+
+TEST_CASE("cli: integrate Unsolved is an answer, exit 0") {
+    const RunResult r = run_cli({"integrate", "e^(x^2)"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "unable to integrate"));
+    CHECK(contains(r.output, "no applicable integration rule"));
+
+    const RunResult gap = run_cli({"integrate", "1/x", "--from", "-1", "--to", "1"});
+    INFO(gap.output);
+    CHECK(gap.exit_code == 0);
+    CHECK(contains(gap.output, "unable to integrate"));
+    CHECK(contains(gap.output, "not evaluable"));
+}
+
+TEST_CASE("cli: integrate bounds that fold to non-finite values are Unsolved") {
+    // "1/0" parses but blows up during constant folding; the §8b bounds
+    // contract answers Unsolved + warning (exit 0), not a hard error.
+    const RunResult r =
+        run_cli({"integrate", "x", "x", "--from", "0", "--to", "1/0"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "unable to integrate"));
+    CHECK(contains(r.output, "integration bounds must evaluate to finite numbers"));
+}
+
+TEST_CASE("cli: divergent definite integral is refused with a divergence warning") {
+    const RunResult r =
+        run_cli({"integrate", "1/(x-1)^2", "x", "--from", "0", "--to", "2.5"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "unable to integrate"));
+    CHECK(contains(r.output, "may be divergent"));
+    CHECK(!contains(r.output, "value"));
+}
+
+TEST_CASE("cli: integrate usage errors exit 2") {
+    // --from without --to (and vice versa) is a usage error.
+    const RunResult lone_from =
+        run_cli({"integrate", "sin(x)", "--from", "0"}, "2>&1 1>/dev/null");
+    INFO(lone_from.output);
+    CHECK(lone_from.exit_code == 2);
+    CHECK(contains(lone_from.output, "--from and --to must be given together"));
+
+    const RunResult lone_to =
+        run_cli({"integrate", "sin(x)", "--to", "1"}, "2>&1 1>/dev/null");
+    CHECK(lone_to.exit_code == 2);
+
+    // --from is integrate-only.
+    const RunResult wrong_sub =
+        run_cli({"diff", "sin(x)", "--from", "0", "--to", "1"}, "2>&1 1>/dev/null");
+    CHECK(wrong_sub.exit_code == 2);
+
+    // Ambiguous variable.
+    const RunResult ambiguous =
+        run_cli({"integrate", "x*y"}, "2>&1 1>/dev/null");
+    INFO(ambiguous.output);
+    CHECK(ambiguous.exit_code == 2);
+    CHECK(contains(ambiguous.output, "cannot infer the variable for integrate"));
+}
+
+TEST_CASE("cli: REPL integrate command, indefinite and definite") {
+    const RunResult r = run_repl(
+        "integrate x*exp(x^2)\nintegrate sin(x), x, 0, pi\nintegrate x^2, 0, 1\nquit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "e^(x^2)/2 + C"));
+    CHECK(contains(r.output, "value = 2"));
+    // Three comma segments (bounds without a variable) is a usage error, and
+    // the session stays alive.
+    CHECK(contains(r.output,
+                   "usage: integrate <expression>[, <variable>[, <lo>, <hi>]]"));
+}
+
 TEST_CASE("cli: eval with bindings") {
     const RunResult r = run_cli({"eval", "x^2 + y", "x=3", "y=0.5"});
     INFO(r.output);

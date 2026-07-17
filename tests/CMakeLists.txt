@@ -19,6 +19,7 @@ add_executable(mathsolver_tests
     test_simplify.cpp
     test_simplify_review.cpp
     test_derivative.cpp
+    test_integrate.cpp
     test_solver.cpp
     test_solver_review.cpp
     test_system.cpp

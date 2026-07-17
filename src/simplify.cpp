@@ -589,6 +589,47 @@ Expr apply_pow_rules(const Expr& e) {
     return e;
 }
 
+/// Structurally provable u >= 0 for all real values of u's variables (where
+/// defined). Conservative: false only means "could not prove it".
+bool provably_nonneg(const Expr& e) {
+    switch (e->kind()) {
+        case Kind::Number:
+            return !e->number().is_negative();
+        case Kind::Constant:
+            return true; // pi, e
+        case Kind::Function:
+            return e->function() == FunctionId::Abs || e->function() == FunctionId::Cosh;
+        case Kind::Pow: {
+            const Expr& b = e->arg(0);
+            const Expr& p = e->arg(1);
+            if (p->kind() == Kind::Number) {
+                const Rational& r = p->number();
+                if (r.is_integer() && r.num() % 2 == 0) {
+                    return true; // even integer power (incl. negative)
+                }
+                if (!r.is_integer() && r.den() % 2 == 0) {
+                    return true; // even root: principal value is nonnegative
+                }
+            }
+            if (b->kind() == Kind::Constant && b->constant() == ConstantId::E) {
+                return true; // e^u > 0
+            }
+            return provably_nonneg(b); // nonneg^anything, where defined
+        }
+        case Kind::Mul:
+        case Kind::Add: {
+            for (const Expr& a : e->args()) {
+                if (!provably_nonneg(a)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        default:
+            return false;
+    }
+}
+
 Expr apply_fn_rules(const Expr& e) {
     if (e->kind() != Kind::Function) {
         return e;
@@ -661,11 +702,10 @@ Expr apply_fn_rules(const Expr& e) {
             if (const Rational* n = as_number(u)) {
                 return make_num(n->is_negative() ? -*n : *n);
             }
-            if (u->kind() == Kind::Constant) {
-                return u; // abs(pi) -> pi, abs(e) -> e
-            }
-            if (is_function(u, FunctionId::Abs)) {
-                return u; // abs(abs(u)) -> abs(u)
+            if (provably_nonneg(u)) {
+                // abs(pi) -> pi, abs(abs(u)) -> abs(u), abs(e^x) -> e^x,
+                // abs(x^2) -> x^2, abs(sqrt(x)) -> sqrt(x), ...
+                return u;
             }
             if (auto pos = negated_argument(u)) {
                 return make_fn(FunctionId::Abs, std::move(*pos));
