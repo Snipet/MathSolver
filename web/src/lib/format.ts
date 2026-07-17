@@ -42,6 +42,29 @@ export function splitTopLevel(s: string): string[] {
   return parts;
 }
 
+/**
+ * Non-empty top-level `,`-separated parts, trimmed — command arguments in the
+ * console grammar (`solve x^2 = 4, x`). Commas inside (), [], {} are kept
+ * (none occur in expressions, where a top-level comma is a separator anyway).
+ */
+export function splitTopLevelCommas(s: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of s) {
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") depth = Math.max(0, depth - 1);
+    if (ch === "," && depth === 0) {
+      if (cur.trim()) parts.push(cur.trim());
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts;
+}
+
 /** Number of non-empty top-level `;`-separated parts (equations in a system). */
 export function countTopLevelParts(s: string): number {
   let depth = 0;
