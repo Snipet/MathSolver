@@ -247,10 +247,12 @@ class PdePlugin final : public Plugin {
         return {
             {"heat",
              "Heat equation u_t = alpha u_xx with u(x,0) = f(x)",
-             "pde.heat <L>, <alpha>, <f(x)>[, <T>]"},
+             "pde.heat <L>, <alpha>, <f(x)>[, <T>]",
+             "pde.heat 1, 1, x*(1-x)"},
             {"wave",
              "Wave equation u_tt = c^2 u_xx with displacement f, velocity g",
-             "pde.wave <L>, <c>, <f(x)>[, <g(x)>[, <T>]]"},
+             "pde.wave <L>, <c>, <f(x)>[, <g(x)>[, <T>]]",
+             "pde.wave 1, 2, sin(pi*x)"},
         };
     }
     std::string invoke(std::string_view command,

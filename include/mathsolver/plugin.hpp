@@ -37,6 +37,7 @@ struct CommandInfo {
     std::string name;    ///< Verb, e.g. "butter" (invoked as "dsp.butter").
     std::string summary; ///< One-line description for catalogs/help.
     std::string usage;   ///< Argument synopsis, e.g. "dsp.butter <lowpass|highpass>, <order>, <fc>, <fs>".
+    std::string example; ///< A concrete runnable invocation, e.g. "dsp.butter lowpass, 4, 1000, 48000".
 };
 
 class Plugin {

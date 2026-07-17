@@ -504,6 +504,63 @@ try {
     el.dispatchEvent(new Event("input", { bubbles: true }));
   });
 
+  // Every reference entry — builtin and plugin — carries a runnable example.
+  const exampleAudit = await page.evaluate(() => {
+    const entries = [...document.querySelectorAll(".sidebar .cmd-ref .ref-entry")];
+    const missing = entries
+      .filter((li) => !li.querySelector(".ref-example code")?.textContent?.trim())
+      .map((li) => li.querySelector(".ref-usage")?.textContent ?? "?");
+    return { total: entries.length, missing };
+  });
+  check(
+    "every reference entry has an example",
+    exampleAudit.total > 50 && exampleAudit.missing.length === 0,
+    `total ${exampleAudit.total}, missing: ${exampleAudit.missing.join("; ")}`,
+  );
+
+  // Clicking an example inserts the full runnable line, and it runs. The
+  // helper submits an already-inserted prompt and waits for the new cell.
+  const submitPrompt = async () => {
+    const before = await page.$$eval(".cells .cell", (els) => els.length);
+    await page.click(TA);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      (n) => {
+        const cells = document.querySelectorAll(".cells .cell");
+        if (cells.length !== n + 1) return false;
+        const last = cells[cells.length - 1];
+        return last && !(last.textContent || "").includes("computing…");
+      },
+      { timeout: 20000 },
+      before,
+    );
+    return page.$eval(".cells .cell:last-child", (el) => el.innerText);
+  };
+  await page.evaluate(() => {
+    const egs = [...document.querySelectorAll(".sidebar .cmd-ref .ref-example")];
+    egs.find((b) => b.textContent.includes("factor x^2 - 5x + 6")).click();
+  });
+  const egInserted = await page.$eval(TA, (el) => el.value);
+  check(
+    "example click inserts the runnable line",
+    egInserted === "factor x^2 - 5x + 6",
+    JSON.stringify(egInserted),
+  );
+  const egOut = await submitPrompt();
+  check("inserted example runs to a result", egOut.includes("(x - 3)"), egOut.slice(0, 60));
+
+  // A plugin example works end to end the same way.
+  await page.evaluate(() => {
+    const egs = [...document.querySelectorAll(".sidebar .cmd-ref .ref-example")];
+    egs.find((b) => b.textContent.includes("pde.heat 1, 1, x*(1-x)")).click();
+  });
+  const egPlugin = await submitPrompt();
+  check(
+    "plugin example runs to a result",
+    egPlugin.includes("Temperature profiles"),
+    egPlugin.slice(0, 60),
+  );
+
   await page.click(TA);
   await page.type(TA, "integ");
   await page.waitForSelector(".suggest-item", { timeout: 5000 });

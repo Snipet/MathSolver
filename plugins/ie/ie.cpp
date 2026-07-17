@@ -207,10 +207,12 @@ class IePlugin final : public Plugin {
         return {
             {"fredholm",
              "Fredholm equation u = f + lambda ∫_a^b K(x,t) u(t) dt",
-             "ie.fredholm <K(x,t)>, <f(x)>, <lambda>, <a>, <b>"},
+             "ie.fredholm <K(x,t)>, <f(x)>, <lambda>, <a>, <b>",
+             "ie.fredholm x*t, x, 1, 0, 1"},
             {"volterra",
              "Volterra equation u = f + lambda ∫_a^x K(x,t) u(t) dt",
-             "ie.volterra <K(x,t)>, <f(x)>, <lambda>, <a>, <b>"},
+             "ie.volterra <K(x,t)>, <f(x)>, <lambda>, <a>, <b>",
+             "ie.volterra x - t, x, -1, 0, 3"},
         };
     }
     std::string invoke(std::string_view command,

@@ -217,7 +217,8 @@ class HybPlugin final : public Plugin {
         return {
             {"sim",
              "Simulate x' = f_x, v' = f_v with a guard surface and reset map",
-             "hyb.sim <x'>; <v'>, <guard>, <reset x>; <reset v>, <x0>, <v0>, <T>"},
+             "hyb.sim <x'>; <v'>, <guard>, <reset x>; <reset v>, <x0>, <v0>, <T>",
+             "hyb.sim v; -9.81, x, x; -0.8*v, 1, 0, 3"},
         };
     }
     std::string invoke(std::string_view command,

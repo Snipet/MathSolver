@@ -718,23 +718,30 @@ class DspPlugin final : public Plugin {
         return {
             {"butter", "Butterworth low/high/band-pass/band-stop design",
              "dsp.butter <type>, <order 1-12>, <fc>[, <f2>], <fs>   (type: "
-             "lowpass|highpass|bandpass|bandstop)"},
+             "lowpass|highpass|bandpass|bandstop)",
+             "dsp.butter lowpass, 4, 1000, 48000"},
             {"cheby1", "Chebyshev I design (equiripple passband)",
-             "dsp.cheby1 <type>, <order 1-12>, <ripple dB>, <fc>[, <f2>], <fs>"},
+             "dsp.cheby1 <type>, <order 1-12>, <ripple dB>, <fc>[, <f2>], <fs>",
+             "dsp.cheby1 bandpass, 3, 1, 500, 2000, 48000"},
             {"cheby2", "Chebyshev II design (equiripple stopband)",
-             "dsp.cheby2 <type>, <order 1-12>, <atten dB>, <fc>[, <f2>], <fs>"},
+             "dsp.cheby2 <type>, <order 1-12>, <atten dB>, <fc>[, <f2>], <fs>",
+             "dsp.cheby2 lowpass, 4, 40, 2000, 48000"},
             {"ellip", "Elliptic (Cauer) design: sharpest transition per order",
              "dsp.ellip <type>, <order 1-12>, <ripple dB>, <atten dB>, <fc>[, "
-             "<f2>], <fs>"},
+             "<f2>], <fs>",
+             "dsp.ellip lowpass, 5, 1, 60, 1000, 48000"},
             {"fir", "Linear-phase windowed-sinc FIR design",
              "dsp.fir <type>, <taps 5-255>, <fc>[, <f2>], <fs>[, <window>[, "
-             "<kaiser beta>]]"},
+             "<kaiser beta>]]",
+             "dsp.fir lowpass, 101, 1000, 48000, kaiser, 10"},
             {"remez", "Optimal equiripple FIR (Parks–McClellan)",
              "dsp.remez <type>, <taps 5-255 odd>, <edges...>, <fs>[, <stop "
              "weight>]   (lowpass: fpass, fstop; bandpass: fstop1, fpass1, "
-             "fpass2, fstop2)"},
+             "fpass2, fstop2)",
+             "dsp.remez lowpass, 31, 1000, 1500, 8000"},
             {"freqz", "Magnitude/phase/group delay/time response of a cascade",
-             "dsp.freqz <fs Hz>, <b0>,<b1>,<b2>,<a1>,<a2> [, ...more groups of 5]"},
+             "dsp.freqz <fs Hz>, <b0>,<b1>,<b2>,<a1>,<a2> [, ...more groups of 5]",
+             "dsp.freqz 48000, 0.2, 0.4, 0.2, -0.5, 0.3"},
         };
     }
     std::string invoke(std::string_view command,

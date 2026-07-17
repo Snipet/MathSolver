@@ -46,7 +46,9 @@ class Plugin {
   std::string_view name();      // namespace, e.g. "dsp"
   std::string_view version();
   std::string_view summary();
-  std::vector<CommandInfo> commands();   // name + summary + usage line
+  std::vector<CommandInfo> commands();   // name + summary + usage + a concrete
+                                         // runnable example (shown click-to-run
+                                         // in the console reference panel)
   std::string invoke(std::string_view command,
                      const std::vector<std::string>& args);  // → JSON
 };

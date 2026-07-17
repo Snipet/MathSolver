@@ -814,20 +814,26 @@ class SysPlugin final : public Plugin {
     std::vector<CommandInfo> commands() const override {
         return {
             {"tf", "Analyze a transfer function H(s) = num/den (incl. margins)",
-             "sys.tf <num poly in s>, <den poly in s>   e.g. sys.tf s+1, s^2+3s+2"},
+             "sys.tf <num poly in s>, <den poly in s>",
+             "sys.tf s+1, s^2+3s+2"},
             {"ode", "Convert an LTI ODE to H(s) and analyze it",
-             "sys.ode <ODE in y and u>   e.g. sys.ode y'' + 3y' + 2y = u' + u"},
+             "sys.ode <ODE in y and u>",
+             "sys.ode y'' + 3y' + 2y = u' + u"},
             {"feedback", "Closed loop K·G/(1 + K·G) under unity feedback",
-             "sys.feedback <num poly in s>, <den poly in s>[, <K>]"},
+             "sys.feedback <num poly in s>, <den poly in s>[, <K>]",
+             "sys.feedback 1, s(s+1)(s+2), 2"},
             {"rlocus", "Root locus: closed-loop poles as K sweeps",
-             "sys.rlocus <num poly in s>, <den poly in s>[, <K max>]"},
+             "sys.rlocus <num poly in s>, <den poly in s>[, <K max>]",
+             "sys.rlocus 1, s^3 + 3s^2 + 2s"},
             {"tfz", "Analyze a discrete transfer function H(z) (positive powers)",
-             "sys.tfz <num poly in z>, <den poly in z>, <fs Hz>"},
+             "sys.tfz <num poly in z>, <den poly in z>, <fs Hz>",
+             "sys.tfz z, z^2 - 0.5z + 0.06, 8000"},
             {"c2d", "Discretize H(s) to digital biquads (bilinear)",
-             "sys.c2d <num poly in s>, <den poly in s>, <fs Hz>"},
+             "sys.c2d <num poly in s>, <den poly in s>, <fs Hz>",
+             "sys.c2d 1, s+1, 100"},
             {"dde", "Delay differential equation x' = f(t, x, x(t - tau)) by "
                     "the method of steps",
-             "sys.dde <f(t, x, x_d)>, <tau>, <phi(t)>, <T>   e.g. "
+             "sys.dde <f(t, x, x_d)>, <tau>, <phi(t)>, <T>",
              "sys.dde -x_d, 1, 1, 20"},
         };
     }

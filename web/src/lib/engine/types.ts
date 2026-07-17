@@ -143,6 +143,8 @@ export interface PluginCommandMeta {
   name: string;
   summary: string;
   usage: string;
+  /** A concrete runnable invocation, e.g. "dsp.butter lowpass, 4, 1000, 48000". */
+  example: string;
 }
 
 export interface PluginMeta {

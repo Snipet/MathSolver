@@ -960,8 +960,10 @@ std::string ms_plugins() {
             for (const auto& c : p->commands()) {
                 if (!first_cmd) out += ",";
                 first_cmd = false;
-                out += std::format("{{\"name\":{},\"summary\":{},\"usage\":{}}}",
-                                   jstr(c.name), jstr(c.summary), jstr(c.usage));
+                out += std::format(
+                    "{{\"name\":{},\"summary\":{},\"usage\":{},\"example\":{}}}",
+                    jstr(c.name), jstr(c.summary), jstr(c.usage),
+                    jstr(c.example));
             }
             out += "]}";
         }

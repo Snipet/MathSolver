@@ -1,6 +1,8 @@
 // Console command reference: one source of truth for the reference panel,
 // the autocomplete popup, and the inline usage hints. Built-in commands are
-// static; plugin commands are appended from the live catalog.
+// static; plugin commands are appended from the live catalog. Every entry
+// carries a concrete runnable example so the grammar can be learned by
+// clicking, not reading.
 import type { PluginMeta } from "../engine/types";
 import { getCatalog } from "./run";
 
@@ -11,6 +13,8 @@ export interface RefItem {
   usage: string;
   /** One-line description. */
   hint: string;
+  /** A concrete runnable invocation, inserted verbatim when clicked. */
+  example: string;
 }
 
 export interface RefGroup {
@@ -26,24 +30,43 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         insert: "simplify",
         usage: "simplify <expr>   (or just type a bare expression)",
         hint: "Simplify an expression",
+        example: "simplify sin(x)^2 + cos(x)^2",
       },
-      { insert: "expand", usage: "expand <expr>", hint: "Multiply everything out" },
-      { insert: "factor", usage: "factor <expr>", hint: "Best-effort factoring" },
+      {
+        insert: "expand",
+        usage: "expand <expr>",
+        hint: "Multiply everything out",
+        example: "expand (x+1)^3",
+      },
+      {
+        insert: "factor",
+        usage: "factor <expr>",
+        hint: "Best-effort factoring",
+        example: "factor x^2 - 5x + 6",
+      },
       {
         insert: "collect",
         usage: "collect <expr>[, <var>]",
         hint: "Regroup as a polynomial in one variable",
+        example: "collect x*y + 2x + y*x^2, x",
       },
       {
         insert: "apart",
         usage: "apart <expr>[, <var>]",
         hint: "Partial-fraction expansion of a rational function",
+        example: "apart (3x+2)/((x+1)(x+2))",
       },
-      { insert: "latex", usage: "latex <expr>", hint: "Convert to LaTeX, unsimplified" },
+      {
+        insert: "latex",
+        usage: "latex <expr>",
+        hint: "Convert to LaTeX, unsimplified",
+        example: "latex sqrt(x)/2",
+      },
       {
         insert: "plot",
         usage: "plot <expr>[, <lo>, <hi>]",
         hint: "Sample and chart an expression",
+        example: "plot sin(x)/x, -20, 20",
       },
     ],
   },
@@ -54,66 +77,79 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         insert: "diff",
         usage: "diff <expr>[, <var>]",
         hint: "Symbolic derivative",
+        example: "diff sin(x^2), x",
       },
       {
         insert: "integrate",
         usage: "integrate <expr>[, <var>[, <lo>, <hi>]]",
         hint: "Antiderivative, or a definite integral with bounds",
+        example: "integrate e^(-x^2), x, 0, 1",
       },
       {
         insert: "laplace",
         usage: "laplace <expr>[, <t>]",
         hint: "Laplace transform f(t) → F(s)",
+        example: "laplace e^(-t) sin(2t)",
       },
       {
         insert: "ilaplace",
         usage: "ilaplace <expr>[, <s>]",
         hint: "Inverse Laplace F(s) → f(t)",
+        example: "ilaplace 1/(s^2 + 2s + 5)",
       },
       {
         insert: "dsolve",
         usage: "dsolve <ode>[, y(0)=v, y'(0)=v, …]",
         hint: "Solve a linear ODE initial-value problem exactly",
+        example: "dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0",
       },
       {
         insert: "series",
         usage: "series <expr>[, <var>[, <center>[, <order>]]]",
         hint: "Taylor expansion (center 0, order 6 by default)",
+        example: "series sin(x), x, 0, 5",
       },
       {
         insert: "limit",
         usage: "limit <expr>, <var>, <point>[, left|right]",
         hint: "Limit at a point or ±inf (exact where possible)",
+        example: "limit sin(x)/x, x, 0",
       },
       {
         insert: "mlimit",
         usage: "mlimit <expr>, <x>, <a>, <y>, <b>",
         hint: "Two-variable limit by path sampling (rays + parabolas)",
+        example: "mlimit x*y/(x^2+y^2), x, 0, y, 0",
       },
       {
         insert: "sum",
         usage: "sum <term>, <var>, <lo>, <hi>",
         hint: "Closed-form summation (hi may be a symbol or inf)",
+        example: "sum 1/k, k, 1, n",
       },
       {
         insert: "product",
         usage: "product <term>, <var>, <lo>, <hi>",
         hint: "Closed-form or exact numeric product",
+        example: "product k, k, 1, 5",
       },
       {
         insert: "rsolve",
         usage: "rsolve <recurrence>[, a(0)=v, …]",
         hint: "Solve a linear recurrence (e.g. Fibonacci → Binet)",
+        example: "rsolve a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1",
       },
       {
         insert: "stirling",
         usage: "stirling [<var>[, <terms>]]",
         hint: "Stirling series for ln Γ with exact Bernoulli coefficients",
+        example: "stirling x, 3",
       },
       {
         insert: "seq",
         usage: "seq <a0>, <a1>, <a2>, <a3>[, …]",
         hint: "Recognize a sequence (arithmetic/geometric/polynomial/recurrence)",
+        example: "seq 0, 1, 1, 2, 3, 5, 8",
       },
     ],
   },
@@ -124,36 +160,43 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         insert: "grad",
         usage: "grad <f>, <var>[, <var> …]",
         hint: "Gradient ∇f",
+        example: "grad x^2 + y^2, x, y",
       },
       {
         insert: "div",
         usage: "div <F1; F2; …>, <var> …",
         hint: "Divergence ∇·F (';'-separated field)",
+        example: "div x*y; y*z; z*x, x, y, z",
       },
       {
         insert: "curl",
         usage: "curl <F1; F2[; F3]>, <var> …",
         hint: "Curl ∇×F (3-D) or scalar curl (2-D)",
+        example: "curl -y; x; 0, x, y, z",
       },
       {
         insert: "laplacian",
         usage: "laplacian <f>, <var> …",
         hint: "Laplacian ∇²f",
+        example: "laplacian x^2 + y^2, x, y",
       },
       {
         insert: "jacobian",
         usage: "jacobian <F1; F2; …>, <var> …",
         hint: "Jacobian matrix ∂F_i/∂x_j",
+        example: "jacobian x*y; x + y, x, y",
       },
       {
         insert: "hessian",
         usage: "hessian <f>, <var> …",
         hint: "Hessian matrix ∂²f/∂x_i∂x_j",
+        example: "hessian x^3 + x*y^2, x, y",
       },
       {
         insert: "vecfield",
         usage: "vecfield <Fx>; <Fy>[, <xlo>, <xhi>, <ylo>, <yhi>]",
         hint: "Quiver plot of a planar vector field",
+        example: "vecfield -y; x",
       },
     ],
   },
@@ -164,16 +207,19 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         insert: "solve",
         usage: "solve <equation>[, <var>]  ·  solve <eq>; <eq>[, <vars…>]",
         hint: "Equations, and ;-separated linear systems",
+        example: "solve x^2 = 4, x",
       },
       {
         insert: "eval",
         usage: "eval <expr>, x=1[, y=2 …]",
         hint: "Numeric value with variable bindings",
+        example: "eval x^2 + y, x=3, y=0.5",
       },
       {
         insert: "subs",
         usage: "subs <expr>, x=y+1[, …]",
         hint: "Substitute expressions, then simplify",
+        example: "subs a*x + 3, a=2",
       },
     ],
   },
@@ -184,17 +230,43 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         insert: ":=",
         usage: "<name> := <value>   e.g.  a := 2   E_1 := x + y = 3",
         hint: "Bind a variable; applies to later lines",
+        example: "a := 2",
       },
-      { insert: "vars", usage: "vars", hint: "List current bindings" },
-      { insert: "unset", usage: "unset <name>", hint: "Remove one binding" },
-      { insert: "clear", usage: "clear", hint: "Remove all bindings" },
+      {
+        insert: "vars",
+        usage: "vars",
+        hint: "List current bindings",
+        example: "vars",
+      },
+      {
+        insert: "unset",
+        usage: "unset <name>",
+        hint: "Remove one binding",
+        example: "unset a",
+      },
+      {
+        insert: "clear",
+        usage: "clear",
+        hint: "Remove all bindings",
+        example: "clear",
+      },
     ],
   },
   {
     title: "Console",
     items: [
-      { insert: "help", usage: "help", hint: "Show the full grammar" },
-      { insert: "plugins", usage: "plugins", hint: "List compiled-in plugins" },
+      {
+        insert: "help",
+        usage: "help",
+        hint: "Show the full grammar",
+        example: "help",
+      },
+      {
+        insert: "plugins",
+        usage: "plugins",
+        hint: "List compiled-in plugins",
+        example: "plugins",
+      },
     ],
   },
 ];
@@ -207,6 +279,7 @@ export function pluginGroups(catalog: PluginMeta[]): RefGroup[] {
       insert: `${p.name}.${c.name}`,
       usage: c.usage,
       hint: c.summary,
+      example: c.example,
     })),
   }));
 }
