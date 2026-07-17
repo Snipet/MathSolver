@@ -187,8 +187,11 @@ struct BodeGrid {
     std::vector<double> w, mag_db, phase_deg;
 };
 
-BodeGrid bode(const RationalTF& tf, const Analysis& a) {
-    BodeGrid g;
+struct WRange {
+    double wmin, wmax;
+};
+
+WRange bode_range(const Analysis& a) {
     double wmin = 1e300;
     double wmax = 0.0;
     const auto widen = [&](const std::vector<cd>& roots) {
@@ -206,8 +209,12 @@ BodeGrid bode(const RationalTF& tf, const Analysis& a) {
         wmin = 0.1;
         wmax = 10.0;
     }
-    wmin /= 100.0;
-    wmax *= 100.0;
+    return {wmin / 100.0, wmax * 100.0};
+}
+
+BodeGrid bode(const RationalTF& tf, const Analysis& a) {
+    BodeGrid g;
+    const auto [wmin, wmax] = bode_range(a);
     double prev_phase = 0.0;
     bool have_prev = false;
     for (int i = 0; i < k_bode_points; ++i) {
@@ -230,17 +237,18 @@ BodeGrid bode(const RationalTF& tf, const Analysis& a) {
     return g;
 }
 
-std::string bode_blocks(const RationalTF& tf, const Analysis& a) {
+std::string bode_blocks(const RationalTF& tf, const Analysis& a,
+                        const std::string& vlines_json) {
     const BodeGrid g = bode(tf, a);
     return std::format(
         "{{\"type\":\"series\",\"title\":\"Bode magnitude\","
         "\"xlabel\":\"\\u03c9 (rad/s)\",\"ylabel\":\"|H| (dB)\",\"logx\":true,"
-        "\"x\":{},\"series\":[{{\"label\":\"|H(j\\u03c9)|\",\"ys\":{}}}]}},"
+        "\"x\":{},\"series\":[{{\"label\":\"|H(j\\u03c9)|\",\"ys\":{}}}]{}}},"
         "{{\"type\":\"series\",\"title\":\"Bode phase\","
         "\"xlabel\":\"\\u03c9 (rad/s)\",\"ylabel\":\"phase (deg)\",\"logx\":true,"
-        "\"x\":{},\"series\":[{{\"label\":\"arg H(j\\u03c9)\",\"ys\":{}}}]}}",
-        jnum_array(g.w), jnum_array(g.mag_db), jnum_array(g.w),
-        jnum_array(g.phase_deg));
+        "\"x\":{},\"series\":[{{\"label\":\"arg H(j\\u03c9)\",\"ys\":{}}}]{}}}",
+        jnum_array(g.w), jnum_array(g.mag_db), vlines_json, jnum_array(g.w),
+        jnum_array(g.phase_deg), vlines_json);
 }
 
 std::string time_blocks(const RationalTF& tf, const Analysis& a) {
@@ -270,18 +278,46 @@ std::string analysis_result(const std::string& title, const RationalTF& tf,
     const char* verdict = !a.stable   ? "unstable (pole in the right half-plane)"
                           : a.marginal ? "marginally stable (pole on the jω axis)"
                                        : "stable";
+
+    // Classical margins (treating H as an open loop), with the crossover
+    // frequencies marked on both Bode charts.
+    const auto [wmin, wmax] = bode_range(a);
+    const sys::Margins margins = sys::compute_margins(tf, wmin, wmax);
+    std::string margin_rows;
+    std::string vlines;
+    if (!margins.gain.empty()) {
+        const auto& gm = margins.gain.front();
+        margin_rows += std::format(",[\"Gain margin\",\"{:.2f} dB @ {:.4g} rad/s\"]",
+                                   gm.db, gm.freq);
+        vlines += std::format("{{\"x\":{},\"label\":\"\\u03c9pc\"}}", jnum(gm.freq));
+    } else {
+        margin_rows += ",[\"Gain margin\",\"∞ (no -180° crossing)\"]";
+    }
+    if (!margins.phase.empty()) {
+        const auto& pm = margins.phase.front();
+        margin_rows += std::format(
+            ",[\"Phase margin\",\"{:.1f}° @ {:.4g} rad/s\"]", pm.deg, pm.freq);
+        if (!vlines.empty()) vlines += ",";
+        vlines += std::format("{{\"x\":{},\"label\":\"\\u03c9gc\"}}", jnum(pm.freq));
+    } else {
+        margin_rows += ",[\"Phase margin\",\"∞ (no 0 dB crossing)\"]";
+    }
+    const std::string vlines_json =
+        vlines.empty() ? "" : std::format(",\"vlines\":[{}]", vlines);
+
     std::string kv = std::format(
         "{{\"type\":\"kv\",\"items\":[[\"H(s)\",{}],[\"Order\",\"{}\"],"
-        "[\"Stability\",{}],[\"DC gain\",{}]{}]}}",
+        "[\"Stability\",{}],[\"DC gain\",{}]{}{}]}}",
         jstr(std::format("({}) / ({})", poly_text(tf.num), poly_text(tf.den))),
         tf.den.size() - 1, jstr(verdict),
         jstr(std::isfinite(dc) ? std::format("{:g}", dc) : "infinite (pole at s = 0)"),
+        margin_rows,
         origin_note.empty()
             ? ""
             : std::format(",[\"Derived from\",{}]", jstr(origin_note)));
     return std::format("{{\"ok\":true,\"title\":{},\"blocks\":[{},{},{},{},{}]}}",
                        jstr(title), kv, roots_table_block(a), pzmap_block(a),
-                       bode_blocks(tf, a), time_blocks(tf, a));
+                       bode_blocks(tf, a, vlines_json), time_blocks(tf, a));
 }
 
 // --- commands ---------------------------------------------------------------
@@ -315,6 +351,142 @@ std::string cmd_ode(const std::vector<std::string>& args) {
         return analysis_result(
             std::format("H(s) = ({}) / ({})", poly_text(tf.num), poly_text(tf.den)),
             tf, text);
+    } catch (const sys::SysError& e) {
+        return error_json(e.what());
+    }
+}
+
+std::string cmd_feedback(const std::vector<std::string>& args) {
+    if (args.size() != 2 && args.size() != 3) {
+        return error_json(
+            "usage: sys.feedback <num poly in s>, <den poly in s>[, <K>]   — "
+            "closed loop K·G/(1 + K·G) under unity feedback");
+    }
+    double k = 1.0;
+    if (args.size() == 3) {
+        try {
+            std::size_t pos = 0;
+            k = std::stod(args[2], &pos);
+            if (pos != args[2].size()) {
+                throw std::invalid_argument("k");
+            }
+        } catch (const std::exception&) {
+            return error_json(
+                std::format("gain K must be a number, got '{}'", args[2]));
+        }
+    }
+    try {
+        const RationalTF g = sys::make_tf(args[0], args[1]);
+        const RationalTF t = sys::feedback_unity(g, k);
+        return analysis_result(
+            std::format("Closed loop T(s) = ({}) / ({})", poly_text(t.num),
+                        poly_text(t.den)),
+            t,
+            std::format("unity feedback around G(s) = ({}) / ({}) with K = {:g}",
+                        poly_text(g.num), poly_text(g.den), k));
+    } catch (const sys::SysError& e) {
+        return error_json(e.what());
+    }
+}
+
+std::string cmd_rlocus(const std::vector<std::string>& args) {
+    if (args.size() != 2 && args.size() != 3) {
+        return error_json(
+            "usage: sys.rlocus <num poly in s>, <den poly in s>[, <K max>]");
+    }
+    double kmax = 100.0;
+    if (args.size() == 3) {
+        try {
+            std::size_t pos = 0;
+            kmax = std::stod(args[2], &pos);
+            if (pos != args[2].size() || !(kmax > 0.0)) {
+                throw std::invalid_argument("kmax");
+            }
+        } catch (const std::exception&) {
+            return error_json(
+                std::format("K max must be a positive number, got '{}'", args[2]));
+        }
+    }
+    try {
+        const RationalTF g = sys::make_tf(args[0], args[1]);
+        const Analysis a = analyze(g);
+
+        // Geometric gain sweep over four decades up to K max.
+        std::vector<double> gains;
+        constexpr int kSteps = 160;
+        for (int i = 0; i < kSteps; ++i) {
+            const double t = static_cast<double>(i) / (kSteps - 1);
+            gains.push_back(kmax * std::pow(1e-4, 1.0 - t));
+        }
+        const auto branches = sys::root_locus(g, gains);
+
+        // Scatter: locus points, then open-loop poles (x) and zeros (o),
+        // packed with per-series nulls (series share one x list).
+        std::vector<double> xs;
+        std::vector<std::string> locus_ys, pole_ys, zero_ys;
+        const auto push = [&](double x, double locus, double pole, double zero,
+                              int which) {
+            xs.push_back(x);
+            locus_ys.push_back(which == 0 ? jnum(locus) : "null");
+            pole_ys.push_back(which == 1 ? jnum(pole) : "null");
+            zero_ys.push_back(which == 2 ? jnum(zero) : "null");
+        };
+        for (const auto& set : branches) {
+            for (const cd& p : set) {
+                push(p.real(), p.imag(), 0, 0, 0);
+            }
+        }
+        for (const cd& p : a.poles) push(p.real(), 0, p.imag(), 0, 1);
+        for (const cd& z : a.zeros) push(z.real(), 0, 0, z.imag(), 2);
+
+        const auto join = [](const std::vector<std::string>& v) {
+            std::string out = "[";
+            for (std::size_t i = 0; i < v.size(); ++i) {
+                if (i > 0) out += ",";
+                out += v[i];
+            }
+            return out + "]";
+        };
+        std::string series = std::format(
+            "{{\"label\":\"locus (K: {:g} → {:g})\",\"ys\":{},\"points\":true,"
+            "\"shape\":\"o\"}},"
+            "{{\"label\":\"open-loop poles\",\"ys\":{},\"points\":true,"
+            "\"shape\":\"x\"}}",
+            gains.front(), kmax, join(locus_ys), join(pole_ys));
+        if (!a.zeros.empty()) {
+            series += std::format(
+                ",{{\"label\":\"open-loop zeros\",\"ys\":{},\"points\":true,"
+                "\"shape\":\"o\"}}",
+                join(zero_ys));
+        }
+        const std::string chart = std::format(
+            "{{\"type\":\"series\",\"title\":\"Root locus (closed-loop poles as "
+            "K grows)\",\"xlabel\":\"Re\",\"ylabel\":\"Im\",\"x\":{},"
+            "\"series\":[{}],\"vlines\":[{{\"x\":0,\"label\":\"j\\u03c9\"}}]}}",
+            jnum_array(xs), series);
+
+        // Find the smallest swept K that destabilizes the loop, if any.
+        std::string kcrit = "stable for the whole sweep";
+        for (std::size_t gi = 0; gi < branches.size(); ++gi) {
+            const bool unstable = std::any_of(
+                branches[gi].begin(), branches[gi].end(),
+                [](const cd& p) { return p.real() > 1e-9; });
+            if (unstable) {
+                kcrit = std::format("closed loop goes unstable near K ≈ {:.4g}",
+                                    gains[gi]);
+                break;
+            }
+        }
+        const std::string kv = std::format(
+            "{{\"type\":\"kv\",\"items\":[[\"G(s)\",{}],[\"Sweep\",\"K = {:g} … "
+            "{:g} ({} points)\"],[\"Verdict\",{}]]}}",
+            jstr(std::format("({}) / ({})", poly_text(g.num), poly_text(g.den))),
+            gains.front(), kmax, kSteps, jstr(kcrit));
+        return std::format(
+            "{{\"ok\":true,\"title\":{},\"blocks\":[{},{}]}}",
+            jstr(std::format("Root locus of G(s) = ({}) / ({})", poly_text(g.num),
+                             poly_text(g.den))),
+            kv, chart);
     } catch (const sys::SysError& e) {
         return error_json(e.what());
     }
@@ -410,17 +582,21 @@ std::string cmd_c2d(const std::vector<std::string>& args) {
 class SysPlugin final : public Plugin {
   public:
     std::string_view name() const override { return "sys"; }
-    std::string_view version() const override { return "0.1.0"; }
+    std::string_view version() const override { return "0.2.0"; }
     std::string_view summary() const override {
         return "Continuous-time LTI systems: transfer functions, ODE -> H(s), "
-               "poles/zeros, Bode, step/impulse, discretization";
+               "feedback, margins, root locus, discretization";
     }
     std::vector<CommandInfo> commands() const override {
         return {
-            {"tf", "Analyze a transfer function H(s) = num/den",
+            {"tf", "Analyze a transfer function H(s) = num/den (incl. margins)",
              "sys.tf <num poly in s>, <den poly in s>   e.g. sys.tf s+1, s^2+3s+2"},
             {"ode", "Convert an LTI ODE to H(s) and analyze it",
              "sys.ode <ODE in y and u>   e.g. sys.ode y'' + 3y' + 2y = u' + u"},
+            {"feedback", "Closed loop K·G/(1 + K·G) under unity feedback",
+             "sys.feedback <num poly in s>, <den poly in s>[, <K>]"},
+            {"rlocus", "Root locus: closed-loop poles as K sweeps",
+             "sys.rlocus <num poly in s>, <den poly in s>[, <K max>]"},
             {"c2d", "Discretize H(s) to digital biquads (bilinear)",
              "sys.c2d <num poly in s>, <den poly in s>, <fs Hz>"},
         };
@@ -430,6 +606,8 @@ class SysPlugin final : public Plugin {
         try {
             if (command == "tf") return cmd_tf(args);
             if (command == "ode") return cmd_ode(args);
+            if (command == "feedback") return cmd_feedback(args);
+            if (command == "rlocus") return cmd_rlocus(args);
             if (command == "c2d") return cmd_c2d(args);
             return error_json(std::format("sys has no command '{}'", command));
         } catch (const std::exception& e) {

@@ -239,6 +239,98 @@ try {
     odeOut.replace(/\n/g, " ").slice(0, 80),
   );
 
+  const fbOut = await run("sys.feedback 1, s+1, 3");
+  check(
+    "sys.feedback closes the loop",
+    fbOut.includes("Closed loop") && fbOut.includes("0.75") &&
+      fbOut.includes("Gain margin"),
+    fbOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
+  const rlOut = await run("sys.rlocus 1, s^3 + 3s^2 + 2s");
+  check(
+    "sys.rlocus renders and finds critical gain",
+    rlOut.includes("Root locus") && rlOut.includes("unstable near K"),
+    rlOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
+  const plotOut = await run("plot sin(x)/x, -20, 20");
+  const plotHasChart = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => !!el.querySelector("canvas"),
+  );
+  check(
+    "plot verb charts an expression",
+    plotOut.includes("plot") && plotHasChart,
+    plotOut.replace(/\n/g, " ").slice(0, 60),
+  );
+
+  await run("f_c := 2000");
+  const fcOut = await run("dsp.butter lowpass, 4, f_c, 48000");
+  check(
+    "session variable resolves into plugin args",
+    fcOut.includes("2000 Hz") && fcOut.includes("Butterworth"),
+    fcOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
+  // --- visual input: live typeset preview + symbol palette ------------------
+  const clearPrompt = () =>
+    page.$eval(TA, (el) => {
+      el.value = "";
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+  await page.click(TA);
+  await page.type(TA, "diff sin(x^2), x");
+  await page.waitForSelector("[data-testid='console-preview'] .katex", {
+    timeout: 6000,
+  });
+  const previewTex = await page.$eval(
+    "[data-testid='console-preview'] annotation",
+    (el) => el.textContent ?? "",
+  );
+  check(
+    "typeset preview renders diff as d/dx",
+    previewTex.includes("\\frac{d}{dx}") && previewTex.includes("\\sin"),
+    previewTex.slice(0, 60),
+  );
+  await clearPrompt();
+
+  await page.click(TA);
+  await page.type(TA, "integrate x*sin(x), x, 0, pi");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector("[data-testid='console-preview'] annotation")
+        ?.textContent?.includes("\\int_{0}^{\\pi}") ?? false,
+    { timeout: 6000 },
+  );
+  check("typeset preview renders definite integral bounds", true);
+  await clearPrompt();
+
+  await page.click(TA);
+  await page.type(TA, "2 + \\fraq{1}{2}");
+  await page.waitForSelector("[data-testid='console-preview'].has-error", {
+    timeout: 6000,
+  });
+  check("preview surfaces parse errors with a caret", true);
+  await clearPrompt();
+
+  await page.click(TA);
+  await page.click(".palette .palette-chip"); // π
+  await page.evaluate(() => {
+    const chips = [...document.querySelectorAll(".palette .palette-chip")];
+    const sqrt = chips.find((c) => c.textContent.trim() === "√");
+    sqrt.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  });
+  const paletteValue = await page.$eval(TA, (el) => el.value);
+  check(
+    "palette inserts at the cursor",
+    paletteValue.includes("π") && paletteValue.includes("√("),
+    JSON.stringify(paletteValue),
+  );
+  await clearPrompt();
+
   // --- console UX overhaul: reference panel, autocomplete, cell actions ----
   await page.waitForFunction(
     () =>

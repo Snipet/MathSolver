@@ -3,9 +3,15 @@
   import { notebook } from "../notebook/notebook.svelte";
   import { consoleUi } from "../notebook/console-ui.svelte";
   import { completionItems, type RefItem } from "../notebook/reference";
+  import {
+    buildConsolePreview,
+    type ConsolePreview,
+  } from "../notebook/preview";
   import CommandReference from "./CommandReference.svelte";
   import ExpressionInput from "./ExpressionInput.svelte";
+  import Katex from "./Katex.svelte";
   import NotebookCell from "./NotebookCell.svelte";
+  import SpanHighlight from "./SpanHighlight.svelte";
 
   let { ready = false, engineError = "" }: { ready?: boolean; engineError?: string } =
     $props();
@@ -23,7 +29,11 @@
     },
     {
       title: "Calculus",
-      items: ["diff sin(x^2), x", "integrate x*sin(x), x", "integrate sin(x), x, 0, pi"],
+      items: [
+        "diff sin(x^2), x",
+        "integrate x*sin(x), x",
+        "plot sin(x)/x, -20, 20",
+      ],
     },
     {
       title: "Solve",
@@ -77,6 +87,40 @@
     if (!m) return null;
     return completions.find((c) => c.insert === m[1])?.usage ?? null;
   });
+
+  // --- live typeset preview of the prompt (debounced engine analyze) --------
+  let preview = $state<ConsolePreview | null>(null);
+  let previewSeq = 0;
+  $effect(() => {
+    const text = input.trim();
+    const popupOpen = suggestions.length > 0;
+    const my = ++previewSeq;
+    if (!text || popupOpen || !ready) {
+      preview = null;
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const p = await buildConsolePreview(text);
+        if (my === previewSeq) preview = p;
+      } catch {
+        if (my === previewSeq) preview = null;
+      }
+    }, 180);
+    return () => clearTimeout(timer);
+  });
+
+  // --- symbol palette (parser-supported unicode, inserted at the caret) -----
+  const PALETTE: { label: string; pre: string; post: string; title: string }[] = [
+    { label: "π", pre: "π", post: "", title: "pi" },
+    { label: "√", pre: "√(", post: ")", title: "square root" },
+    { label: "|x|", pre: "|", post: "|", title: "absolute value" },
+    { label: "x²", pre: "", post: "²", title: "square" },
+    { label: "×", pre: "×", post: "", title: "multiply" },
+    { label: "÷", pre: "÷", post: "", title: "divide" },
+    { label: "°", pre: "", post: "°", title: "degrees" },
+    { label: ":=", pre: " := ", post: "", title: "assign a variable" },
+  ];
 
   function acceptSuggestion(item: RefItem) {
     input = item.insert + " ";
@@ -272,9 +316,44 @@
         {/each}
         <li class="suggest-help">Tab to accept · ↑↓ to choose · Esc to dismiss</li>
       </ul>
+    {:else if preview && preview.kind === "math"}
+      <div class="console-preview" data-testid="console-preview">
+        <span class="preview-lead">as parsed:</span>
+        <Katex latex={preview.latex} />
+        {#if preview.note}
+          <span class="preview-note">{preview.note}</span>
+        {/if}
+      </div>
+    {:else if preview && preview.kind === "error"}
+      <div class="console-preview has-error" data-testid="console-preview">
+        <p class="preview-error">{preview.error}</p>
+        {#if preview.source}
+          <SpanHighlight
+            input={preview.source}
+            begin={preview.begin}
+            end={preview.end}
+          />
+        {/if}
+      </div>
     {:else if activeUsage}
       <p class="usage-hint"><code>{activeUsage}</code></p>
     {/if}
+
+    <div class="palette" role="group" aria-label="Symbol palette">
+      {#each PALETTE as p (p.label)}
+        <button
+          class="palette-chip"
+          title={p.title}
+          tabindex="-1"
+          onmousedown={(e) => {
+            e.preventDefault(); // keep textarea focus
+            exprInput?.insertAtCursor(p.pre, p.post);
+          }}
+        >
+          {p.label}
+        </button>
+      {/each}
+    </div>
 
     <div class="prompt">
       <ExpressionInput
@@ -515,6 +594,61 @@
   }
   .usage-hint code {
     font-family: var(--font-mono);
+  }
+
+  .console-preview {
+    display: flex;
+    align-items: baseline;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+    margin: 0 0 0.4rem;
+    padding: 0.35rem 0.6rem;
+    border-left: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+    background: color-mix(in srgb, var(--accent) 5%, transparent);
+    border-radius: 0 calc(var(--radius) / 2) calc(var(--radius) / 2) 0;
+    min-height: 1.6rem;
+  }
+  .console-preview.has-error {
+    display: block;
+    border-left-color: color-mix(in srgb, var(--error) 60%, transparent);
+    background: color-mix(in srgb, var(--error) 5%, transparent);
+  }
+  .preview-lead {
+    font-size: 0.74rem;
+    color: var(--fg-muted);
+    flex: 0 0 auto;
+  }
+  .preview-note {
+    font-size: 0.74rem;
+    color: var(--fg-muted);
+    font-style: italic;
+  }
+  .preview-error {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--error);
+  }
+
+  .palette {
+    display: flex;
+    gap: 0.3rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.4rem;
+  }
+  .palette-chip {
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    line-height: 1;
+    color: var(--fg-muted);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) / 2);
+    padding: 0.28rem 0.5rem;
+    cursor: pointer;
+  }
+  .palette-chip:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   .prompt {

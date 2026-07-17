@@ -79,6 +79,9 @@ check("sys tf", ms.pluginCall("sys", "tf", "s+1,s^2+3s+2"), (r) => r.ok && r.blo
 check("sys ode", ms.pluginCall("sys", "ode", "y'' + 3y' + 2y = u' + u"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "H(s)" && v.includes("s^2 + 3 s + 2"))), "ODE -> H(s)");
 check("sys c2d", ms.pluginCall("sys", "c2d", "1,s+1,100"), (r) => r.ok && r.blocks.some((b) => b.type === "table" && b.title.includes("Digital biquad")), "bilinear biquads");
 check("sys error", ms.pluginCall("sys", "tf", "sin(s),s+1"), (r) => !r.ok && r.error.includes("polynomial"), "non-polynomial rejected");
+check("sys margins", ms.pluginCall("sys", "tf", "1,s^3 + 3s^2 + 2s"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Gain margin" && v.startsWith("15.56 dB")) && b.items.some(([k, v]) => k === "Phase margin" && v.startsWith("53.4"))), "textbook margins");
+check("sys feedback", ms.pluginCall("sys", "feedback", "1,s + 1,3"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "DC gain" && v === "0.75")), "closed loop 3/(s+4)");
+check("sys rlocus", ms.pluginCall("sys", "rlocus", "1,s^3 + 3s^2 + 2s,100"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.series.some((s) => s.label.startsWith("locus"))) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Verdict" && v.includes("unstable near K"))), "locus + critical gain");
 
 function b_series_ok(r) {
   const s = r.blocks.find((b) => b.type === "series");

@@ -31,6 +31,28 @@
     el.setSelectionRange(el.value.length, el.value.length);
   }
 
+  /**
+   * Insert `pre` + selection + `post` at the caret (palette buttons). With an
+   * empty selection the caret lands after `pre` (inside a wrapper like √( )),
+   * or after `post` when there is no `pre` (postfix marks like ²).
+   */
+  export function insertAtCursor(pre: string, post = "") {
+    const el = ta;
+    if (!el) return;
+    const start = el.selectionStart ?? value.length;
+    const end = el.selectionEnd ?? start;
+    const sel = value.slice(start, end);
+    value = value.slice(0, start) + pre + sel + post + value.slice(end);
+    const caret =
+      sel.length > 0 || pre.length === 0
+        ? start + pre.length + sel.length + post.length
+        : start + pre.length;
+    requestAnimationFrame(() => {
+      el.focus();
+      el.setSelectionRange(caret, caret);
+    });
+  }
+
   // Auto-grow: re-measure whenever the value changes.
   $effect(() => {
     void value;

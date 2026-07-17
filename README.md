@@ -175,7 +175,11 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   The console fills the viewport with a clickable **Commands** reference
   panel (built-ins plus the live plugin catalog), Tab autocompletion with
   inline usage hints, ↑/↓ history recall, per-cell rerun/edit actions, and
-  Ctrl+L to clear.
+  Ctrl+L to clear. As you type, a **live typeset preview** renders the math
+  the line will compute (`diff sin(x^2), x` shows d/dx(sin x²); definite
+  integrals render with their bounds; parse errors are caret-underlined),
+  and a **symbol palette** (π, √, |x|, ², ×, ÷, °, :=) inserts at the
+  cursor.
 
   The console also dispatches **plugin commands** — compiled-in C++ modules
   for numeric domains the CAS doesn't cover (see
@@ -188,9 +192,12 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   dsp.ellip lowpass, 5, 1, 60, 1000, 48000
   dsp.fir lowpass, 101, 1000, 48000, kaiser, 10
   dsp.freqz 48000, 0.2,0.4,0.2,-0.5,0.3  → response of your own biquads
-  sys.tf s+1, s^2+3s+2                   → poles/zeros, Bode, step/impulse
+  sys.tf s+1, s^2+3s+2                   → poles/zeros, margins, Bode, step
   sys.ode y'' + 3y' + 2y = u' + u        → ODE to transfer function
+  sys.feedback 1, s(s+1)(s+2), 2         → closed loop under gain-K feedback
+  sys.rlocus 1, s^3 + 3s^2 + 2s          → root locus + critical gain
   sys.c2d 1, s+1, 100                    → discretize H(s) to digital biquads
+  plot sin(x)/x, -20, 20                 → chart any expression inline
   plugins                                → catalog of compiled-in plugins
   ```
 

@@ -35,6 +35,11 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         hint: "Regroup as a polynomial in one variable",
       },
       { insert: "latex", usage: "latex <expr>", hint: "Convert to LaTeX, unsimplified" },
+      {
+        insert: "plot",
+        usage: "plot <expr>[, <lo>, <hi>]",
+        hint: "Sample and chart an expression",
+      },
     ],
   },
   {

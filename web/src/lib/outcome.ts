@@ -30,5 +30,13 @@ export type Outcome =
   | ({ kind: "definite"; from: string; to: string; result: Ok<DefiniteResult> } & EnvApplied)
   | ({ kind: "evaluate"; result: Ok<EvaluateResult> } & EnvApplied)
   | { kind: "plugin"; plugin: string; command: string; result: Ok<PluginCallResult> }
+  | {
+      kind: "chart";
+      title: string;
+      x: number[];
+      series: { label: string; ys: (number | null)[] }[];
+      xlabel: string;
+      ylabel: string;
+    }
   | { kind: "assignment"; name: string; plain: string; latex: string }
   | { kind: "error"; message: string; input: string; begin?: number; end?: number };

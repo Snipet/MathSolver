@@ -144,7 +144,20 @@ substeps chosen from the fastest pole).
 |---|---|
 | `sys.tf <num poly in s>, <den poly in s>` | Full analysis of a proper H(s): poles/zeros table (with ωₙ and damping), stability verdict, DC gain, pole-zero map (scatter, jω axis marked), Bode magnitude + phase, step + impulse response. |
 | `sys.ode <LTI ODE in y and u>` | Convert `y'' + 3y' + 2y = u' + u` (zero initial conditions; decimal coefficients, primes for derivatives, input on either side) to H(s), then the same analysis. |
+| `sys.feedback <num>, <den>[, <K>]` | Closed loop K·G/(1 + K·G) under unity feedback, run through the full analysis. |
+| `sys.rlocus <num>, <den>[, <K max>]` | Root locus: closed-loop pole sweep (160 gains over four decades) as a scatter, with open-loop poles/zeros marked and the smallest destabilizing K reported. |
 | `sys.c2d <num>, <den>, <fs Hz>` | Discretize via the bilinear transform into digital biquads — reusing the dsp plugin's public `Zpk`/`bilinear_zpk`/`zpk_to_biquads` machinery — with the digital-vs-analog magnitude overlay. |
+
+Every analysis additionally reports **classical stability margins** (gain
+margin at the −180° crossing, phase margin at the 0 dB crossing, refined by
+bisection on Im H(jω)), with the crossover frequencies marked as ωpc/ωgc
+vlines on both Bode charts.
+
+Console note: a plugin argument that is a **pure identifier bound by `:=`**
+resolves through the session environment when its value is a closed numeric
+expression (`f_c := 2000` → `dsp.butter lowpass, 4, f_c, 48000`); keywords
+and polynomial/ODE arguments pass through verbatim. (Names follow the CAS
+grammar: single letters, optionally subscripted.)
 
 The pole-zero map uses the block contract's scatter extension: a series may
 set `"points": true` with `"shape": "x" | "o"`, and the chart draws markers
