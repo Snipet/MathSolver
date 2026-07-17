@@ -60,13 +60,16 @@ check("subs malformed", ms.subs("x", "x", true), (r) => !r.ok && r.error.include
 check("plugins catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name === "dsp" && p.commands.some((c) => c.name === "butter")), "dsp plugin listed");
 check("plugin butter", ms.pluginCall("dsp", "butter", "lowpass,4,1000,48000"), (r) => r.ok && r.blocks.some((b) => b.type === "table") && b_series_ok(r), "block envelope");
 check("plugin butter kv gain", ms.pluginCall("dsp", "butter", "lowpass,4,1000,48000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Gain at cutoff" && v.startsWith("-3.0"))), "-3.01 dB at fc");
-check("plugin freqz", ms.pluginCall("dsp", "freqz", "48000,0.2,0.4,0.2,-0.5,0.3"), (r) => r.ok && r.blocks.filter((b) => b.type === "series").length === 3, "mag+phase+group delay");
+check("plugin freqz", ms.pluginCall("dsp", "freqz", "48000,0.2,0.4,0.2,-0.5,0.3"), (r) => r.ok && r.blocks.filter((b) => b.type === "series").length === 4, "mag+phase+group delay+time");
 check("plugin bad args", ms.pluginCall("dsp", "butter", "lowpass,4,30000,48000"), (r) => !r.ok && r.error.includes("(0, fs/2)"), "cutoff range error");
 check("plugin unknown", ms.pluginCall("nope", "x", ""), (r) => !r.ok && r.error.includes("no plugin named"), "unknown plugin error");
 check("plugin cheby1", ms.pluginCall("dsp", "cheby1", "lowpass,5,1,1000,48000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Gain at cutoff" && v.startsWith("-1.00"))), "-1 dB at ripple edge");
 check("plugin cheby2", ms.pluginCall("dsp", "cheby2", "lowpass,4,40,2000,48000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Gain at cutoff" && v.startsWith("-40.00"))), "-40 dB at stop edge");
 check("plugin bandpass edges", ms.pluginCall("dsp", "butter", "bandpass,3,500,2000,48000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Gain at f1" && v.startsWith("-3.01")) && b.items.some(([k, v]) => k === "Gain at f2" && v.startsWith("-3.01"))), "-3.01 dB at both edges");
 check("plugin vlines", ms.pluginCall("dsp", "butter", "bandpass,3,500,2000,48000"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && Array.isArray(b.vlines) && b.vlines.length === 2), "edges marked on chart");
+check("plugin ellip", ms.pluginCall("dsp", "ellip", "lowpass,5,1,60,1000,48000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Gain at cutoff" && v.startsWith("-1.00"))), "-1 dB at passband edge");
+check("plugin fir", ms.pluginCall("dsp", "fir", "lowpass,101,1000,48000,kaiser,10"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Group delay" && v.includes("50 samples"))) && r.blocks.some((b) => b.type === "table" && b.rows.length === 101), "linear phase + 101 taps");
+check("plugin time response", ms.pluginCall("dsp", "butter", "lowpass,4,1000,48000"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.title === "Time response" && b.series.length === 2), "impulse + step series");
 
 function b_series_ok(r) {
   const s = r.blocks.find((b) => b.type === "series");

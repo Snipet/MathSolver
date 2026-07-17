@@ -180,9 +180,10 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   filter design:
 
   ```text
-  dsp.butter lowpass, 4, 1000, 48000     → biquad cascade + magnitude/phase
+  dsp.butter lowpass, 4, 1000, 48000     → biquads + magnitude/phase/time
   dsp.cheby1 bandpass, 3, 1, 500, 2000, 48000
-  dsp.cheby2 highpass, 4, 40, 2000, 48000
+  dsp.ellip lowpass, 5, 1, 60, 1000, 48000
+  dsp.fir lowpass, 101, 1000, 48000, kaiser, 10
   dsp.freqz 48000, 0.2,0.4,0.2,-0.5,0.3  → response of your own biquads
   plugins                                → catalog of compiled-in plugins
   ```

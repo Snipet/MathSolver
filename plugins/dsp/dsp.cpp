@@ -19,6 +19,7 @@
 #include "dsp_design.hpp"
 #include "mathsolver/plugin.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <format>
@@ -91,6 +92,7 @@ const char* family_label(Family f) {
         case Family::Butterworth: return "Butterworth";
         case Family::Cheby1: return "Chebyshev I";
         case Family::Cheby2: return "Chebyshev II";
+        case Family::Elliptic: return "Elliptic";
     }
     return "?";
 }
@@ -104,7 +106,8 @@ struct ResponseGrid {
     std::vector<double> group_delay;
 };
 
-ResponseGrid sample_response(const std::vector<Biquad>& sections, double fs) {
+template <typename Eval> // Eval: double f -> dsp::ResponsePoint
+ResponseGrid sample_response_grid(Eval&& eval, double fs) {
     ResponseGrid g;
     const double lo = fs / 2.0 * 1e-3;
     const double hi = fs / 2.0 * 0.999;
@@ -113,7 +116,7 @@ ResponseGrid sample_response(const std::vector<Biquad>& sections, double fs) {
     for (int i = 0; i < k_response_points; ++i) {
         const double t = static_cast<double>(i) / (k_response_points - 1);
         const double f = lo * std::pow(hi / lo, t);
-        const dsp::ResponsePoint r = dsp::response_at(sections, f, fs);
+        const dsp::ResponsePoint r = eval(f);
         g.freqs.push_back(f);
         g.mag_db.push_back(r.mag_db);
         // Unwrap: shift by whole turns to sit nearest the previous sample.
@@ -130,6 +133,11 @@ ResponseGrid sample_response(const std::vector<Biquad>& sections, double fs) {
         g.group_delay.push_back(r.group_delay);
     }
     return g;
+}
+
+ResponseGrid sample_response(const std::vector<Biquad>& sections, double fs) {
+    return sample_response_grid(
+        [&](double f) { return dsp::response_at(sections, f, fs); }, fs);
 }
 
 std::string jnum_array(const std::vector<double>& v) {
@@ -187,6 +195,45 @@ std::string sections_table_block(const std::vector<Biquad>& sections) {
         rows);
 }
 
+/// Impulse + step response on one linear-time chart. The length adapts to
+/// the slowest pole's decay (to 0.1% of scale), clamped to [32, 160] samples.
+std::string time_response_block(const std::vector<Biquad>& sections) {
+    double rmax = 0.0;
+    for (const Biquad& s : sections) {
+        const double disc = s.a1 * s.a1 - 4.0 * s.a2;
+        if (disc < 0.0) {
+            rmax = std::max(rmax, std::sqrt(s.a2));
+        } else {
+            const double sq = std::sqrt(disc);
+            rmax = std::max({rmax, std::abs((-s.a1 + sq) / 2.0),
+                             std::abs((-s.a1 - sq) / 2.0)});
+        }
+    }
+    int n = 48;
+    if (rmax > 0.0 && rmax < 1.0) {
+        n = static_cast<int>(std::ceil(std::log(1e-3) / std::log(rmax)));
+    }
+    n = std::clamp(n, 32, 160);
+
+    const std::vector<double> impulse = dsp::impulse_response(sections, n);
+    std::vector<double> step(impulse.size());
+    double acc = 0.0;
+    for (std::size_t i = 0; i < impulse.size(); ++i) {
+        acc += impulse[i];
+        step[i] = acc;
+    }
+    std::vector<double> x(impulse.size());
+    for (std::size_t i = 0; i < x.size(); ++i) {
+        x[i] = static_cast<double>(i);
+    }
+    return std::format(
+        "{{\"type\":\"series\",\"title\":\"Time response\","
+        "\"xlabel\":\"n (samples)\",\"ylabel\":\"amplitude\","
+        "\"x\":{},\"series\":[{{\"label\":\"impulse h[n]\",\"ys\":{}}},"
+        "{{\"label\":\"step s[n]\",\"ys\":{}}}]}}",
+        jnum_array(x), jnum_array(impulse), jnum_array(step));
+}
+
 constexpr const char* k_cascade_note =
     "{\"type\":\"text\",\"lines\":[\"Cascade the sections in order; each row "
     "is y[n] = b0 x[n] + b1 x[n-1] + b2 x[n-2] - a1 y[n-1] - a2 y[n-2]. Copy "
@@ -233,18 +280,20 @@ std::string design_command(const FamilyArgs& fa, const std::vector<std::string>&
     spec.kind = *kind;
     spec.order = *order;
 
-    if (fa.family == Family::Cheby1) {
+    if (fa.family == Family::Cheby1 || fa.family == Family::Elliptic) {
         const auto rp = parse_double(args[2]);
         if (!rp || !(*rp > 0.0) || *rp > 12.0) {
             return error_json(std::format(
                 "passband ripple must be in (0, 12] dB, got '{}'", args[2]));
         }
         spec.ripple_db = *rp;
-    } else if (fa.family == Family::Cheby2) {
-        const auto rs = parse_double(args[2]);
+    }
+    if (fa.family == Family::Cheby2 || fa.family == Family::Elliptic) {
+        const int ai = fa.family == Family::Elliptic ? 3 : 2;
+        const auto rs = parse_double(args[ai]);
         if (!rs || *rs < 10.0 || *rs > 120.0) {
             return error_json(std::format(
-                "stopband attenuation must be in [10, 120] dB, got '{}'", args[2]));
+                "stopband attenuation must be in [10, 120] dB, got '{}'", args[ai]));
         }
         spec.atten_db = *rs;
     }
@@ -282,9 +331,10 @@ std::string design_command(const FamilyArgs& fa, const std::vector<std::string>&
         "[\"Order\",\"{}\"],[\"Sections\",\"{}\"]",
         jstr(family_label(fa.family)), jstr(kind_label(*kind)), *order,
         sections.size());
-    if (fa.family == Family::Cheby1) {
+    if (fa.family == Family::Cheby1 || fa.family == Family::Elliptic) {
         kv += std::format(",[\"Passband ripple\",\"{} dB\"]", spec.ripple_db);
-    } else if (fa.family == Family::Cheby2) {
+    }
+    if (fa.family == Family::Cheby2 || fa.family == Family::Elliptic) {
         kv += std::format(",[\"Stopband attenuation\",\"{} dB\"]", spec.atten_db);
     }
     std::vector<VLine> marks;
@@ -307,7 +357,7 @@ std::string design_command(const FamilyArgs& fa, const std::vector<std::string>&
 
     const ResponseGrid g = sample_response(sections, spec.fs);
     return std::format(
-        "{{\"ok\":true,\"title\":{},\"blocks\":[{},{},{},{},{}]}}",
+        "{{\"ok\":true,\"title\":{},\"blocks\":[{},{},{},{},{},{}]}}",
         jstr(std::format("{} {} — order {}, {} @ {} Hz", family_label(fa.family),
                          kind_label(*kind), *order, title_freqs, spec.fs)),
         kv, sections_table_block(sections),
@@ -315,7 +365,168 @@ std::string design_command(const FamilyArgs& fa, const std::vector<std::string>&
                      marks),
         series_block("Phase response", "phase (deg)", g.freqs, g.phase_deg,
                      "arg H(f)", marks),
-        k_cascade_note);
+        time_response_block(sections), k_cascade_note);
+}
+
+// --- FIR (windowed sinc) ----------------------------------------------------
+
+std::optional<dsp::FirWindow> parse_window(const std::string& s) {
+    if (s == "rect" || s == "rectangular" || s == "boxcar") return dsp::FirWindow::Rect;
+    if (s == "hann" || s == "hanning") return dsp::FirWindow::Hann;
+    if (s == "hamming") return dsp::FirWindow::Hamming;
+    if (s == "blackman") return dsp::FirWindow::Blackman;
+    if (s == "kaiser") return dsp::FirWindow::Kaiser;
+    return std::nullopt;
+}
+
+const char* window_label(dsp::FirWindow w) {
+    switch (w) {
+        case dsp::FirWindow::Rect: return "rectangular";
+        case dsp::FirWindow::Hann: return "Hann";
+        case dsp::FirWindow::Hamming: return "Hamming";
+        case dsp::FirWindow::Blackman: return "Blackman";
+        case dsp::FirWindow::Kaiser: return "Kaiser";
+    }
+    return "?";
+}
+
+std::string fir_taps_table_block(const std::vector<double>& h) {
+    std::string rows = "[";
+    for (std::size_t n = 0; n < h.size(); ++n) {
+        if (n > 0) rows += ",";
+        rows += std::format("[{},{}]", n, jnum(h[n]));
+    }
+    rows += "]";
+    return std::format(
+        "{{\"type\":\"table\",\"title\":\"Coefficients\","
+        "\"columns\":[\"n\",\"h[n]\"],\"rows\":{}}}",
+        rows);
+}
+
+std::string fir_time_block(const std::vector<double>& h) {
+    const std::size_t n = h.size() + 16;
+    std::vector<double> x(n);
+    std::vector<double> impulse(n, 0.0);
+    std::vector<double> step(n);
+    double acc = 0.0;
+    for (std::size_t i = 0; i < n; ++i) {
+        x[i] = static_cast<double>(i);
+        if (i < h.size()) impulse[i] = h[i];
+        acc += impulse[i];
+        step[i] = acc;
+    }
+    return std::format(
+        "{{\"type\":\"series\",\"title\":\"Time response\","
+        "\"xlabel\":\"n (samples)\",\"ylabel\":\"amplitude\","
+        "\"x\":{},\"series\":[{{\"label\":\"impulse h[n]\",\"ys\":{}}},"
+        "{{\"label\":\"step s[n]\",\"ys\":{}}}]}}",
+        jnum_array(x), jnum_array(impulse), jnum_array(step));
+}
+
+std::string fir(const std::vector<std::string>& args) {
+    constexpr const char* usage =
+        "usage: dsp.fir <type>, <taps>, <fc>[, <f2>], <fs>"
+        "[, <window>[, <kaiser beta>]]   (windows: rect, hann, hamming, "
+        "blackman, kaiser)";
+    if (args.size() < 4) {
+        return error_json(usage);
+    }
+    const auto kind = parse_kind(args[0]);
+    if (!kind) {
+        return error_json(std::format(
+            "unknown filter type '{}': expected lowpass, highpass, bandpass, or "
+            "bandstop",
+            args[0]));
+    }
+    const bool band = is_band(*kind);
+    const std::size_t base = band ? 5 : 4; // type, taps, fc[, f2], fs
+    if (args.size() < base || args.size() > base + 2) {
+        return error_json(usage);
+    }
+    const auto taps = parse_int(args[1]);
+    if (!taps) {
+        return error_json(std::format("taps must be an integer, got '{}'", args[1]));
+    }
+    dsp::FirSpec spec;
+    spec.kind = *kind;
+    spec.taps = *taps;
+    const auto f1 = parse_double(args[2]);
+    const auto f2 = band ? parse_double(args[3]) : std::optional<double>{0.0};
+    const auto fs = parse_double(args[band ? 4 : 3]);
+    if (!f1 || (band && !f2) || !fs) {
+        return error_json("frequencies must be numbers");
+    }
+    spec.f1 = *f1;
+    spec.f2 = band ? *f2 : 0.0;
+    spec.fs = *fs;
+    if (args.size() > base) {
+        const auto w = parse_window(args[base]);
+        if (!w) {
+            return error_json(std::format(
+                "unknown window '{}': expected rect, hann, hamming, blackman, or "
+                "kaiser",
+                args[base]));
+        }
+        spec.window = *w;
+    }
+    if (args.size() > base + 1) {
+        if (spec.window != dsp::FirWindow::Kaiser) {
+            return error_json("a beta parameter is only meaningful for the kaiser window");
+        }
+        const auto beta = parse_double(args[base + 1]);
+        if (!beta || *beta < 0.0 || *beta > 30.0) {
+            return error_json(std::format("kaiser beta must be in [0, 30], got '{}'",
+                                          args[base + 1]));
+        }
+        spec.kaiser_beta = *beta;
+    }
+
+    std::vector<double> h;
+    try {
+        h = dsp::design_fir(spec);
+    } catch (const dsp::DesignError& e) {
+        return error_json(e.what());
+    }
+
+    const auto mag = [&](double f) { return dsp::fir_response_at(h, f, spec.fs).mag_db; };
+    std::string window_text = window_label(spec.window);
+    if (spec.window == dsp::FirWindow::Kaiser) {
+        window_text += std::format(" (beta {})", spec.kaiser_beta);
+    }
+    std::string kv = std::format(
+        "{{\"type\":\"kv\",\"items\":[[\"Design\",\"FIR windowed-sinc\"],"
+        "[\"Type\",{}],[\"Taps\",\"{}\"],[\"Window\",{}]",
+        jstr(kind_label(*kind)), spec.taps, jstr(window_text));
+    std::vector<VLine> marks;
+    std::string title_freqs;
+    if (band) {
+        kv += std::format(
+            ",[\"Edges\",\"{} – {} Hz\"],[\"Gain at f1\",\"{:.2f} dB\"],"
+            "[\"Gain at f2\",\"{:.2f} dB\"]",
+            spec.f1, spec.f2, mag(spec.f1), mag(spec.f2));
+        marks = {{spec.f1, "f1"}, {spec.f2, "f2"}};
+        title_freqs = std::format("{}–{} Hz", spec.f1, spec.f2);
+    } else {
+        kv += std::format(",[\"Cutoff\",\"{} Hz\"],[\"Gain at cutoff\",\"{:.2f} dB\"]",
+                          spec.f1, mag(spec.f1));
+        marks = {{spec.f1, "fc"}};
+        title_freqs = std::format("fc {} Hz", spec.f1);
+    }
+    kv += std::format(
+        ",[\"Group delay\",\"{} samples (linear phase)\"],[\"Sample rate\",\"{} "
+        "Hz\"]]}}",
+        (spec.taps - 1) / 2.0, spec.fs);
+
+    const ResponseGrid g = sample_response_grid(
+        [&](double f) { return dsp::fir_response_at(h, f, spec.fs); }, spec.fs);
+    return std::format(
+        "{{\"ok\":true,\"title\":{},\"blocks\":[{},{},{},{}]}}",
+        jstr(std::format("FIR {} — {} taps ({}), {} @ {} Hz", kind_label(*kind),
+                         spec.taps, window_text, title_freqs, spec.fs)),
+        kv, fir_taps_table_block(h),
+        series_block("Magnitude response", "gain (dB)", g.freqs, g.mag_db, "|H(f)|",
+                     marks),
+        fir_time_block(h));
 }
 
 std::string freqz(const std::vector<std::string>& args) {
@@ -347,7 +558,7 @@ std::string freqz(const std::vector<std::string>& args) {
     }
     const ResponseGrid g = sample_response(sections, *fs);
     return std::format(
-        "{{\"ok\":true,\"title\":{},\"blocks\":[{},{},{},{}]}}",
+        "{{\"ok\":true,\"title\":{},\"blocks\":[{},{},{},{},{}]}}",
         jstr(std::format("Frequency response — {} biquad section{} @ {} Hz",
                          sections.size(), sections.size() == 1 ? "" : "s", *fs)),
         sections_table_block(sections),
@@ -356,16 +567,17 @@ std::string freqz(const std::vector<std::string>& args) {
         series_block("Phase response", "phase (deg)", g.freqs, g.phase_deg,
                      "arg H(f)", {}),
         series_block("Group delay", "delay (samples)", g.freqs, g.group_delay,
-                     "tau(f)", {}));
+                     "tau(f)", {}),
+        time_response_block(sections));
 }
 
 class DspPlugin final : public Plugin {
   public:
     std::string_view name() const override { return "dsp"; }
-    std::string_view version() const override { return "0.2.0"; }
+    std::string_view version() const override { return "0.3.0"; }
     std::string_view summary() const override {
-        return "DSP filter design: Butterworth/Chebyshev IIR biquad cascades, "
-               "frequency/phase/group-delay responses";
+        return "DSP filter design: Butterworth/Chebyshev/elliptic IIR, "
+               "windowed-sinc FIR, frequency and time responses";
     }
     std::vector<CommandInfo> commands() const override {
         return {
@@ -376,7 +588,13 @@ class DspPlugin final : public Plugin {
              "dsp.cheby1 <type>, <order 1-12>, <ripple dB>, <fc>[, <f2>], <fs>"},
             {"cheby2", "Chebyshev II design (equiripple stopband)",
              "dsp.cheby2 <type>, <order 1-12>, <atten dB>, <fc>[, <f2>], <fs>"},
-            {"freqz", "Magnitude/phase/group delay of a biquad cascade",
+            {"ellip", "Elliptic (Cauer) design: sharpest transition per order",
+             "dsp.ellip <type>, <order 1-12>, <ripple dB>, <atten dB>, <fc>[, "
+             "<f2>], <fs>"},
+            {"fir", "Linear-phase windowed-sinc FIR design",
+             "dsp.fir <type>, <taps 5-255>, <fc>[, <f2>], <fs>[, <window>[, "
+             "<kaiser beta>]]"},
+            {"freqz", "Magnitude/phase/group delay/time response of a cascade",
              "dsp.freqz <fs Hz>, <b0>,<b1>,<b2>,<a1>,<a2> [, ...more groups of 5]"},
         };
     }
@@ -400,6 +618,16 @@ class DspPlugin final : public Plugin {
                     {Family::Cheby2, 3,
                      "dsp.cheby2 <type>, <order>, <atten dB>, <fc>[, <f2>], <fs>"},
                     args);
+            }
+            if (command == "ellip") {
+                return design_command(
+                    {Family::Elliptic, 4,
+                     "dsp.ellip <type>, <order>, <ripple dB>, <atten dB>, <fc>[, "
+                     "<f2>], <fs>"},
+                    args);
+            }
+            if (command == "fir") {
+                return fir(args);
             }
             if (command == "freqz") {
                 return freqz(args);

@@ -81,6 +81,96 @@ Zpk proto_cheby2(int n, double atten_db) {
     return s;
 }
 
+// --- Jacobi elliptic machinery (Orfanidis' Landen-recursion formulation) ----
+//
+// Arguments of cd/sn below are NORMALIZED: the true argument is u * K(k).
+// The descending Landen sequence k -> k_1 -> ... -> k_M -> ~0 turns the
+// functions into cos/sin at the last level plus M ascending Gauss transforms.
+
+std::vector<double> landen_seq(double k) {
+    std::vector<double> seq;
+    while (k > 1e-14 && seq.size() < 32) {
+        const double kp = std::sqrt(1.0 - k * k);
+        k = (1.0 - kp) / (1.0 + kp);
+        seq.push_back(k);
+    }
+    return seq;
+}
+
+cd jacobi_cd(cd u, const std::vector<double>& seq) {
+    cd w = std::cos(u * (std::numbers::pi / 2.0));
+    for (auto it = seq.rbegin(); it != seq.rend(); ++it) {
+        w = (1.0 + *it) * w / (1.0 + *it * w * w);
+    }
+    return w;
+}
+
+cd jacobi_sn(cd u, const std::vector<double>& seq) {
+    cd w = std::sin(u * (std::numbers::pi / 2.0));
+    for (auto it = seq.rbegin(); it != seq.rend(); ++it) {
+        w = (1.0 + *it) * w / (1.0 + *it * w * w);
+    }
+    return w;
+}
+
+/// Inverse sn with normalized result: sn(asn(w) * K, k) = w.
+cd jacobi_asn(cd w, double k) {
+    const std::vector<double> seq = landen_seq(k);
+    double prev = k;
+    for (const double ki : seq) {
+        w = 2.0 * w / ((1.0 + ki) * (1.0 + std::sqrt(1.0 - prev * prev * w * w)));
+        prev = ki;
+    }
+    return (2.0 / std::numbers::pi) * std::asin(w);
+}
+
+/// Solve the elliptic degree equation for the selectivity k given the order
+/// and the ripple ratio k1 = eps_p / eps_s (Orfanidis eq. 47).
+double ellip_degree(int n, double k1) {
+    const double k1p = std::sqrt(1.0 - k1 * k1);
+    const std::vector<double> seq = landen_seq(k1p);
+    double kp = std::pow(k1p, n);
+    for (int i = 1; i <= n / 2; ++i) {
+        const double ui = (2.0 * i - 1.0) / n;
+        kp *= std::pow(jacobi_sn(cd{ui, 0.0}, seq).real(), 4);
+    }
+    return std::sqrt(1.0 - kp * kp);
+}
+
+/// Elliptic (Cauer) low-pass prototype, passband edge 1 rad/s: -ripple_db at
+/// the passband edge, equiripple in both bands, first touching -atten_db at
+/// the stopband edge 1/k rad/s.
+Zpk proto_elliptic(int n, double ripple_db, double atten_db) {
+    const double ep = std::sqrt(std::pow(10.0, ripple_db / 10.0) - 1.0);
+    const double es = std::sqrt(std::pow(10.0, atten_db / 10.0) - 1.0);
+    const double k1 = ep / es;
+    const double k = ellip_degree(n, k1);
+    const std::vector<double> seq = landen_seq(k);
+
+    // Pole offset: v0 = -j asn(j / ep, k1) / n.
+    const cd v0c = jacobi_asn(cd{0.0, 1.0 / ep}, k1) / static_cast<double>(n);
+    const double v0 = v0c.imag();
+
+    Zpk s;
+    for (int i = 1; i <= n / 2; ++i) {
+        const double ui = (2.0 * i - 1.0) / n;
+        // Zeros at j / (k cd(u_i)) and conjugate.
+        const double zeta = jacobi_cd(cd{ui, 0.0}, seq).real();
+        s.z.push_back(cd{0.0, 1.0 / (k * zeta)});
+        s.z.push_back(cd{0.0, -1.0 / (k * zeta)});
+        // Poles at j cd((u_i - j v0)) and conjugate.
+        const cd p = cd{0.0, 1.0} * jacobi_cd(cd{ui, -v0}, seq);
+        s.p.push_back(p);
+        s.p.push_back(std::conj(p));
+    }
+    if (n % 2 == 1) {
+        s.p.push_back(cd{0.0, 1.0} * jacobi_sn(cd{0.0, v0}, seq)); // real, < 0
+    }
+    const double h0 = n % 2 == 1 ? 1.0 : std::pow(10.0, -ripple_db / 20.0);
+    s.k = h0 * (prod_neg(s.p) / prod_neg(s.z)).real();
+    return s;
+}
+
 // --- analog frequency transforms -------------------------------------------
 
 Zpk lp2lp(const Zpk& s, double wo) {
@@ -312,6 +402,13 @@ std::vector<Biquad> design_iir(const DesignSpec& spec) {
         case Family::Butterworth: proto = proto_butter(spec.order); break;
         case Family::Cheby1: proto = proto_cheby1(spec.order, spec.ripple_db); break;
         case Family::Cheby2: proto = proto_cheby2(spec.order, spec.atten_db); break;
+        case Family::Elliptic:
+            if (!(spec.atten_db > spec.ripple_db)) {
+                throw DesignError(
+                    "stopband attenuation must exceed the passband ripple");
+            }
+            proto = proto_elliptic(spec.order, spec.ripple_db, spec.atten_db);
+            break;
     }
 
     Zpk analog;
@@ -374,6 +471,180 @@ ResponsePoint response_at(const std::vector<Biquad>& sections, double f, double 
 
 double magnitude_db(const std::vector<Biquad>& sections, double f, double fs) {
     return response_at(sections, f, fs).mag_db;
+}
+
+// --- FIR (windowed sinc) ----------------------------------------------------
+
+namespace {
+
+double sinc(double x) {
+    if (std::abs(x) < 1e-12) {
+        return 1.0;
+    }
+    return std::sin(std::numbers::pi * x) / (std::numbers::pi * x);
+}
+
+/// Modified Bessel I0 by power series (converges fast for the beta range).
+double bessel_i0(double x) {
+    double sum = 1.0;
+    double term = 1.0;
+    for (int m = 1; m < 64; ++m) {
+        term *= (x / 2.0) * (x / 2.0) / (m * static_cast<double>(m));
+        sum += term;
+        if (term < 1e-18 * sum) {
+            break;
+        }
+    }
+    return sum;
+}
+
+double window_at(FirWindow w, double beta, int n, int taps) {
+    const double t = static_cast<double>(n) / (taps - 1); // 0..1
+    switch (w) {
+        case FirWindow::Rect: return 1.0;
+        case FirWindow::Hann:
+            return 0.5 - 0.5 * std::cos(2.0 * std::numbers::pi * t);
+        case FirWindow::Hamming:
+            return 0.54 - 0.46 * std::cos(2.0 * std::numbers::pi * t);
+        case FirWindow::Blackman:
+            return 0.42 - 0.5 * std::cos(2.0 * std::numbers::pi * t) +
+                   0.08 * std::cos(4.0 * std::numbers::pi * t);
+        case FirWindow::Kaiser: {
+            const double m = (taps - 1) / 2.0;
+            const double r = (n - m) / m;
+            return bessel_i0(beta * std::sqrt(std::max(0.0, 1.0 - r * r))) /
+                   bessel_i0(beta);
+        }
+    }
+    return 1.0;
+}
+
+/// Windowed ideal low-pass taps (gain not yet normalized).
+std::vector<double> raw_lowpass(int taps, double fc, double fs, FirWindow w,
+                                double beta) {
+    const double m = (taps - 1) / 2.0;
+    std::vector<double> h(static_cast<std::size_t>(taps));
+    for (int n = 0; n < taps; ++n) {
+        h[static_cast<std::size_t>(n)] = 2.0 * fc / fs * sinc(2.0 * fc / fs * (n - m)) *
+                                         window_at(w, beta, n, taps);
+    }
+    return h;
+}
+
+/// Real linear-phase amplitude at f (the response with the e^{-jwM} delay
+/// factored out): A(f) = sum h[n] cos(w (n - M)).
+double fir_amplitude(const std::vector<double>& h, double f, double fs) {
+    const double w = 2.0 * std::numbers::pi * f / fs;
+    const double m = (static_cast<double>(h.size()) - 1.0) / 2.0;
+    double a = 0.0;
+    for (std::size_t n = 0; n < h.size(); ++n) {
+        a += h[n] * std::cos(w * (static_cast<double>(n) - m));
+    }
+    return a;
+}
+
+} // namespace
+
+std::vector<double> design_fir(const FirSpec& spec) {
+    if (spec.taps < 5 || spec.taps > 255) {
+        throw DesignError("taps must be in [5, 255]");
+    }
+    if (!(spec.fs > 0.0)) {
+        throw DesignError("sample rate must be positive");
+    }
+    const bool band = spec.kind == Kind::Bandpass || spec.kind == Kind::Bandstop;
+    if (!(spec.f1 > 0.0 && spec.f1 < spec.fs / 2.0) ||
+        (band && !(spec.f2 > spec.f1 && spec.f2 < spec.fs / 2.0))) {
+        throw DesignError(
+            band ? "band edges must satisfy 0 < f1 < f2 < fs/2"
+                 : "cutoff must lie in (0, fs/2)");
+    }
+    if ((spec.kind == Kind::Highpass || spec.kind == Kind::Bandstop) &&
+        spec.taps % 2 == 0) {
+        throw DesignError(
+            "high-pass and band-stop FIR filters need an odd tap count "
+            "(a type-I linear-phase filter)");
+    }
+
+    const int taps = spec.taps;
+    const std::size_t mid = static_cast<std::size_t>((taps - 1) / 2);
+    std::vector<double> h;
+    switch (spec.kind) {
+        case Kind::Lowpass:
+            h = raw_lowpass(taps, spec.f1, spec.fs, spec.window, spec.kaiser_beta);
+            break;
+        case Kind::Highpass: {
+            // Spectral inversion of the complementary low-pass: delta - h_lp.
+            h = raw_lowpass(taps, spec.f1, spec.fs, spec.window, spec.kaiser_beta);
+            for (double& v : h) v = -v;
+            h[mid] += 1.0;
+            break;
+        }
+        case Kind::Bandpass: {
+            h = raw_lowpass(taps, spec.f2, spec.fs, spec.window, spec.kaiser_beta);
+            const std::vector<double> lo =
+                raw_lowpass(taps, spec.f1, spec.fs, spec.window, spec.kaiser_beta);
+            for (std::size_t n = 0; n < h.size(); ++n) h[n] -= lo[n];
+            break;
+        }
+        case Kind::Bandstop: {
+            // delta - bandpass = lowpass(f1) + spectrally-inverted lowpass(f2).
+            h = raw_lowpass(taps, spec.f1, spec.fs, spec.window, spec.kaiser_beta);
+            const std::vector<double> hi =
+                raw_lowpass(taps, spec.f2, spec.fs, spec.window, spec.kaiser_beta);
+            for (std::size_t n = 0; n < h.size(); ++n) h[n] -= hi[n];
+            h[mid] += 1.0;
+            break;
+        }
+    }
+
+    // Normalize to exactly unity at the band's reference frequency.
+    double ref = 0.0;
+    switch (spec.kind) {
+        case Kind::Lowpass:
+        case Kind::Bandstop: ref = 0.0; break;
+        case Kind::Highpass: ref = spec.fs / 2.0; break;
+        case Kind::Bandpass: ref = (spec.f1 + spec.f2) / 2.0; break;
+    }
+    const double a = fir_amplitude(h, ref, spec.fs);
+    if (std::abs(a) > 1e-12) {
+        for (double& v : h) v /= a;
+    }
+    return h;
+}
+
+ResponsePoint fir_response_at(const std::vector<double>& taps, double f, double fs) {
+    const double w = 2.0 * std::numbers::pi * f / fs;
+    cd h{0.0, 0.0};
+    cd dh{0.0, 0.0}; // sum n h[n] e^{-jwn}
+    for (std::size_t n = 0; n < taps.size(); ++n) {
+        const cd e = std::polar(1.0, -w * static_cast<double>(n));
+        h += taps[n] * e;
+        dh += static_cast<double>(n) * taps[n] * e;
+    }
+    double phase = std::arg(h);
+    return ResponsePoint{20.0 * std::log10(std::abs(h)), phase, (dh / h).real()};
+}
+
+// --- time responses ---------------------------------------------------------
+
+std::vector<double> impulse_response(const std::vector<Biquad>& sections, int n) {
+    std::vector<double> out(static_cast<std::size_t>(std::max(n, 0)), 0.0);
+    // Direct-form II transposed state per section.
+    std::vector<std::pair<double, double>> st(sections.size(), {0.0, 0.0});
+    for (int i = 0; i < n; ++i) {
+        double x = i == 0 ? 1.0 : 0.0;
+        for (std::size_t s = 0; s < sections.size(); ++s) {
+            const Biquad& q = sections[s];
+            auto& [z1, z2] = st[s];
+            const double y = q.b0 * x + z1;
+            z1 = q.b1 * x - q.a1 * y + z2;
+            z2 = q.b2 * x - q.a2 * y;
+            x = y;
+        }
+        out[static_cast<std::size_t>(i)] = x;
+    }
+    return out;
 }
 
 } // namespace mathsolver::plugins::dsp

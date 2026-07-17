@@ -112,18 +112,24 @@ types take two edges and double the effective order.
 | `dsp.butter <type>, <order 1-12>, <fc>[, <f2>], <fs>` | Butterworth (maximally flat). |
 | `dsp.cheby1 <type>, <order 1-12>, <ripple dB>, <fc>[, <f2>], <fs>` | Chebyshev I (equiripple passband; cutoff = ripple edge). |
 | `dsp.cheby2 <type>, <order 1-12>, <atten dB>, <fc>[, <f2>], <fs>` | Chebyshev II (equiripple stopband; cutoff = stop edge). |
-| `dsp.freqz <fs Hz>, <b0>,<b1>,<b2>,<a1>,<a2> [, …groups of 5]` | Magnitude, phase, and group delay of an arbitrary biquad cascade. |
+| `dsp.ellip <type>, <order 1-12>, <ripple dB>, <atten dB>, <fc>[, <f2>], <fs>` | Elliptic/Cauer (equiripple both bands — the sharpest transition per order). Jacobi elliptic functions by Landen recursion. |
+| `dsp.fir <type>, <taps 5-255>, <fc>[, <f2>], <fs>[, <window>[, <beta>]]` | Linear-phase windowed-sinc FIR (`rect`, `hann`, `hamming` default, `blackman`, `kaiser` with optional beta), response normalized to exactly unity at the band's reference frequency; odd taps required for high/band-stop. |
+| `dsp.freqz <fs Hz>, <b0>,<b1>,<b2>,<a1>,<a2> [, …groups of 5]` | Magnitude, phase, group delay, and time response of an arbitrary biquad cascade. |
 
-Design results carry: a summary (with the **measured** gain at each specified
-edge), the biquad coefficient table (Copy exports full-precision TSV), and
-magnitude + phase responses with the edges marked. All designs are verified
-in `tests/test_plugin_dsp.cpp` by property (ripple corridors, edge gains,
-notch depth, the biquad stability triangle across every family × type ×
-order, unit group delay of a pure `z^-1`).
+IIR design results carry: a summary (with the **measured** gain at each
+specified edge), the biquad coefficient table (Copy exports full-precision
+TSV), magnitude + phase responses with the edges marked, and the time
+response (impulse + step, length adapted to the slowest pole's decay). FIR
+results show the taps table, magnitude response, and time response, with the
+constant group delay reported in the summary. Everything is verified in
+`tests/test_plugin_dsp.cpp` by property (ripple corridors, exact edge gains,
+elliptic equiripple in both bands + transition-ratio bounds from the degree
+equation, FIR symmetry/linear phase/window-dependent stopbands, notch depth,
+the biquad stability triangle across every family × type × order, and time
+responses of known systems).
 
-Extension points (same pattern): elliptic filters, matched-z/impulse
-invariance, FIR design (windowed-sinc, Parks–McClellan), impulse/step
-response blocks.
+Extension points (same pattern): Parks–McClellan equiripple FIR,
+matched-z/impulse invariance, fixed-point coefficient quantization analysis.
 
 ## Scope and future work
 

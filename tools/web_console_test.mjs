@@ -187,7 +187,22 @@ try {
     ".cells .cell:last-child",
     (el) => el.querySelectorAll("canvas").length,
   );
-  check("magnitude + phase charts", chartCount === 2, `canvases: ${chartCount}`);
+  check("magnitude + phase + time charts", chartCount === 3, `canvases: ${chartCount}`);
+
+  const firOut = await run("dsp.fir lowpass, 63, 1000, 48000");
+  check(
+    "dsp.fir renders",
+    firOut.includes("FIR windowed-sinc") && firOut.includes("linear phase") &&
+      firOut.includes("Time response"),
+    firOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
+  const ellipOut = await run("dsp.ellip lowpass, 5, 1, 60, 1000, 48000");
+  check(
+    "dsp.ellip renders",
+    ellipOut.includes("Elliptic") && ellipOut.includes("-1.00 dB"),
+    ellipOut.replace(/\n/g, " ").slice(0, 80),
+  );
 
   await run("dsp.butter lowpass, 4, 30000, 48000");
   const pluginErr = await page.$eval(

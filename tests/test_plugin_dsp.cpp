@@ -57,13 +57,15 @@ TEST_CASE("plugins: builtin registration is idempotent and discoverable") {
 
 TEST_CASE("plugins: dsp advertises its commands with usage strings") {
     const auto cmds = dsp_plugin().commands();
-    REQUIRE(cmds.size() == 4);
+    REQUIRE(cmds.size() == 6);
     CHECK(cmds[0].name == "butter");
     CHECK_THAT(cmds[0].usage, ContainsSubstring("dsp.butter"));
     CHECK(cmds[1].name == "cheby1");
     CHECK(cmds[2].name == "cheby2");
-    CHECK(cmds[3].name == "freqz");
-    CHECK_THAT(cmds[3].usage, ContainsSubstring("dsp.freqz"));
+    CHECK(cmds[3].name == "ellip");
+    CHECK(cmds[4].name == "fir");
+    CHECK(cmds[5].name == "freqz");
+    CHECK_THAT(cmds[5].usage, ContainsSubstring("dsp.freqz"));
 }
 
 // ---------------------------------------------------------------------------
@@ -233,7 +235,8 @@ TEST_CASE("dsp: butterworth band-stop notches the band and passes outside") {
 
 TEST_CASE("dsp: every family/type/order combination is stable") {
     const double fs = 48000.0;
-    for (const Family fam : {Family::Butterworth, Family::Cheby1, Family::Cheby2}) {
+    for (const Family fam : {Family::Butterworth, Family::Cheby1, Family::Cheby2,
+                             Family::Elliptic}) {
         const double param = fam == Family::Cheby1 ? 0.5 : 50.0;
         for (const Kind kind :
              {Kind::Lowpass, Kind::Highpass, Kind::Bandpass, Kind::Bandstop}) {
@@ -258,6 +261,207 @@ TEST_CASE("dsp: design errors carry user-presentable messages") {
     CHECK_THROWS_AS(
         design_iir(spec_of(Family::Butterworth, Kind::Bandpass, 4, 2000, 500, 48000)),
         dsp::DesignError);
+}
+
+// ---------------------------------------------------------------------------
+// Elliptic (Cauer)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+DesignSpec ellip_spec(Kind kind, int order, double rp, double rs, double f1,
+                      double f2, double fs) {
+    DesignSpec s;
+    s.family = Family::Elliptic;
+    s.kind = kind;
+    s.order = order;
+    s.f1 = f1;
+    s.f2 = f2;
+    s.fs = fs;
+    s.ripple_db = rp;
+    s.atten_db = rs;
+    return s;
+}
+
+} // namespace
+
+TEST_CASE("dsp: elliptic low-pass is equiripple in both bands") {
+    const double fc = 1000.0;
+    const double fs = 48000.0;
+    const double rp = 1.0;
+    const double rs = 60.0;
+    for (const int order : {3, 4, 5, 7}) {
+        const auto sos =
+            design_iir(ellip_spec(Kind::Lowpass, order, rp, rs, fc, 0, fs));
+        // Passband edge sits exactly at -rp.
+        CHECK(std::abs(magnitude_db(sos, fc, fs) - (-rp)) < 0.03);
+        // DC: 0 dB for odd orders, -rp for even.
+        const double dc = magnitude_db(sos, fs / 2.0 * 1e-6, fs);
+        CHECK(std::abs(dc - (order % 2 == 1 ? 0.0 : -rp)) < 0.03);
+        // Passband corridor [-rp, 0] (+tol), and the ripple actually reaches
+        // near both walls (equiripple, not just bounded).
+        double pass_max = -1e9;
+        double pass_min = 1e9;
+        for (double f = fc / 40.0; f <= fc; f *= 1.03) {
+            const double m = magnitude_db(sos, f, fs);
+            CHECK(m < 0.03);
+            CHECK(m > -rp - 0.03);
+            pass_max = std::max(pass_max, m);
+            pass_min = std::min(pass_min, m);
+        }
+        if (order >= 4) {
+            CHECK(pass_max > -0.15);      // touches ~0
+            CHECK(pass_min < -rp + 0.15); // touches ~-rp
+        }
+        // Stopband: find the first crossing under -rs. The transition ratio
+        // ws/wp follows the degree equation — wide for low orders, sharp for
+        // higher ones (measured 4.9x for N=3 down to <1.5x for N=7 at these
+        // rp/rs). Bound it per order with margin.
+        double f_stop = 0.0;
+        for (double f = fc; f < fs / 2.0; f *= 1.01) {
+            if (magnitude_db(sos, f, fs) <= -rs) {
+                f_stop = f;
+                break;
+            }
+        }
+        REQUIRE(f_stop > 0.0);
+        const double ratio_bound = order == 3   ? 6.0
+                                   : order == 4 ? 3.2
+                                   : order == 5 ? 2.0
+                                                : 1.7;
+        CHECK(f_stop < ratio_bound * fc);
+        // ...and stays equiripple-bounded below -rs after it, while still
+        // returning close to the -rs line (finite transmission zeros).
+        double stop_max = -1e9;
+        for (double f = f_stop * 1.001; f < fs / 2.0 * 0.98; f *= 1.05) {
+            const double m = magnitude_db(sos, f, fs);
+            CHECK(m <= -rs + 0.1);
+            stop_max = std::max(stop_max, m);
+        }
+        CHECK(stop_max > -rs - 6.0);
+    }
+}
+
+TEST_CASE("dsp: elliptic transition is sharper than chebyshev of equal order") {
+    const double fc = 1000.0;
+    const double fs = 48000.0;
+    const auto el = design_iir(ellip_spec(Kind::Lowpass, 5, 1.0, 60.0, fc, 0, fs));
+    const auto ch =
+        design_iir(spec_of(Family::Cheby1, Kind::Lowpass, 5, fc, 0, fs, 1.0));
+    // At 1.5*fc the elliptic (with finite zeros) is far deeper down.
+    CHECK(magnitude_db(el, 1.5 * fc, fs) < magnitude_db(ch, 1.5 * fc, fs) - 10.0);
+}
+
+// ---------------------------------------------------------------------------
+// FIR (windowed sinc)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+dsp::FirSpec fir_spec(Kind kind, int taps, double f1, double f2, double fs,
+                      dsp::FirWindow w = dsp::FirWindow::Hamming,
+                      double beta = 8.6) {
+    dsp::FirSpec s;
+    s.kind = kind;
+    s.taps = taps;
+    s.f1 = f1;
+    s.f2 = f2;
+    s.fs = fs;
+    s.window = w;
+    s.kaiser_beta = beta;
+    return s;
+}
+
+double fir_mag(const std::vector<double>& h, double f, double fs) {
+    return dsp::fir_response_at(h, f, fs).mag_db;
+}
+
+} // namespace
+
+TEST_CASE("dsp: fir low-pass is symmetric, unity at DC, linear phase") {
+    const auto h = dsp::design_fir(fir_spec(Kind::Lowpass, 101, 1000, 0, 48000));
+    REQUIRE(h.size() == 101);
+    for (std::size_t n = 0; n < h.size(); ++n) {
+        CHECK(std::abs(h[n] - h[h.size() - 1 - n]) < 1e-15); // exact symmetry
+    }
+    CHECK(std::abs(fir_mag(h, 48000.0 / 2 * 1e-6, 48000)) < 1e-6); // 0 dB at DC
+    // Hamming stopband: comfortably below -40 dB past the transition.
+    for (double f = 3000; f < 23000; f += 500) {
+        CHECK(fir_mag(h, f, 48000) < -40.0);
+    }
+    // Exact linear phase: group delay = (taps-1)/2 everywhere it is defined.
+    for (const double f : {100.0, 500.0, 900.0}) {
+        CHECK(std::abs(dsp::fir_response_at(h, f, 48000).group_delay - 50.0) < 1e-6);
+    }
+}
+
+TEST_CASE("dsp: fir kaiser window deepens the stopband") {
+    const auto hamming = dsp::design_fir(fir_spec(Kind::Lowpass, 101, 1000, 0, 48000));
+    const auto kaiser = dsp::design_fir(
+        fir_spec(Kind::Lowpass, 101, 1000, 0, 48000, dsp::FirWindow::Kaiser, 10.0));
+    double worst_h = -1e9;
+    double worst_k = -1e9;
+    for (double f = 3500; f < 23000; f += 250) {
+        worst_h = std::max(worst_h, fir_mag(hamming, f, 48000));
+        worst_k = std::max(worst_k, fir_mag(kaiser, f, 48000));
+    }
+    CHECK(worst_k < worst_h - 10.0); // beta 10 ~ -70+ dB vs hamming ~ -53
+    CHECK(worst_k < -65.0);
+}
+
+TEST_CASE("dsp: fir high/band types hit their reference frequencies exactly") {
+    const double fs = 48000.0;
+    const auto hp = dsp::design_fir(fir_spec(Kind::Highpass, 101, 2000, 0, fs));
+    CHECK(std::abs(fir_mag(hp, fs / 2.0, fs)) < 1e-6); // unity at Nyquist
+    CHECK(fir_mag(hp, 200.0, fs) < -40.0);             // deep stopband at DC side
+
+    // Band edges must sit further from DC/band center than the window's
+    // transition width (~3.3 fs/taps ≈ 1.3 kHz here) for the skirts to reach
+    // the stopband floor.
+    const auto bp = dsp::design_fir(fir_spec(Kind::Bandpass, 121, 2000, 6000, fs));
+    CHECK(std::abs(fir_mag(bp, (2000.0 + 6000.0) / 2.0, fs)) < 1e-6); // unity center
+    CHECK(fir_mag(bp, 200.0, fs) < -40.0);
+    CHECK(fir_mag(bp, 16000.0, fs) < -40.0);
+
+    const auto bs = dsp::design_fir(fir_spec(Kind::Bandstop, 121, 2000, 6000, fs));
+    CHECK(std::abs(fir_mag(bs, fs / 2.0 * 1e-6, fs)) < 1e-6); // unity at DC
+    CHECK(fir_mag(bs, 4000.0, fs) < -35.0);                   // notched band
+    CHECK(std::abs(fir_mag(bs, 20000.0, fs)) < 0.2);          // upper passband
+}
+
+TEST_CASE("dsp: fir validation errors") {
+    CHECK_THROWS_AS(dsp::design_fir(fir_spec(Kind::Lowpass, 3, 1000, 0, 48000)),
+                    dsp::DesignError);
+    CHECK_THROWS_AS(dsp::design_fir(fir_spec(Kind::Highpass, 100, 1000, 0, 48000)),
+                    dsp::DesignError); // even taps for HP
+    CHECK_THROWS_AS(dsp::design_fir(fir_spec(Kind::Lowpass, 101, 30000, 0, 48000)),
+                    dsp::DesignError);
+}
+
+// ---------------------------------------------------------------------------
+// Time responses
+// ---------------------------------------------------------------------------
+
+TEST_CASE("dsp: impulse response of a cascade sums toward the DC gain") {
+    const auto sos = design_butter(false, 4, 1000.0, 48000.0);
+    const auto h = dsp::impulse_response(sos, 400);
+    double sum = 0.0;
+    for (const double v : h) sum += v;
+    // Step response settles at H(1) = 1 for a unity-DC low-pass.
+    CHECK(std::abs(sum - 1.0) < 1e-3);
+    // And the first sample matches direct evaluation of the cascade at n=0:
+    // product of b0 terms.
+    double b0 = 1.0;
+    for (const auto& s : sos) b0 *= s.b0;
+    CHECK(std::abs(h[0] - b0) < 1e-12);
+}
+
+TEST_CASE("dsp: impulse response of a pure delay is the shifted unit sample") {
+    const std::vector<Biquad> delay{{0.0, 1.0, 0.0, 0.0, 0.0}};
+    const auto h = dsp::impulse_response(delay, 8);
+    CHECK(h[0] == 0.0);
+    CHECK(h[1] == 1.0);
+    for (std::size_t i = 2; i < h.size(); ++i) CHECK(h[i] == 0.0);
 }
 
 // ---------------------------------------------------------------------------
@@ -331,6 +535,34 @@ TEST_CASE("dsp: cheby commands and band forms return the block envelope") {
     const std::string notch =
         p.invoke("butter", {"notch", "2", "500", "2000", "48000"});
     CHECK_THAT(notch, ContainsSubstring("band-stop"));
+}
+
+TEST_CASE("dsp: ellip and fir commands return the block envelope") {
+    const auto& p = dsp_plugin();
+    const std::string el =
+        p.invoke("ellip", {"lowpass", "5", "1", "60", "1000", "48000"});
+    CHECK_THAT(el, ContainsSubstring("\"ok\":true"));
+    CHECK_THAT(el, ContainsSubstring("Elliptic"));
+    CHECK_THAT(el, ContainsSubstring("\"Passband ripple\",\"1 dB\""));
+    CHECK_THAT(el, ContainsSubstring("\"Stopband attenuation\",\"60 dB\""));
+    CHECK_THAT(el, ContainsSubstring("\"Gain at cutoff\",\"-1.00 dB\""));
+    CHECK_THAT(el, ContainsSubstring("Time response"));
+
+    const std::string f =
+        p.invoke("fir", {"lowpass", "101", "1000", "48000", "kaiser", "10"});
+    CHECK_THAT(f, ContainsSubstring("\"ok\":true"));
+    CHECK_THAT(f, ContainsSubstring("FIR windowed-sinc"));
+    CHECK_THAT(f, ContainsSubstring("Kaiser (beta 10)"));
+    CHECK_THAT(f, ContainsSubstring("\"Group delay\",\"50 samples (linear phase)\""));
+    CHECK_THAT(f, ContainsSubstring("Coefficients"));
+    CHECK_THAT(f, ContainsSubstring("Time response"));
+
+    CHECK_THAT(p.invoke("fir", {"highpass", "100", "1000", "48000"}),
+               ContainsSubstring("odd tap count"));
+    CHECK_THAT(p.invoke("fir", {"lowpass", "101", "1000", "48000", "welch"}),
+               ContainsSubstring("unknown window"));
+    CHECK_THAT(p.invoke("ellip", {"lowpass", "5", "11", "10", "1000", "48000"}),
+               ContainsSubstring("attenuation must exceed"));
 }
 
 TEST_CASE("dsp: freqz command accepts biquad groups") {
