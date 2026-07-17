@@ -5,6 +5,8 @@
   // block contract renders here.
   import type { PluginCallResult } from "../engine/types";
   import type { Ok } from "../outcome";
+  import { fmt } from "../format";
+  import CopyButton from "./CopyButton.svelte";
   import SeriesChart from "./SeriesChart.svelte";
 
   let {
@@ -12,6 +14,17 @@
     command,
     result,
   }: { plugin: string; command: string; result: Ok<PluginCallResult> } = $props();
+
+  /** Display form of a table cell: numbers compacted to ~6 significant
+   * digits (the Copy button exports full precision). */
+  function cellText(cell: string | number): string {
+    return typeof cell === "number" ? fmt(cell) : cell;
+  }
+
+  /** Full-precision TSV of a table block, for pasting into other tools. */
+  function tableTsv(columns: string[], rows: (string | number)[][]): string {
+    return [columns.join("\t"), ...rows.map((r) => r.join("\t"))].join("\n");
+  }
 </script>
 
 <div class="plugin-result">
@@ -31,9 +44,15 @@
         {/each}
       </dl>
     {:else if block.type === "table"}
-      {#if block.title}
-        <p class="block-title">{block.title}</p>
-      {/if}
+      <div class="block-head">
+        {#if block.title}
+          <p class="block-title">{block.title}</p>
+        {/if}
+        <CopyButton
+          text={tableTsv(block.columns, block.rows)}
+          label="Copy table as TSV (full precision)"
+        />
+      </div>
       <div class="table-scroll">
         <table>
           <thead>
@@ -47,7 +66,7 @@
             {#each block.rows as row, r (r)}
               <tr>
                 {#each row as cell, ci (ci)}
-                  <td>{typeof cell === "number" ? cell : cell}</td>
+                  <td>{cellText(cell)}</td>
                 {/each}
               </tr>
             {/each}
@@ -64,6 +83,7 @@
         xlabel={block.xlabel}
         ylabel={block.ylabel}
         logx={block.logx ?? false}
+        vlines={block.vlines ?? []}
       />
     {:else if block.type === "text"}
       {#each block.lines as ln (ln)}
@@ -126,6 +146,15 @@
     font-size: 0.82rem;
     font-weight: 600;
     color: var(--fg-muted);
+  }
+  .block-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.6rem;
+  }
+  .block-head .block-title {
+    margin: 0;
   }
   .table-scroll {
     overflow-x: auto;

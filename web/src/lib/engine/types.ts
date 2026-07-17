@@ -103,6 +103,8 @@ export type PluginBlock =
       logx?: boolean;
       x: number[];
       series: { label: string; ys: (number | null)[] }[];
+      /** Vertical marker lines (e.g. filter cutoffs). */
+      vlines?: { x: number; label: string }[];
     }
   | { type: "text"; lines: string[] };
 

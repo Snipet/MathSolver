@@ -9,15 +9,29 @@
     ys: (number | null)[];
   }
 
+  interface VLine {
+    x: number;
+    label: string;
+  }
+
   interface Props {
     x: number[];
     series: Series[];
     xlabel?: string;
     ylabel?: string;
     logx?: boolean;
+    /** Vertical marker lines (e.g. filter cutoffs). */
+    vlines?: VLine[];
   }
 
-  let { x, series, xlabel = "", ylabel = "", logx = false }: Props = $props();
+  let {
+    x,
+    series,
+    xlabel = "",
+    ylabel = "",
+    logx = false,
+    vlines = [],
+  }: Props = $props();
 
   const HEIGHT = 260;
   const PAD = { l: 52, r: 12, t: 10, b: 30 };
@@ -108,18 +122,27 @@
     const plotH = HEIGHT - PAD.t - PAD.b;
     const px = (v: number) => PAD.l + ((tx(v) - x0) / (x1 - x0)) * plotW;
 
-    // y range over finite samples.
-    let lo = Infinity;
-    let hi = -Infinity;
+    // y range over finite samples. When the raw spread is dominated by a few
+    // extreme points (e.g. group-delay spikes at a notch), fit the 1st–99th
+    // percentile instead so the bulk of the curve stays readable.
+    const finite: number[] = [];
     for (const s of all) {
       for (const yv of s.ys) {
-        if (yv !== null && Number.isFinite(yv)) {
-          lo = Math.min(lo, yv);
-          hi = Math.max(hi, yv);
-        }
+        if (yv !== null && Number.isFinite(yv)) finite.push(yv);
       }
     }
-    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return;
+    if (finite.length === 0) return;
+    finite.sort((a, b) => a - b);
+    const q = (p: number) =>
+      finite[Math.min(finite.length - 1, Math.max(0, Math.round(p * (finite.length - 1))))];
+    let lo = finite[0];
+    let hi = finite[finite.length - 1];
+    const p1 = q(0.01);
+    const p99 = q(0.99);
+    if (p99 - p1 > 1e-12 && hi - lo > 8 * (p99 - p1)) {
+      lo = p1;
+      hi = p99;
+    }
     if (hi - lo < 1e-9) {
       hi += 1;
       lo -= 1;
@@ -189,6 +212,27 @@
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
       ctx.fillText(ylabel, 0, 0);
+      ctx.restore();
+    }
+
+    // marker vlines (e.g. cutoffs): dashed, labeled at the top.
+    for (const vl of vlines) {
+      if (usableLog && vl.x <= 0) continue;
+      const t = tx(vl.x);
+      if (t < x0 || t > x1) continue;
+      const xx = px(vl.x);
+      ctx.save();
+      ctx.strokeStyle = fg;
+      ctx.setLineDash([4, 4]);
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(xx, PAD.t);
+      ctx.lineTo(xx, HEIGHT - PAD.b);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      ctx.fillText(vl.label, xx + 4, PAD.t + 2);
       ctx.restore();
     }
 

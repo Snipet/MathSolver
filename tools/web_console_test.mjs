@@ -176,12 +176,25 @@ try {
     (el) => !!el.querySelector("canvas") && !!el.querySelector("table"),
   );
   check("dsp.butter has table + chart", hasChart);
+  const chebyOut = await run("dsp.cheby1 bandpass, 3, 1, 500, 2000, 48000");
+  check(
+    "dsp.cheby1 bandpass renders",
+    chebyOut.includes("Chebyshev I") && chebyOut.includes("Gain at f1") &&
+      chebyOut.includes("Phase response"),
+    chebyOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const chartCount = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => el.querySelectorAll("canvas").length,
+  );
+  check("magnitude + phase charts", chartCount === 2, `canvases: ${chartCount}`);
+
   await run("dsp.butter lowpass, 4, 30000, 48000");
   const pluginErr = await page.$eval(
     ".cells .cell:last-child",
     (el) => el.querySelector(".error-msg")?.textContent ?? "",
   );
-  check("dsp error card", pluginErr.includes("Nyquist"), pluginErr);
+  check("dsp error card", pluginErr.includes("(0, fs/2)"), pluginErr);
 
   // The console session survives a reload (localStorage).
   const before = await page.$$eval(".cells .cell", (e) => e.length);

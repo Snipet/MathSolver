@@ -1,77 +1,379 @@
 // DSP filter-design numerics (dsp_design.hpp).
+//
+// Everything below works on {zeros, poles, gain} in the analog s-plane until
+// the bilinear transform, then groups the digital poles/zeros into biquads.
+// The transform formulas are the standard ones (identical to scipy's
+// lp2lp_zpk / lp2hp_zpk / lp2bp_zpk / lp2bs_zpk / bilinear_zpk).
 
 #include "dsp_design.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
+#include <format>
 #include <numbers>
+#include <optional>
 
 namespace mathsolver::plugins::dsp {
 
 namespace {
 
-/// Bilinear transform of an analog second-order section
-/// (B2 s^2 + B1 s + B0)/(A2 s^2 + A1 s + A0) with K = 2*fs.
-Biquad bilinear2(double B2, double B1, double B0, double A2, double A1, double A0,
-                 double K) {
-    const double K2 = K * K;
-    const double a0 = A2 * K2 + A1 * K + A0;
-    return Biquad{
-        (B2 * K2 + B1 * K + B0) / a0,
-        (2.0 * B0 - 2.0 * B2 * K2) / a0,
-        (B2 * K2 - B1 * K + B0) / a0,
-        (2.0 * A0 - 2.0 * A2 * K2) / a0,
-        (A2 * K2 - A1 * K + A0) / a0,
-    };
+using cd = std::complex<double>;
+
+struct Zpk {
+    std::vector<cd> z;
+    std::vector<cd> p;
+    double k = 1.0;
+};
+
+cd prod_neg(const std::vector<cd>& v) {
+    cd out{1.0, 0.0};
+    for (const cd& x : v) {
+        out *= -x;
+    }
+    return out;
 }
 
-/// Bilinear transform of an analog first-order section
-/// (B1 s + B0)/(A1 s + A0); the resulting biquad has b2 = a2 = 0.
-Biquad bilinear1(double B1, double B0, double A1, double A0, double K) {
-    const double a0 = A1 * K + A0;
-    return Biquad{(B1 * K + B0) / a0, (B0 - B1 * K) / a0, 0.0,
-                  (A0 - A1 * K) / a0, 0.0};
+// --- normalized analog low-pass prototypes (cutoff 1 rad/s) ----------------
+
+Zpk proto_butter(int n) {
+    Zpk s;
+    for (int k = 0; k < n; ++k) {
+        const double theta = std::numbers::pi * (2.0 * k + 1.0) / (2.0 * n);
+        s.p.push_back(cd{-std::sin(theta), std::cos(theta)});
+    }
+    s.k = prod_neg(s.p).real(); // == 1, spelled out for symmetry
+    return s;
 }
 
-} // namespace
+Zpk proto_cheby1(int n, double ripple_db) {
+    const double eps = std::sqrt(std::pow(10.0, ripple_db / 10.0) - 1.0);
+    const double mu = std::asinh(1.0 / eps) / n;
+    Zpk s;
+    for (int k = 0; k < n; ++k) {
+        const double theta = std::numbers::pi * (2.0 * k + 1.0) / (2.0 * n);
+        s.p.push_back(cd{-std::sinh(mu) * std::sin(theta),
+                         std::cosh(mu) * std::cos(theta)});
+    }
+    s.k = prod_neg(s.p).real();
+    if (n % 2 == 0) {
+        s.k /= std::sqrt(1.0 + eps * eps); // even orders sit -rp at DC
+    }
+    return s;
+}
 
-std::vector<Biquad> design_butter(bool highpass, int order, double fc, double fs) {
-    const double wc = 2.0 * fs * std::tan(std::numbers::pi * fc / fs); // prewarped
-    const double K = 2.0 * fs;
-    std::vector<Biquad> sections;
-    // Conjugate pole pairs of the Butterworth prototype, scaled to wc:
-    // s^2 + 2 wc sin(theta_k) s + wc^2, theta_k = pi (2k+1) / (2 order).
-    for (int k = 0; k < order / 2; ++k) {
-        const double theta = std::numbers::pi * (2.0 * k + 1.0) / (2.0 * order);
-        const double A1 = 2.0 * wc * std::sin(theta);
-        const double A0 = wc * wc;
-        if (highpass) {
-            sections.push_back(bilinear2(1.0, 0.0, 0.0, 1.0, A1, A0, K));
-        } else {
-            sections.push_back(bilinear2(0.0, 0.0, wc * wc, 1.0, A1, A0, K));
+Zpk proto_cheby2(int n, double atten_db) {
+    const double eps = 1.0 / std::sqrt(std::pow(10.0, atten_db / 10.0) - 1.0);
+    const double mu = std::asinh(1.0 / eps) / n;
+    Zpk s;
+    for (int k = 0; k < n; ++k) {
+        const double theta = std::numbers::pi * (2.0 * k + 1.0) / (2.0 * n);
+        // Poles: reciprocals of Chebyshev-I-style poles.
+        s.p.push_back(1.0 / cd{-std::sinh(mu) * std::sin(theta),
+                               std::cosh(mu) * std::cos(theta)});
+        // Zeros: on the imaginary axis at j / cos(theta); the middle theta of
+        // an odd order (cos = 0) is a zero at infinity and is skipped.
+        if (std::abs(std::cos(theta)) > 1e-12) {
+            s.z.push_back(cd{0.0, 1.0 / std::cos(theta)});
         }
     }
-    if (order % 2 == 1) { // odd order: one real pole at -wc
-        if (highpass) {
-            sections.push_back(bilinear1(1.0, 0.0, 1.0, wc, K));
-        } else {
-            sections.push_back(bilinear1(0.0, wc, 1.0, wc, K));
+    s.k = (prod_neg(s.p) / prod_neg(s.z)).real(); // H(0) = 1
+    return s;
+}
+
+// --- analog frequency transforms -------------------------------------------
+
+Zpk lp2lp(const Zpk& s, double wo) {
+    Zpk out;
+    for (const cd& z : s.z) out.z.push_back(z * wo);
+    for (const cd& p : s.p) out.p.push_back(p * wo);
+    out.k = s.k * std::pow(wo, static_cast<double>(s.p.size() - s.z.size()));
+    return out;
+}
+
+Zpk lp2hp(const Zpk& s, double wo) {
+    const std::size_t degree = s.p.size() - s.z.size();
+    Zpk out;
+    out.k = s.k * (prod_neg(s.z) / prod_neg(s.p)).real();
+    for (const cd& z : s.z) out.z.push_back(wo / z);
+    for (const cd& p : s.p) out.p.push_back(wo / p);
+    out.z.insert(out.z.end(), degree, cd{0.0, 0.0});
+    return out;
+}
+
+Zpk lp2bp(const Zpk& s, double wo, double bw) {
+    const std::size_t degree = s.p.size() - s.z.size();
+    Zpk out;
+    const auto split = [&](const cd& x, std::vector<cd>& dst) {
+        const cd xl = x * (bw / 2.0);
+        const cd d = std::sqrt(xl * xl - wo * wo);
+        dst.push_back(xl + d);
+        dst.push_back(xl - d);
+    };
+    for (const cd& z : s.z) split(z, out.z);
+    for (const cd& p : s.p) split(p, out.p);
+    out.z.insert(out.z.end(), degree, cd{0.0, 0.0});
+    out.k = s.k * std::pow(bw, static_cast<double>(degree));
+    return out;
+}
+
+Zpk lp2bs(const Zpk& s, double wo, double bw) {
+    const std::size_t degree = s.p.size() - s.z.size();
+    Zpk out;
+    out.k = s.k * (prod_neg(s.z) / prod_neg(s.p)).real();
+    const auto split = [&](const cd& x, std::vector<cd>& dst) {
+        const cd xh = (bw / 2.0) / x;
+        const cd d = std::sqrt(xh * xh - wo * wo);
+        dst.push_back(xh + d);
+        dst.push_back(xh - d);
+    };
+    for (const cd& z : s.z) split(z, out.z);
+    for (const cd& p : s.p) split(p, out.p);
+    for (std::size_t i = 0; i < degree; ++i) {
+        out.z.push_back(cd{0.0, wo});
+        out.z.push_back(cd{0.0, -wo});
+    }
+    return out;
+}
+
+// --- bilinear transform (s -> z) -------------------------------------------
+
+Zpk bilinear(const Zpk& s, double fs) {
+    const double K = 2.0 * fs;
+    const std::size_t degree = s.p.size() - s.z.size();
+    Zpk out;
+    cd num{1.0, 0.0};
+    cd den{1.0, 0.0};
+    for (const cd& z : s.z) num *= (K - z);
+    for (const cd& p : s.p) den *= (K - p);
+    out.k = s.k * (num / den).real();
+    for (const cd& z : s.z) out.z.push_back((K + z) / (K - z));
+    for (const cd& p : s.p) out.p.push_back((K + p) / (K - p));
+    out.z.insert(out.z.end(), degree, cd{-1.0, 0.0}); // zeros at infinity -> -1
+    return out;
+}
+
+// --- biquad sectioning ------------------------------------------------------
+
+constexpr double k_imag_tol = 1e-10;
+
+bool is_real(const cd& x) {
+    return std::abs(x.imag()) <= k_imag_tol * (1.0 + std::abs(x));
+}
+
+/// Split a conjugate-symmetric set into upper-half-plane representatives and
+/// reals (each conjugate pair contributes one entry to `pairs`).
+void split_conjugates(const std::vector<cd>& v, std::vector<cd>& pairs,
+                      std::vector<double>& reals) {
+    for (const cd& x : v) {
+        if (is_real(x)) {
+            reals.push_back(x.real());
+        } else if (x.imag() > 0.0) {
+            pairs.push_back(x);
         }
+    }
+}
+
+struct SectionRoots {
+    // 0, 1, or 2 roots as polynomial coefficients [1, c1, c2] (c2 = 0 when
+    // fewer than 2 roots; c1 = c2 = 0 when none).
+    double c1 = 0.0, c2 = 0.0;
+    int count = 0;
+};
+
+SectionRoots from_pair(const cd& x) {
+    return {-2.0 * x.real(), std::norm(x), 2};
+}
+
+SectionRoots from_reals(double a, double b) {
+    return {-(a + b), a * b, 2};
+}
+
+SectionRoots from_real(double a) {
+    return {-a, 0.0, 1};
+}
+
+/// Group digital poles/zeros into biquads. Pole units are formed first
+/// (conjugate pairs, then reals two at a time); each takes the nearest
+/// available zeros of matching count. The overall gain lands in the first
+/// section's numerator. Sections are ordered least-peaked first.
+std::vector<Biquad> zpk_to_sos(const Zpk& s) {
+    std::vector<cd> pole_pairs;
+    std::vector<double> pole_reals;
+    split_conjugates(s.p, pole_pairs, pole_reals);
+    std::vector<cd> zero_pairs;
+    std::vector<double> zero_reals;
+    split_conjugates(s.z, zero_pairs, zero_reals);
+
+    // Most-peaked pole units (largest |p|) pick their zeros first.
+    std::sort(pole_pairs.begin(), pole_pairs.end(),
+              [](const cd& a, const cd& b) { return std::abs(a) > std::abs(b); });
+    std::sort(pole_reals.begin(), pole_reals.end(),
+              [](double a, double b) { return std::abs(a) > std::abs(b); });
+
+    struct Unit {
+        SectionRoots den;
+        cd rep;      // representative pole location for zero matching
+        bool single; // one-pole section
+    };
+    std::vector<Unit> units;
+    for (const cd& p : pole_pairs) {
+        units.push_back({from_pair(p), p, false});
+    }
+    for (std::size_t i = 0; i + 1 < pole_reals.size(); i += 2) {
+        units.push_back({from_reals(pole_reals[i], pole_reals[i + 1]),
+                         cd{pole_reals[i], 0.0}, false});
+    }
+    if (pole_reals.size() % 2 == 1) {
+        const double r = pole_reals.back();
+        units.push_back({from_real(r), cd{r, 0.0}, true});
+    }
+
+    const auto take_nearest_zero_pair = [&](const cd& rep) -> SectionRoots {
+        std::size_t best = zero_pairs.size();
+        double best_d = 0.0;
+        for (std::size_t i = 0; i < zero_pairs.size(); ++i) {
+            const double d = std::abs(zero_pairs[i] - rep);
+            if (best == zero_pairs.size() || d < best_d) {
+                best = i;
+                best_d = d;
+            }
+        }
+        if (best == zero_pairs.size()) {
+            return {};
+        }
+        const SectionRoots out = from_pair(zero_pairs[best]);
+        zero_pairs.erase(zero_pairs.begin() + static_cast<std::ptrdiff_t>(best));
+        return out;
+    };
+    const auto take_nearest_real_zero = [&](const cd& rep) -> std::optional<double> {
+        std::size_t best = zero_reals.size();
+        double best_d = 0.0;
+        for (std::size_t i = 0; i < zero_reals.size(); ++i) {
+            const double d = std::abs(cd{zero_reals[i], 0.0} - rep);
+            if (best == zero_reals.size() || d < best_d) {
+                best = i;
+                best_d = d;
+            }
+        }
+        if (best == zero_reals.size()) {
+            return std::nullopt;
+        }
+        const double out = zero_reals[best];
+        zero_reals.erase(zero_reals.begin() + static_cast<std::ptrdiff_t>(best));
+        return out;
+    };
+
+    std::vector<Biquad> sections;
+    for (const Unit& u : units) {
+        SectionRoots num;
+        if (u.single) {
+            if (const auto r = take_nearest_real_zero(u.rep)) {
+                num = from_real(*r);
+            }
+        } else {
+            // Prefer a conjugate zero pair; fall back to (up to) two reals.
+            if (!zero_pairs.empty()) {
+                num = take_nearest_zero_pair(u.rep);
+            } else if (const auto r1 = take_nearest_real_zero(u.rep)) {
+                const auto r2 = take_nearest_real_zero(u.rep);
+                num = r2 ? from_reals(*r1, *r2) : from_real(*r1);
+            }
+        }
+        sections.push_back(Biquad{1.0, num.c1, num.c2, u.den.c1, u.den.c2});
+    }
+
+    // Least-peaked first for a well-scaled cascade; gain into section 1.
+    std::reverse(sections.begin(), sections.end());
+    if (!sections.empty()) {
+        sections.front().b0 *= s.k;
+        sections.front().b1 *= s.k;
+        sections.front().b2 *= s.k;
     }
     return sections;
 }
 
-double magnitude_db(const std::vector<Biquad>& sections, double f, double fs) {
-    const double w = 2.0 * std::numbers::pi * f / fs;
-    const std::complex<double> z1 = std::polar(1.0, -w);
-    const std::complex<double> z2 = std::polar(1.0, -2.0 * w);
-    std::complex<double> h{1.0, 0.0};
-    for (const Biquad& s : sections) {
-        const std::complex<double> num = s.b0 + s.b1 * z1 + s.b2 * z2;
-        const std::complex<double> den = 1.0 + s.a1 * z1 + s.a2 * z2;
-        h *= num / den;
+double prewarp(double f, double fs) {
+    return 2.0 * fs * std::tan(std::numbers::pi * f / fs);
+}
+
+} // namespace
+
+std::vector<Biquad> design_iir(const DesignSpec& spec) {
+    if (spec.order < 1) {
+        throw DesignError("order must be at least 1");
     }
-    return 20.0 * std::log10(std::abs(h));
+    if (!(spec.fs > 0.0)) {
+        throw DesignError("sample rate must be positive");
+    }
+
+    Zpk proto;
+    switch (spec.family) {
+        case Family::Butterworth: proto = proto_butter(spec.order); break;
+        case Family::Cheby1: proto = proto_cheby1(spec.order, spec.ripple_db); break;
+        case Family::Cheby2: proto = proto_cheby2(spec.order, spec.atten_db); break;
+    }
+
+    Zpk analog;
+    if (spec.kind == Kind::Lowpass || spec.kind == Kind::Highpass) {
+        if (!(spec.f1 > 0.0 && spec.f1 < spec.fs / 2.0)) {
+            throw DesignError(std::format(
+                "cutoff must lie in (0, fs/2): fc = {} Hz, fs/2 = {} Hz", spec.f1,
+                spec.fs / 2.0));
+        }
+        const double wo = prewarp(spec.f1, spec.fs);
+        analog = spec.kind == Kind::Lowpass ? lp2lp(proto, wo) : lp2hp(proto, wo);
+    } else {
+        if (!(spec.f1 > 0.0 && spec.f2 > spec.f1 && spec.f2 < spec.fs / 2.0)) {
+            throw DesignError(std::format(
+                "band edges must satisfy 0 < f1 < f2 < fs/2: f1 = {} Hz, f2 = {} "
+                "Hz, fs/2 = {} Hz",
+                spec.f1, spec.f2, spec.fs / 2.0));
+        }
+        const double w1 = prewarp(spec.f1, spec.fs);
+        const double w2 = prewarp(spec.f2, spec.fs);
+        const double wo = std::sqrt(w1 * w2);
+        const double bw = w2 - w1;
+        analog = spec.kind == Kind::Bandpass ? lp2bp(proto, wo, bw)
+                                             : lp2bs(proto, wo, bw);
+    }
+
+    return zpk_to_sos(bilinear(analog, spec.fs));
+}
+
+std::vector<Biquad> design_butter(bool highpass, int order, double fc, double fs) {
+    DesignSpec spec;
+    spec.family = Family::Butterworth;
+    spec.kind = highpass ? Kind::Highpass : Kind::Lowpass;
+    spec.order = order;
+    spec.f1 = fc;
+    spec.fs = fs;
+    return design_iir(spec);
+}
+
+ResponsePoint response_at(const std::vector<Biquad>& sections, double f, double fs) {
+    const double w = 2.0 * std::numbers::pi * f / fs;
+    const cd z1 = std::polar(1.0, -w);
+    const cd z2 = std::polar(1.0, -2.0 * w);
+    cd h{1.0, 0.0};
+    double phase = 0.0;
+    double gd = 0.0;
+    for (const Biquad& s : sections) {
+        const cd num = s.b0 + s.b1 * z1 + s.b2 * z2;
+        const cd den = 1.0 + s.a1 * z1 + s.a2 * z2;
+        h *= num / den;
+        phase += std::arg(num) - std::arg(den);
+        // Group delay -d(arg)/dw per section: Re(N'/N) - Re(D'/D) with
+        // N' = sum k b_k e^{-jkw} (sign folded in).
+        const cd dnum = s.b1 * z1 + 2.0 * s.b2 * z2;
+        const cd dden = s.a1 * z1 + 2.0 * s.a2 * z2;
+        gd += (dnum / num).real() - (dden / den).real();
+    }
+    return ResponsePoint{20.0 * std::log10(std::abs(h)), phase, gd};
+}
+
+double magnitude_db(const std::vector<Biquad>& sections, double f, double fs) {
+    return response_at(sections, f, fs).mag_db;
 }
 
 } // namespace mathsolver::plugins::dsp

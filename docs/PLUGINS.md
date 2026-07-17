@@ -65,7 +65,7 @@ with blocks drawn from:
 |---|---|---|
 | `kv` | `{"type":"kv","items":[["label","value"],…]}` | inline label/value pairs |
 | `table` | `{"type":"table","title","columns":[…],"rows":[[…],…]}` | scrollable table |
-| `series` | `{"type":"series","title","xlabel","ylabel","logx",` `"x":[…],"series":[{"label","ys":[…]}]}` | line chart (`null` y = gap; `logx` for decades) |
+| `series` | `{"type":"series","title","xlabel","ylabel","logx",` `"x":[…],"series":[{"label","ys":[…]}],` `"vlines":[{"x":…,"label":"fc"}]}` | line chart (`null` y = gap; `logx` for decades; `vlines` draws dashed markers, e.g. cutoffs) |
 | `text` | `{"type":"text","lines":[…]}` | muted paragraphs |
 
 JSON helpers (`jstr`, `jnum`, `error_json`) are exported from the same
@@ -101,14 +101,29 @@ Conventions:
 
 ## The dsp plugin
 
+IIR design runs the classic zpk pipeline (`plugins/dsp/dsp_design.cpp`):
+normalized analog low-pass prototype → analog frequency transform (edges
+prewarped) → bilinear transform → conjugate-pair grouping into biquads.
+`<type>` is `lowpass|highpass|bandpass|bandstop` (`lp/hp/bp/bs/notch`); band
+types take two edges and double the effective order.
+
 | Command | Does |
 |---|---|
-| `dsp.butter <lowpass\|highpass>, <order 1-12>, <fc Hz>, <fs Hz>` | Butterworth design: analog prototype → prewarped bilinear transform → biquad cascade (a0 = 1). Blocks: design summary (incl. measured gain at fc), coefficient table, log-frequency magnitude response. |
-| `dsp.freqz <fs Hz>, <b0>,<b1>,<b2>,<a1>,<a2> [, …groups of 5]` | Magnitude response of an arbitrary biquad cascade. |
+| `dsp.butter <type>, <order 1-12>, <fc>[, <f2>], <fs>` | Butterworth (maximally flat). |
+| `dsp.cheby1 <type>, <order 1-12>, <ripple dB>, <fc>[, <f2>], <fs>` | Chebyshev I (equiripple passband; cutoff = ripple edge). |
+| `dsp.cheby2 <type>, <order 1-12>, <atten dB>, <fc>[, <f2>], <fs>` | Chebyshev II (equiripple stopband; cutoff = stop edge). |
+| `dsp.freqz <fs Hz>, <b0>,<b1>,<b2>,<a1>,<a2> [, …groups of 5]` | Magnitude, phase, and group delay of an arbitrary biquad cascade. |
 
-Extension points (same pattern, more filters): Chebyshev I/II, elliptic,
-band-pass/band-stop via the standard prototype transforms, phase/group-delay
-series in `freqz`.
+Design results carry: a summary (with the **measured** gain at each specified
+edge), the biquad coefficient table (Copy exports full-precision TSV), and
+magnitude + phase responses with the edges marked. All designs are verified
+in `tests/test_plugin_dsp.cpp` by property (ripple corridors, edge gains,
+notch depth, the biquad stability triangle across every family × type ×
+order, unit group delay of a pure `z^-1`).
+
+Extension points (same pattern): elliptic filters, matched-z/impulse
+invariance, FIR design (windowed-sinc, Parks–McClellan), impulse/step
+response blocks.
 
 ## Scope and future work
 
