@@ -101,6 +101,17 @@ check("pde catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name =
 check("pde heat", ms.pluginCall("pde", "heat", "1,1,x*(1-x)"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.title === "Temperature profiles" && b.series.length === 4), "profile evolution chart");
 check("pde wave", ms.pluginCall("pde", "wave", "1,2,sin(pi*x)"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Fundamental period" && v === "1")), "period 2L/c = 1");
 check("pde error", ms.pluginCall("pde", "heat", "1,1,x*y"), (r) => !r.ok && r.error.includes("found"), "stray symbol rejected");
+// ie plugin
+check("ie catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name === "ie" && p.commands.length === 2), "ie listed");
+check("ie fredholm separable", ms.pluginCall("ie", "fredholm", "x*t,x,1,0,1"), (r) => r.ok && r.blocks.some((b) => b.type === "table" && b.rows.some(([x, u]) => x === "1" && u === "1.5")) && r.blocks.some((b) => b.type === "series" && b.title === "Solution u(x)"), "u(1) = 3/(3-1) = 1.5");
+check("ie volterra exp", ms.pluginCall("ie", "volterra", "1,1,1,0,1"), (r) => r.ok && r.blocks.some((b) => b.type === "table" && b.rows.some(([x, u]) => x === "1" && Math.abs(parseFloat(u) - Math.E) < 1e-4)), "u = e^x at x = 1");
+check("ie characteristic value", ms.pluginCall("ie", "fredholm", "x*t,x,3,0,1"), (r) => !r.ok && r.error.includes("characteristic"), "lambda = 3 singular");
+check("ie error", ms.pluginCall("ie", "fredholm", "x*y,x,1,0,1"), (r) => !r.ok && r.error.includes("found 'y'"), "stray symbol rejected");
+// hyb plugin
+check("hyb catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name === "hyb" && p.commands.length === 1), "hyb listed");
+check("hyb bouncing ball", ms.pluginCall("hyb", "sim", "v; -9.81,x,x; -0.8*v,1,0,2"), (r) => r.ok && r.blocks.some((b) => b.type === "table" && b.title.startsWith("Events") && Math.abs(parseFloat(b.rows[0][1]) - Math.sqrt(2 / 9.81)) < 1e-5) && r.blocks.some((b) => b.type === "series" && Array.isArray(b.vlines)), "first bounce at sqrt(2/g)");
+check("hyb zeno", ms.pluginCall("hyb", "sim", "v; -9.81,x,x; -0.8*v,1,0,5"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Zeno" && v.includes("accumulation"))), "Zeno note surfaces");
+check("hyb error", ms.pluginCall("hyb", "sim", "q; -9.81,x,x; -0.8*v,1,0,2"), (r) => !r.ok && r.error.includes("found 'q'"), "stray symbol rejected");
 // linalg plugin
 check("linalg catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name === "linalg" && p.commands.length === 7), "linalg listed with 7 commands");
 check("linalg solve", ms.pluginCall("linalg", "solve", "[2 1; 1 3],[3 5]"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "x" && v === "(0.8, 1.4)")), "x = (0.8, 1.4)");

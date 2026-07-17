@@ -161,6 +161,30 @@ integrator (exact where its rules reach, numeric otherwise):
 | `pde.heat <L>, <alpha>, <f(x)>[, <T>]` | u_t = α u_xx with u(x,0) = f(x): b_n table, mode-1 time constant, and temperature profiles at t = 0, T/16, T/4, T. |
 | `pde.wave <L>, <c>, <f(x)>[, <g(x)>[, <T>]]` | u_tt = c² u_xx with displacement f and optional velocity g: displacement profiles across the fundamental period 2L/c. |
 
+The **ie** plugin solves second-kind integral equations with symbolic
+kernels K(x, t) and forcing f(x), evaluated pointwise by the CAS. Every
+solve repeats at **half resolution** and reports the largest disagreement as
+an error estimate, so the curve carries its own accuracy check:
+
+| Command | What it does |
+| --- | --- |
+| `ie.fredholm <K(x,t)>, <f(x)>, <lambda>, <a>, <b>` | u(x) = f(x) + λ∫ₐᵇ K(x,t) u(t) dt by the **Nyström method**: 31-node composite-Simpson quadrature turns the equation into (I − λKW)u = f, solved by the linalg LU; off-node chart values use the Nyström interpolation formula. λ at a characteristic value fails with a specific message. |
+| `ie.volterra <K(x,t)>, <f(x)>, <lambda>, <a>, <b>` | u(x) = f(x) + λ∫ₐˣ K(x,t) u(t) dt by **trapezoidal marching** (200 steps), each step solving its scalar implicit equation. `ie.volterra x - t, x, -1, 0, 3` reproduces u = sin x. |
+
+The **hyb** plugin simulates hybrid systems — a two-state RK4 flow
+x′ = f_x(t,x,v), v′ = f_v(t,x,v) with an event surface. When the guard
+crosses from positive to non-positive inside a step, the event time is
+refined by bisection, the reset map is applied at the pre-event state, and
+integration restarts; resets that land *on* the guard surface (a bouncing
+ball resets to x = 0) don't re-fire because crossings require a strictly
+positive step start. Inter-event gaps below the step resolution stop the run
+with a **Zeno** note that extrapolates the accumulation time geometrically,
+and solution blow-ups stop with a note instead of nonsense:
+
+| Command | What it does |
+| --- | --- |
+| `hyb.sim <x'>; <v'>, <guard>, <reset x>; <reset v>, <x0>, <v0>, <T>` | Event-driven simulation: events table (times, impact/rebound states), trajectory chart with event markers. Bouncing ball: `hyb.sim v; -9.81, x, x; -0.8*v, 1, 0, 3`. On a horizon past the accumulation (`T = 5`), the Zeno note reports the estimated accumulation time ≈ 9√(2/g) ≈ 4.06. |
+
 The **linalg** plugin does dense linear algebra. Matrices are written
 `[1 2; 3 4]` (rows by `;`, entries by spaces or commas); entries are full
 expressions, and a matrix with symbolic entries routes to exact machinery

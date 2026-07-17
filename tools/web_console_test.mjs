@@ -200,6 +200,26 @@ try {
     mlOut.includes("does not exist") && mlOut.includes("diagonal"),
     mlOut.replace(/\n/g, " ").slice(0, 80),
   );
+  const ieOut = await run("ie.fredholm x*t, x, 1, 0, 1");
+  check(
+    "ie.fredholm renders the solution",
+    ieOut.includes("Fredholm integral equation") && ieOut.includes("1.5"),
+    ieOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "ie.volterra renders",
+    (await run("ie.volterra 1, 1, 1, 0, 1")).includes("trapezoidal marching"),
+  );
+  const hybOut = await run("hyb.sim v; -9.81, x, x; -0.8*v, 1, 0, 2");
+  check(
+    "hyb.sim renders events",
+    hybOut.includes("hybrid simulation") && hybOut.includes("Events"),
+    hybOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "hyb.sim Zeno note",
+    (await run("hyb.sim v; -9.81, x, x; -0.8*v, 1, 0, 5")).includes("Zeno"),
+  );
   const dsysOut = await run("dsolve x' = y; y' = -x, x(0)=1, y(0)=0");
   check(
     "dsolve system in console",

@@ -350,6 +350,9 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   linalg.det [a b; c d]                  → symbolic determinants (Bareiss)
   pde.heat 1, 1, x*(1-x)                 → heat equation: Fourier series + profiles
   pde.wave 1, 2, sin(pi*x)               → wave equation: standing-wave evolution
+  ie.fredholm x*t, x, 1, 0, 1            → integral equation by Nyström quadrature
+  ie.volterra x - t, x, -1, 0, 3         → Volterra equation by marching (u = sin x)
+  hyb.sim v; -9.81, x, x; -0.8*v, 1, 0, 3 → bouncing ball: events, resets, Zeno
   sys.dde -x_d, 1, 1, 20                 → delay equation x' = -x(t-1) by steps
   sys.tf s+1, s^2+3s+2                   → poles/zeros, margins, Bode, step
   sys.ode y'' + 3y' + 2y = u' + u        → ODE to transfer function
