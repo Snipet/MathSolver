@@ -23,6 +23,25 @@ export function hasTopLevelSemicolon(s: string): boolean {
   return false;
 }
 
+/** Non-empty top-level `;`-separated parts (equations in a system), trimmed. */
+export function splitTopLevel(s: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of s) {
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") depth = Math.max(0, depth - 1);
+    if (ch === ";" && depth === 0) {
+      if (cur.trim()) parts.push(cur.trim());
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  if (cur.trim()) parts.push(cur.trim());
+  return parts;
+}
+
 /** Number of non-empty top-level `;`-separated parts (equations in a system). */
 export function countTopLevelParts(s: string): number {
   let depth = 0;

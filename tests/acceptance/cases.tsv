@@ -192,3 +192,9 @@ sys-07	solve	2x + 3y + 4z = 3; 6y - 4z = 1; 8x + 3y - 4z = 4	x y z	regex	(?=.*^x
 sys-08	solve	y = 1; x + y = 2	x y	regex	(?=.*^x = 1$)(?=.*^y = 1$)	0
 sys-09	solve	a*x + y = 1; x - y = b	x y	contains	valid only when	0
 sys-10	solve	x + y + z = 1; x - y = 2	-	contains	usage error	2
+#
+# ---------- assignment is REPL/web-only (docs/proposals/variable-assignment.md) ----------
+# ':=' is recognized by the REPL input layer, never the parser: one-shot
+# subcommands stay stateless and keep the ':' lex error.
+asn-01	simplify	x := 3	-	contains	unexpected character ':'	1
+asn-02	solve	E_1 := x + y = 3	-	contains	unexpected character ':'	1

@@ -7,8 +7,15 @@
   import ResultDefinite from "./ResultDefinite.svelte";
   import ResultEvaluate from "./ResultEvaluate.svelte";
   import SpanHighlight from "./SpanHighlight.svelte";
+  import Katex from "./Katex.svelte";
 
   let { outcome }: { outcome: Outcome | null } = $props();
+
+  const computedFrom = $derived(
+    outcome && outcome.kind !== "error" && outcome.kind !== "assignment"
+      ? (outcome.computedFrom ?? null)
+      : null,
+  );
 </script>
 
 <section class="result-region" aria-live="polite" aria-label="Result">
@@ -26,6 +33,11 @@
         <ResultDefinite from={outcome.from} to={outcome.to} result={outcome.result} />
       {:else if outcome.kind === "evaluate"}
         <ResultEvaluate result={outcome.result} />
+      {:else if outcome.kind === "assignment"}
+        <div class="assignment">
+          <Katex latex={outcome.latex} display />
+          <p class="assignment-note">saved to the Variables panel</p>
+        </div>
       {:else if outcome.kind === "error"}
         <p class="error-msg">{outcome.message}</p>
         <SpanHighlight
@@ -33,6 +45,12 @@
           begin={outcome.begin}
           end={outcome.end}
         />
+      {/if}
+      {#if computedFrom}
+        <p class="computed-from" data-testid="computed-from">
+          <span class="lead">computed from:</span>
+          <Katex latex={computedFrom.latex} />
+        </p>
       {/if}
     </div>
   {/if}
@@ -56,5 +74,24 @@
     margin: 0;
     color: var(--error);
     font-size: 0.95rem;
+  }
+  .computed-from {
+    margin: 0.75rem 0 0;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    font-size: 0.82rem;
+    color: var(--fg-muted);
+    border-top: 1px dashed var(--border);
+    padding-top: 0.6rem;
+  }
+  .computed-from .lead {
+    flex: 0 0 auto;
+  }
+  .assignment-note {
+    margin: 0.5rem 0 0;
+    font-size: 0.82rem;
+    color: var(--fg-muted);
   }
 </style>

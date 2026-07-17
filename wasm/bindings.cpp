@@ -228,7 +228,13 @@ std::string ms_latex(std::string input) {
 /// Substitute expressions for symbols: assignments as "x=y+1,z=2" (split
 /// like eval bindings, but the value side is parsed as an expression),
 /// applied left to right, then simplified.
-std::string ms_subs(std::string input, std::string assignments) {
+/// subs(input, assignments, simplifyResult): sequential substitution over an
+/// expression or an equation (both sides), mirroring the CLI verb. With
+/// simplifyResult=false the substituted form is returned un-simplified — the
+/// web resolver path uses it so "computed from" shows the resolved input as
+/// resolved, not as simplified (spec §8). Embind arity is exact, so the
+/// parameter is required at the ABI; types.ts mirrors it.
+std::string ms_subs(std::string input, std::string assignments, bool simplify_result) {
     return guarded([&]() -> std::string {
         std::vector<std::pair<std::string, Expr>> subs;
         for (const auto& part : split_csv(assignments)) {
@@ -254,7 +260,7 @@ std::string ms_subs(std::string input, std::string assignments) {
                 eq.lhs = substitute(eq.lhs, name, replacement);
                 eq.rhs = substitute(eq.rhs, name, replacement);
             }
-            const Equation out = simplify(eq);
+            const Equation out = simplify_result ? simplify(eq) : eq;
             return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{}}}",
                                jstr(to_string(out, PrintStyle::Plain)),
                                jstr(to_string(out, PrintStyle::LaTeX)));
@@ -263,7 +269,8 @@ std::string ms_subs(std::string input, std::string assignments) {
         for (const auto& [name, replacement] : subs) {
             e = substitute(e, name, replacement);
         }
-        return std::format("{{\"ok\":true,{}}}", rendered_fields(simplify(e)));
+        return std::format("{{\"ok\":true,{}}}",
+                           rendered_fields(simplify_result ? simplify(e) : e));
     });
 }
 

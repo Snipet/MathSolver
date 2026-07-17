@@ -809,6 +809,86 @@ REPL (`>>> ` prompt, plain `std::getline` — no readline dependency; Ctrl-D or
   `help`, `quit`/`exit`.
 - Parse/math errors print the caret diagnostic and keep the session alive.
 
+### REPL session environment (variable assignment)
+
+The REPL keeps a **session environment** of `name := value` bindings (full
+spec: docs/proposals/variable-assignment.md; this is the condensed contract).
+Engine purity is an invariant: no header under `include/mathsolver/` and no
+file under `src/` knows about environments — the environment is an
+insertion-ordered `std::vector<Binding>` in `apps/main.cpp`
+(`struct Binding { std::string name; std::variant<Expr, Equation> value; }`)
+and "applying" it means composing the existing `substitute()` primitive over
+each computing verb's input. It lives and dies with the process; **one-shot
+subcommands stay stateless** (`simplify "x := 3"` keeps the `':'` lex error —
+the stateless equivalent is the `subs` verb).
+
+- **Syntax.** An input line whose first `:=` splits it into a non-empty left
+  part and a non-empty right part is an assignment, recognized by the input
+  layer — the parser never learns about `:=` (`:` alone keeps its lex
+  error). The target must lex as exactly one Symbol (`x`, `alpha`, `x_1`,
+  `x_{max}`). Errors: constants (`cannot assign to the constant 'pi'`),
+  function names (`cannot assign to the function name 'sin'`), multi-letter
+  words (word-guard rule text plus "try a subscripted name like
+  s_max := 5"), digit-suffix near-misses (`'E1' reads as E*1; did you mean
+  E_1?`), and an empty right side (`assignment needs a value (e.g.
+  x := 2)`). The value is parsed at definition time (immediate caret
+  diagnostics, parse-time canonicalization only) and may be an equation
+  (`E_1 := x + y = 3`). Defining echoes the binding in canonical plain form
+  (`a := 2/4` echoes `a := 1/2`); redefinition replaces in place.
+- **Resolution is lazy** (use-time, not definition-time) and recursive:
+  resolve(input, env, excluded) collects the bindings reachable from the
+  input's free symbols (transitively, skipping `excluded`), orders them
+  parents-first (a binding precedes every binding its value references), and
+  applies them by sequential `substitute()` — one pass fully resolves
+  chains, and the result is independent of definition order. The dependency
+  graph over defined names is kept acyclic at definition time: `'a' cannot
+  be defined in terms of itself` / `assignment would create a cycle:
+  b -> a -> b`. resolve() carries a defensive seen-set and a depth bound
+  sized to the active set — a simple path cannot visit more bindings than
+  exist, so the guard (`internal error: assignment cycle detected`) can only
+  fire on a true cycle, never on a legal deep chain.
+  Substitution rebuilds through the §2 factories, so resolution can throw
+  overflow/division errors; they print like any math error and keep the
+  session alive.
+- **Equation-valued names** may stand only where a whole equation is
+  expected: the entire input line, or an entire `;`-separated segment of a
+  `solve`. Anywhere else resolution fails: `'E_1' names an equation and
+  cannot be used inside an expression`.
+- **Per-verb behavior** (one rule: the environment applies to the input of
+  every computing verb, with the verb's designated symbols excluded; display
+  verbs never resolve):
+  bare expression — resolve all, then simplify. Bare equation — resolve all;
+  exactly one free symbol left → solve for it (`m := 2` then `m*x = 6` →
+  `x = 3`), none left → evaluate the truth: an exact fold answers
+  `equation holds (identity)` / `equation is false (contradiction)`; a
+  symbol-free difference the simplifier cannot fold to an exact Number is
+  compared numerically and answers with an explicit caveat instead of a
+  certainty — `equation holds numerically (lhs - rhs ≈ ...; not verified
+  exactly)` / `equation is false numerically (lhs - rhs ≈ ...)`; several
+  left → the "use solve ..., var" prompt.
+  `solve`/`diff`/`integrate`/`collect` — exclude the requested variable(s);
+  when one is assigned, warn-and-proceed in the warnings position:
+  `warning: 'x' has an assigned value (x := 3), which is ignored while
+  solving for it; 'unset x' removes the assignment` (definite-integral
+  bounds are ordinary expressions and resolve fully). `eval`/`subs` —
+  exclude the explicitly bound/substituted names; an explicit binding
+  shadowing an assignment adds `note: binding x=1 overrides the assignment
+  x := 3 for this command` (resolution runs once, before the verb;
+  expressions introduced by explicit substitution values are not
+  re-resolved). `solve <eq>` with no explicit variable infers it from the
+  *unresolved* input when the equation's only free symbol is itself assigned
+  (`x := 3` then `solve x^2 = 9` solves for x, warn-and-proceed) — otherwise
+  the assignment would consume the unknown and "no free symbols" would be
+  the answer. `expand`/`factor`/`simplify` — resolve all. `latex`/`debug`
+  — never resolve (`latex f` prints `f`, not the bound value).
+- **Management commands**: `vars` (definition order, canonical plain print;
+  empty → `no variables defined`), `unset <name>` (accepts both the
+  displayed and the internal spelling — `unset x_{max}` and `unset x_max`
+  both remove `x_max`; unknown name → `note: 'x' is not defined`, session
+  stays alive), `clear` → `cleared N assignment(s)`. As bare inputs all
+  three were word-guard parse errors, so claiming them changed no working
+  input.
+
 End-to-end tests: CTest invokes the built binary
 (`add_test(... COMMAND mathsolver simplify ...)` + `PASS_REGULAR_EXPRESSION`,
 or a small Catch2 file using `popen` with the binary path passed as a compile

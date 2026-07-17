@@ -17,6 +17,6 @@
 
 namespace mathsolver {
 
-inline constexpr std::string_view k_version = "0.4.0";
+inline constexpr std::string_view k_version = "0.5.0";
 
 } // namespace mathsolver

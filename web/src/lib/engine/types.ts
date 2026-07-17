@@ -80,6 +80,11 @@ export interface EngineApi {
   expand: [[input: string], TransformResult];
   factor: [[input: string], TransformResult];
   latex: [[input: string], TransformResult];
+  subs: [
+    [input: string, assignments: string, simplifyResult: boolean],
+    TransformResult,
+  ];
+  collect: [[input: string, variable: string], TransformResult];
   derivative: [[input: string, variable: string], TransformResult];
   integrate: [[input: string, variable: string], IntegrateResult];
   integrateDefinite: [

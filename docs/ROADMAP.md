@@ -354,9 +354,13 @@ and re-baseline `tests/acceptance/cases.tsv` in the same commit.
 - **Mixed numbers (`3 1/2`).** Irreconcilable with implicit multiplication
   (`3 1/2` *must* stay `3·1/2` or `2(x+1)` breaks). Document it; the web UI
   can warn on the `int int/int` pattern client-side.
-- **`f(x) = ...` user function definitions.** An environment/binding concept,
-  not an expression; the REPL is stateless by design. A future REPL-level
-  `let` could sit above the parser without touching it.
+- **`f(x) = ...` user function definitions.** A lambda/arity concept, not a
+  symbol binding — still excluded. (The REPL-level `let` this bullet once
+  reserved room for has since shipped as v0.5 variable assignment, `name :=
+  value` — see docs/proposals/variable-assignment.md. Statefulness is
+  confined to the session layer above the parser; the engine, parser, and
+  printer remain stateless. `f := x^2` plus `subs`/`eval` covers the
+  practical need for function-like reuse.)
 - **General multi-letter identifiers by default.** See P2-1 — silently
   breaking `xy`/`2pir` for the existing corpus is worse than the guard error.
 - **log expansion inside `simplify`.** §7 excludes it for fixpoint and domain

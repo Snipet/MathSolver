@@ -1,0 +1,40 @@
+# Resolution parity vectors — docs/proposals/variable-assignment.md §10.
+# One shared table of (env, input, excluded) -> expected output, consumed
+# twice so the two §5 resolve() implementations stay honest against each
+# other:
+#   - tests/test_cli.cpp ("repl assign: resolution parity vectors ...")
+#     drives the C++ REPL: env lines are piped in (forward AND reversed
+#     definition order — the order-independence property), then the probe:
+#     the bare input when nothing is excluded, or `subs input, v=v, ...`
+#     (explicit no-op substitutions are exactly the §7 exclusion mechanism).
+#     Rows with a csv also pin the "resolution IS subs" property: a fresh
+#     session running `subs input, <csv>` must print the same output.
+#   - tools/web_vars_test.mjs drives web/src/lib/vars/resolve.ts against the
+#     wasm build: closure() + one `subs` binding call must yield `expected`,
+#     the active set must serialize to the same assignment set as `csv` in a
+#     valid parents-first order, and the same env in reversed order must
+#     produce the identical output.
+#
+# Columns (tab-separated):
+#   env       ';'-separated definitions in `name := value` form (values are
+#             canonical §5 plain prints; expressions only — equation values
+#             have their own placement-rule tests)
+#   input     the expression whose resolution is probed
+#   excluded  ','-separated designated symbols, or `-` for none
+#   csv       the parents-first `subs` serialization of the active set for
+#             the forward env order, or `-` when nothing applies
+#   expected  the simplified resolved plain output both frontends must print
+#
+# env	input	excluded	csv	expected
+a := 2	a*x + 3	-	a=2	2*x + 3
+f := g + 1;g := x^2	f + y	-	f=g + 1,g=x^2	x^2 + y + 1
+f := g + 1;g := x^2	f	-	f=g + 1,g=x^2	x^2 + 1
+f := g + 1;g := x^2	f	g	f=g + 1	g + 1
+x := 3	x^2 + 1	x	-	x^2 + 1
+x := 3	x^2 + 1	-	x=3	10
+h := a^3;a := 2	h + 1	-	h=a^3,a=2	9
+alpha := pi/6	2*alpha	-	alpha=pi/6	pi/3
+b := c + 1	b + c	-	b=c + 1	2*c + 1
+a := 2;b := 3	a + b	-	a=2,b=3	5
+x := 1;y := 2	x + y + z	x,y	-	x + y + z
+p := q + r_1;q := x^2;r_1 := x + 1	p	-	p=q + r_1,r_1=x + 1,q=x^2	x^2 + x + 1

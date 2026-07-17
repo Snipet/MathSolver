@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(MathSolver
-    VERSION 0.4.0
+    VERSION 0.5.0
     DESCRIPTION "A from-scratch computer-algebra system: parse, simplify, differentiate, solve"
     LANGUAGES CXX)
 

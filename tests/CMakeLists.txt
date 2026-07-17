@@ -29,7 +29,10 @@ target_link_libraries(mathsolver_tests PRIVATE mathsolver_core Catch2::Catch2Wit
 
 # The CLI end-to-end tests drive the real binary through popen().
 target_compile_definitions(mathsolver_tests
-    PRIVATE MATHSOLVER_CLI_PATH="$<TARGET_FILE:mathsolver>")
+    PRIVATE MATHSOLVER_CLI_PATH="$<TARGET_FILE:mathsolver>"
+            # Shared §5 resolution parity vectors (variable-assignment spec
+            # §10), consumed here and by tools/web_vars_test.mjs.
+            MATHSOLVER_PARITY_VECTORS="${CMAKE_SOURCE_DIR}/tests/resolution_vectors.tsv")
 add_dependencies(mathsolver_tests mathsolver)
 catch_discover_tests(mathsolver_tests)
 

@@ -7,8 +7,10 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <initializer_list>
 #include <string>
+#include <vector>
 
 #include <sys/wait.h>
 
@@ -395,7 +397,7 @@ TEST_CASE("cli: --version and --help") {
     const RunResult version = run_cli({"--version"});
     INFO(version.output);
     CHECK(version.exit_code == 0);
-    CHECK(contains(version.output, "0.4.0"));
+    CHECK(contains(version.output, "0.5.0"));
 
     const RunResult help = run_cli({"--help"});
     CHECK(help.exit_code == 0);
@@ -710,6 +712,511 @@ TEST_CASE("cli: REPL solves a system with comma-separated variables") {
     CHECK(contains(r.output, "x = 2"));
     CHECK(contains(r.output, "y = 1"));
     CHECK(contains(r.output, "method: gaussian elimination"));
+}
+
+// ---------------------------------------------------------------------------
+// REPL variable assignment (docs/proposals/variable-assignment.md; contract
+// condensed in DESIGN.md §10). All piped-REPL sessions: the environment is
+// REPL-only state, so every case here goes through run_repl.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("repl assign: definition echoes the canonical plain form") {
+    const RunResult r = run_repl("a := 2\n"
+                                 "b := 2/4\n"
+                                 "x_{max} := 10\n"
+                                 "E_1 := x + y = 3\n"
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "a := 2\n"));
+    CHECK(contains(r.output, "b := 1/2\n"));       // parse-time canonicalization
+    CHECK(contains(r.output, "x_{max} := 10\n"));  // re-parseable spelling
+    CHECK(contains(r.output, "E_1 := x + y = 3\n"));
+}
+
+TEST_CASE("repl assign: lazy chain resolves at use and follows redefinition") {
+    const RunResult r = run_repl("f := g + 1\n"  // g not defined yet — fine
+                                 "g := x^2\n"
+                                 "f\n"
+                                 "g := x^3\n"
+                                 "f\n"
+                                 "diff f, x\n"
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "x^2 + 1"));
+    CHECK(contains(r.output, "x^3 + 1"));  // redefining g updates f
+    CHECK(contains(r.output, "3*x^2"));    // diff resolves f (excluding x)
+}
+
+TEST_CASE("repl assign: resolution is independent of definition order") {
+    const RunResult forward = run_repl("f := g + 1\ng := x^2\nf + y\nquit\n");
+    const RunResult backward = run_repl("g := x^2\nf := g + 1\nf + y\nquit\n");
+    INFO(forward.output);
+    INFO(backward.output);
+    CHECK(forward.exit_code == 0);
+    CHECK(backward.exit_code == 0);
+    // Same env in shuffled definition orders -> the identical resolved line.
+    CHECK(contains(forward.output, "x^2 + y + 1\n"));
+    CHECK(contains(backward.output, "x^2 + y + 1\n"));
+}
+
+TEST_CASE("repl assign: self-reference and indirect cycles are rejected, session alive") {
+    const RunResult r = run_repl("a := a + 1\n"
+                                 "a := b + 1\n"
+                                 "b := a^2\n"
+                                 "a := 5\n"  // still works after both errors
+                                 "a\n"
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "error: 'a' cannot be defined in terms of itself"));
+    CHECK(contains(r.output, "error: assignment would create a cycle: b -> a -> b"));
+    CHECK(contains(r.output, "5"));
+}
+
+TEST_CASE("repl assign: invalid targets get the spec diagnostics") {
+    const RunResult r = run_repl("E1 := 2\n"
+                                 "speed := 5\n"
+                                 "pi := 3\n"
+                                 "e := 2.7\n"
+                                 "sin := x\n"
+                                 "x :=\n"
+                                 "x + 1\n"  // session still alive
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output,
+                   "error: assignment target must be a single variable name "
+                   "(e.g. x, alpha, E_1) — 'E1' reads as E*1; did you mean E_1?"));
+    CHECK(contains(r.output, "variables are single letters (a-z), Greek names, "
+                             "or subscripted (v_1)"));
+    CHECK(contains(r.output, "assignment targets follow the same rule — try a "
+                             "subscripted name like s_max := 5"));
+    CHECK(contains(r.output, "error: cannot assign to the constant 'pi'"));
+    CHECK(contains(r.output, "error: cannot assign to the constant 'e'"));
+    CHECK(contains(r.output, "error: cannot assign to the function name 'sin'"));
+    CHECK(contains(r.output, "error: assignment needs a value (e.g. x := 2)"));
+    CHECK(contains(r.output, "x + 1"));
+}
+
+TEST_CASE("repl assign: vars, unset, and clear manage the environment") {
+    const RunResult r = run_repl("vars\n"  // empty environment
+                                 "a := 2\n"
+                                 "f := g + 1\n"
+                                 "E_1 := x + y = 3\n"
+                                 "vars\n"
+                                 "unset q\n"  // unknown name is a note, not an error
+                                 "unset f\n"
+                                 "vars\n"
+                                 "clear\n"
+                                 "vars\n"
+                                 "clear\n"  // empty clear still reports
+                                 "f\n"      // f is an ordinary symbol again
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "no variables defined"));
+    // Definition order: a before f before E_1.
+    const std::size_t a_pos = r.output.find("a := 2\nf := g + 1\nE_1 := x + y = 3");
+    CHECK(a_pos != std::string::npos);
+    CHECK(contains(r.output, "note: 'q' is not defined"));
+    CHECK(contains(r.output, "cleared 2 assignment(s)"));
+    CHECK(contains(r.output, "cleared 0 assignment(s)"));
+    CHECK(contains(r.output, ">>> f\n"));  // bare f prints itself after clear
+    CHECK(!contains(r.output, "error:"));
+}
+
+TEST_CASE("repl assign: solving for an assigned variable warns and proceeds") {
+    const RunResult r = run_repl("x := 3\n"
+                                 "solve x^2 = 9, x\n"
+                                 "unset x\n"
+                                 "solve x^2 = 9, x\n"
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "x = -3"));
+    CHECK(contains(r.output, "x = 3"));
+    CHECK(contains(r.output,
+                   "warning: 'x' has an assigned value (x := 3), which is "
+                   "ignored while solving for it; 'unset x' removes the "
+                   "assignment"));
+    // After unset the warning is gone: exactly one occurrence.
+    const std::size_t first = r.output.find("has an assigned value");
+    REQUIRE(first != std::string::npos);
+    CHECK(r.output.find("has an assigned value", first + 1) == std::string::npos);
+}
+
+TEST_CASE("repl assign: diff/integrate/collect exclude the variable and warn") {
+    const RunResult r = run_repl("x := 3\n"
+                                 "diff x^2, x\n"
+                                 "collect x*y + x*z, x\n"
+                                 "integrate x^2, x\n"
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "2*x"));         // not d/dx of 9 == 0
+    CHECK(contains(r.output, "x*(y + z)"));
+    CHECK(contains(r.output, "x^3/3 + C"));
+    // One warning per command.
+    std::size_t count = 0;
+    for (std::size_t pos = r.output.find("has an assigned value");
+         pos != std::string::npos;
+         pos = r.output.find("has an assigned value", pos + 1)) {
+        ++count;
+    }
+    CHECK(count == 3);
+}
+
+TEST_CASE("repl assign: bare equation disambiguates, and truths are evaluated") {
+    const RunResult r = run_repl("m := 2\n"
+                                 "m*x = 6\n"     // one symbol left -> solve for x
+                                 "a := 2\n"
+                                 "a + 1 = 3\n"   // none left, true
+                                 "a + 1 = 4\n"   // none left, false
+                                 "x + y = 1\n"   // several left -> today's prompt
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "x = 3"));
+    CHECK(contains(r.output, "method: linear"));
+    CHECK(contains(r.output, "equation holds (identity)"));
+    CHECK(contains(r.output, "equation is false (contradiction)"));
+    CHECK(contains(r.output, "use: solve <equation>, <variable>"));
+}
+
+TEST_CASE("repl assign: a 66-deep acyclic chain resolves (depth guard is cycle-only)") {
+    // Regression: a fixed depth bound of 64 misdiagnosed legal deep lazy
+    // chains as "internal error: assignment cycle detected". The guard must
+    // fire only on true cycles (which the visiting set detects).
+    std::string in;
+    for (int i = 1; i < 66; ++i) {
+        in += "c_" + std::to_string(i) + " := c_" + std::to_string(i + 1) + " + 1\n";
+    }
+    in += "c_66 := 1\n"
+          "c_1\n"
+          "quit\n";
+    const RunResult r = run_repl(in);
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, ">>> 66\n"));  // c_1 = 1 + 65
+    CHECK(!contains(r.output, "cycle"));
+    CHECK(!contains(r.output, "error:"));
+}
+
+TEST_CASE("repl assign: inexact truth tests answer with a caveat, not a certainty") {
+    // Regression: a symbol-free difference the simplifier cannot fold to an
+    // exact Number was judged by |difference| < 1e-12 and printed as
+    // "identity" — sin(1e-7)^2 is nonzero, so that claim was false. The
+    // numeric path must hedge; only the exact-fold path may say
+    // identity/contradiction.
+    const RunResult r = run_repl("sin(1/10000000)^2 = 0\n"
+                                 "sin(1) = 2\n"
+                                 "2/4 = 1/2\n"
+                                 "1 = 2\n"
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "equation holds numerically (lhs - rhs ≈ "));
+    CHECK(contains(r.output, "; not verified exactly)"));
+    CHECK(contains(r.output, "equation is false numerically (lhs - rhs ≈ "));
+    // Exact folds keep the spec's certainty words.
+    CHECK(contains(r.output, "equation holds (identity)"));
+    CHECK(contains(r.output, "equation is false (contradiction)"));
+    // The inexact line never claims identity: exactly one identity print.
+    const std::size_t first = r.output.find("(identity)");
+    REQUIRE(first != std::string::npos);
+    CHECK(r.output.find("(identity)", first + 1) == std::string::npos);
+}
+
+TEST_CASE("repl assign: unset accepts the spelling that vars displays") {
+    // Regression: `vars` prints `x_{max} := 10` but `unset x_{max}` said
+    // "not defined" — only the internal spelling x_max worked. Both must.
+    const RunResult r = run_repl("x_{max} := 10\n"
+                                 "unset x_{max}\n"
+                                 "vars\n"
+                                 "y_{min} := 1\n"
+                                 "unset y_min\n"  // internal spelling still works
+                                 "vars\n"
+                                 "unset z_{top}\n"
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(!contains(r.output, "'x_{max}' is not defined"));
+    CHECK(!contains(r.output, "'y_min' is not defined"));
+    const std::size_t count =
+        [&] {
+            std::size_t n = 0;
+            for (std::size_t pos = r.output.find("no variables defined");
+                 pos != std::string::npos;
+                 pos = r.output.find("no variables defined", pos + 1)) {
+                ++n;
+            }
+            return n;
+        }();
+    CHECK(count == 2);  // both unsets actually removed their binding
+    // Unknown names still get the note, echoing the name as typed.
+    CHECK(contains(r.output, "note: 'z_{top}' is not defined"));
+}
+
+TEST_CASE("repl assign: solve infers the variable even when it is assigned") {
+    // Regression: `x := 3` then `solve x^2 = 9` resolved x away and errored
+    // with "the input has no free symbols" while the bare equation form
+    // answered. With one free symbol in the unresolved input, solve treats
+    // it as the requested variable: exclude, solve, warn (§7 doctrine).
+    const RunResult r = run_repl("x := 3\n"
+                                 "solve x^2 = 9\n"
+                                 "solve 1 = 2\n"  // symbol-free input keeps its error
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "x = -3"));
+    CHECK(contains(r.output, "x = 3"));
+    CHECK(contains(r.output, "warning: 'x' has an assigned value (x := 3), "
+                             "which is ignored while solving for it"));
+    CHECK(contains(r.output, "no free symbols"));
+}
+
+TEST_CASE("repl assign: eval and subs explicit bindings shadow with a note") {
+    const RunResult r = run_repl("x := 3\n"
+                                 "eval x^2 + y, y=1\n"  // env supplies x
+                                 "eval x + 1, x=10\n"   // explicit x wins
+                                 "subs x^2, x=u\n"      // explicit substitution wins
+                                 "subs x^2 + z, z=1\n"  // env still applies to x
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "10\n"));  // 3^2 + 1
+    CHECK(contains(r.output, "11\n"));
+    CHECK(contains(r.output, "note: binding x=10 overrides the assignment "
+                             "x := 3 for this command"));
+    CHECK(contains(r.output, "u^2"));
+    CHECK(contains(r.output, "note: binding x=u overrides the assignment "
+                             "x := 3 for this command"));
+    CHECK(contains(r.output, "10\n"));  // 3^2 + 1 again via z=1
+}
+
+TEST_CASE("repl assign: latex and debug are display verbs and never resolve") {
+    const RunResult r = run_repl("f := x^2\n"
+                                 "latex f\n"
+                                 "debug f + 1\n"
+                                 "f\n"  // the computing path still resolves
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, ">>> f\n"));           // latex f prints f, not x^2
+    CHECK(contains(r.output, "(add 1 f)"));         // debug shows the input as typed
+    CHECK(contains(r.output, "x^2"));               // bare f resolves
+    CHECK(!contains(r.output, "x^{2}"));            // latex never saw the value
+}
+
+TEST_CASE("repl assign: equation-valued names only stand where equations may") {
+    const RunResult r = run_repl("E_1 := x + y = 3\n"
+                                 "E_2 := x - y = 1\n"
+                                 "E_1 + 1\n"        // inside an expression: error
+                                 "h := E_1 + 2\n"   // lazy: definition is legal...
+                                 "h\n"              // ...use is the same error
+                                 "solve E_1; E_2, x, y\n"
+                                 "solve E_1, x\n"   // single whole-segment use
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "error: 'E_1' names an equation and cannot be "
+                             "used inside an expression"));
+    CHECK(contains(r.output, "h := E_1 + 2"));  // definition echoed
+    CHECK(contains(r.output, "x = 2"));
+    CHECK(contains(r.output, "y = 1"));
+    CHECK(contains(r.output, "method: gaussian elimination"));
+    CHECK(contains(r.output, "x = -y + 3"));    // solve E_1, x (linear in x)
+}
+
+TEST_CASE("repl assign: definite-integral bounds resolve from the environment") {
+    const RunResult r = run_repl("a := 2\n"
+                                 "integrate x^2, x, 0, a\n"
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "value = 8/3"));
+    CHECK(contains(r.output, "method: FTC"));
+}
+
+TEST_CASE("repl assign: overflow during resolution keeps the session alive") {
+    const RunResult r = run_repl("k := 10^18\n"
+                                 "k^2\n"  // (10^18)^2 overflows 64-bit rationals
+                                 "6 * 7\n"
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "error:"));
+    CHECK(contains(r.output, "overflow"));
+    CHECK(contains(r.output, "42"));  // recovered
+}
+
+namespace {
+
+struct ParityVector {
+    std::vector<std::string> defs;      // `name := value` lines, table order
+    std::string input;                  // probed expression
+    std::vector<std::string> excluded;  // designated symbols (may be empty)
+    std::string csv;                    // parents-first subs CSV ("-" = none)
+    std::string expected;               // simplified resolved plain output
+};
+
+std::vector<std::string> split_on(const std::string& s, char sep) {
+    std::vector<std::string> parts;
+    std::size_t start = 0;
+    for (std::size_t i = 0; i <= s.size(); ++i) {
+        if (i == s.size() || s[i] == sep) {
+            parts.push_back(s.substr(start, i - start));
+            start = i + 1;
+        }
+    }
+    return parts;
+}
+
+/// tests/resolution_vectors.tsv — the shared table also consumed by
+/// tools/web_vars_test.mjs (variable-assignment spec §10).
+std::vector<ParityVector> load_parity_vectors() {
+    std::ifstream in(MATHSOLVER_PARITY_VECTORS);
+    REQUIRE(in.is_open());
+    std::vector<ParityVector> vectors;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+        const std::vector<std::string> cols = split_on(line, '\t');
+        REQUIRE(cols.size() == 5);
+        ParityVector v;
+        v.defs = split_on(cols[0], ';');
+        v.input = cols[1];
+        if (cols[2] != "-") {
+            v.excluded = split_on(cols[2], ',');
+        }
+        v.csv = cols[3];
+        v.expected = cols[4];
+        vectors.push_back(std::move(v));
+    }
+    REQUIRE(!vectors.empty());
+    return vectors;
+}
+
+/// The REPL probe for one vector: the bare input when nothing is excluded,
+/// or `subs input, v=v, ...` — an explicit no-op substitution per excluded
+/// name is exactly the §7 exclusion mechanism (explicit names shadow).
+std::string parity_probe(const ParityVector& v) {
+    if (v.excluded.empty()) {
+        return v.input;
+    }
+    std::string probe = "subs " + v.input;
+    for (const std::string& name : v.excluded) {
+        probe += ", " + name + "=" + name;
+    }
+    return probe;
+}
+
+}  // namespace
+
+TEST_CASE("repl assign: resolution parity vectors, forward and reversed order") {
+    // Order-independence (§5.2): the same environment defined in any order
+    // resolves identically. The TS resolver runs the identical table in
+    // tools/web_vars_test.mjs.
+    for (const ParityVector& v : load_parity_vectors()) {
+        const std::string probe = parity_probe(v);
+        for (const bool reversed : {false, true}) {
+            std::string script;
+            if (reversed) {
+                for (auto it = v.defs.rbegin(); it != v.defs.rend(); ++it) {
+                    script += *it + "\n";
+                }
+            } else {
+                for (const std::string& def : v.defs) {
+                    script += def + "\n";
+                }
+            }
+            script += probe + "\nquit\n";
+            const RunResult r = run_repl(script);
+            INFO("probe: " << probe << (reversed ? " (env reversed)" : ""));
+            INFO(r.output);
+            CHECK(r.exit_code == 0);
+            CHECK(contains(r.output, v.expected + "\n"));
+        }
+    }
+}
+
+TEST_CASE("repl assign: resolution is subs (parity vectors, §10 property)") {
+    // Applying the same bindings via one `subs` invocation in parents-first
+    // order — the CSV the table shares with the TS resolver — must print the
+    // same output as environment resolution.
+    for (const ParityVector& v : load_parity_vectors()) {
+        if (!v.excluded.empty() || v.csv == "-") {
+            continue;
+        }
+        const RunResult r = run_repl("subs " + v.input + ", " + v.csv + "\nquit\n");
+        INFO("subs " << v.input << ", " << v.csv);
+        INFO(r.output);
+        CHECK(r.exit_code == 0);
+        CHECK(contains(r.output, v.expected + "\n"));
+    }
+}
+
+TEST_CASE("repl assign: one-shot subcommands stay stateless") {
+    // ':' keeps its lex error outside the REPL — assignment is REPL/web-only.
+    const RunResult r = run_cli({"simplify", "x := 3"}, "2>&1 1>/dev/null");
+    INFO(r.output);
+    CHECK(r.exit_code == 1);
+    CHECK(contains(r.output, "unexpected character ':'"));
+}
+
+TEST_CASE("repl assign: full session mirrors the spec's worked transcript") {
+    // docs/proposals/variable-assignment.md §12.1 (the session defines seven
+    // bindings by the time `clear` runs).
+    const RunResult r = run_repl("a := 2\n"
+                                 "a^3 + a\n"
+                                 "f := g + 1\n"
+                                 "g := x^2\n"
+                                 "f\n"
+                                 "diff f, x\n"
+                                 "g := sin(x)\n"
+                                 "diff f, x\n"
+                                 "a := a + 1\n"
+                                 "b := c + 1\n"
+                                 "c := b^2\n"
+                                 "vars\n"
+                                 "x := 3\n"
+                                 "solve x^2 = 9, x\n"
+                                 "unset x\n"
+                                 "m := 2\n"
+                                 "m*x = 6\n"
+                                 "E_1 := x + y = 3\n"
+                                 "E_2 := x - y = 1\n"
+                                 "solve E_1; E_2, x, y\n"
+                                 "latex f\n"
+                                 "subs f, g=t\n"
+                                 "integrate x^2, x, 0, a\n"
+                                 "clear\n"
+                                 "f\n"
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "a := 2\n"));
+    CHECK(contains(r.output, "10\n"));                     // a^3 + a
+    CHECK(contains(r.output, "x^2 + 1"));                  // f under g := x^2
+    CHECK(contains(r.output, "2*x"));                      // diff f, x
+    CHECK(contains(r.output, "cos(x)"));                   // after g := sin(x)
+    CHECK(contains(r.output, "'a' cannot be defined in terms of itself"));
+    CHECK(contains(r.output, "assignment would create a cycle: c -> b -> c"));
+    // vars lists in definition order.
+    CHECK(contains(r.output, "a := 2\nf := g + 1\ng := sin(x)\nb := c + 1"));
+    CHECK(contains(r.output, "x = -3"));
+    CHECK(contains(r.output, "x = 3"));
+    CHECK(contains(r.output, "'x' has an assigned value (x := 3)"));
+    CHECK(contains(r.output, "method: linear"));           // m*x = 6 -> x = 3
+    CHECK(contains(r.output, "x = 2\ny = 1\nmethod: gaussian elimination"));
+    CHECK(contains(r.output, ">>> f\n"));                  // latex f -> f
+    CHECK(contains(r.output, "t + 1"));                    // subs f, g=t
+    CHECK(contains(r.output, "value = 8/3"));
+    CHECK(contains(r.output, "cleared 7 assignment(s)"));
 }
 
 TEST_CASE("cli: '--' ends option parsing so '--x' can be passed as input") {

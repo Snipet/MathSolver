@@ -6,6 +6,13 @@
 // 1 parse/math error, 2 usage error. With no arguments an interactive REPL
 // starts (">>> " prompt, plain std::getline — behaves identically when stdin
 // is a pipe).
+//
+// The REPL additionally keeps a session environment of `name := value`
+// assignments (docs/proposals/variable-assignment.md; contract condensed in
+// DESIGN.md §10). The environment is pure application state: the engine and
+// the one-shot subcommands know nothing about it, and applying it means
+// composing the existing substitute() primitive over each computing verb's
+// input.
 
 #include <algorithm>
 #include <cctype>
@@ -805,7 +812,14 @@ void print_repl_help() {
         "  simplify <expression>      expand <expression>\n"
         "  factor <expression>        latex <expression>\n"
         "  debug <expression>         (s-expression dump)\n"
-        "  help                       quit / exit\n");
+        "  help                       quit / exit\n"
+        "Assignments (docs/GRAMMAR.md \"Assignments\"):\n"
+        "  <name> := <value>          bind a variable to an expression or an\n"
+        "                             equation (E_1 := x + y = 3); bindings\n"
+        "                             apply lazily to every computing command\n"
+        "  vars                       list bindings in definition order\n"
+        "  unset <name>               remove one binding\n"
+        "  clear                      remove all bindings\n");
 }
 
 /// Split at commas that are not nested inside (), {}, or [].
@@ -820,7 +834,460 @@ bool is_repl_command(std::string_view word) {
            word == "subs" || word == "collect";
 }
 
-void repl_command(const std::string& command, const std::string& rest) {
+// ---------------------------------------------------------------------------
+// Session environment (variable assignment): `name := value` bindings,
+// REPL-only. Spec: docs/proposals/variable-assignment.md; condensed contract
+// in DESIGN.md §10. Values are stored as parsed ASTs and resolve lazily at
+// each use (§5 of the spec); the dependency graph over defined names is kept
+// acyclic at definition time (§5.2).
+// ---------------------------------------------------------------------------
+
+struct Binding {
+    std::string name;
+    std::variant<Expr, Equation> value;
+};
+
+/// Insertion-ordered so `vars` lists in definition order; lookups are linear
+/// over a handful of entries.
+using Environment = std::vector<Binding>;
+
+const Binding* find_binding(const Environment& env, std::string_view name) {
+    for (const Binding& b : env) {
+        if (b.name == name) {
+            return &b;
+        }
+    }
+    return nullptr;
+}
+
+std::set<std::string> binding_free_symbols(const Binding& b) {
+    if (const Expr* e = std::get_if<Expr>(&b.value)) {
+        return free_symbols(*e);
+    }
+    return equation_symbols(std::get<Equation>(b.value));
+}
+
+/// Canonical plain print of a binding: `a := 2`, `E_1 := x + y = 3`. The
+/// name goes through the printer so it echoes in its re-parseable spelling
+/// (`x_{max}`, not the bare symbol name `x_max`).
+std::string binding_text(const Binding& b) {
+    const std::string name = to_string(make_sym(b.name), PrintStyle::Plain);
+    if (const Expr* e = std::get_if<Expr>(&b.value)) {
+        return std::format("{} := {}", name, to_string(*e, PrintStyle::Plain));
+    }
+    return std::format("{} := {}", name,
+                       to_string(std::get<Equation>(b.value), PrintStyle::Plain));
+}
+
+/// The §5 resolve() ordering: the environment entries reachable from `roots`
+/// through bound values (transitively), minus `excluded`, ordered
+/// parents-first — a binding precedes every binding its value references —
+/// so one sequential substitute() pass fully resolves chains and the result
+/// is independent of definition order. A name bound to an Equation can never
+/// be substituted into an expression; reaching one here is the §4 placement
+/// error.
+std::vector<const Binding*> active_bindings(const std::set<std::string>& roots,
+                                            const Environment& env,
+                                            const std::set<std::string>& excluded) {
+    std::vector<const Binding*> active;
+    std::set<std::string> seen;
+    std::vector<std::string> frontier(roots.begin(), roots.end());
+    while (!frontier.empty()) {
+        const std::string name = std::move(frontier.back());
+        frontier.pop_back();
+        if (excluded.contains(name) || !seen.insert(name).second) {
+            continue;
+        }
+        const Binding* b = find_binding(env, name);
+        if (b == nullptr) {
+            continue;
+        }
+        if (std::holds_alternative<Equation>(b->value)) {
+            throw UsageError{std::format(
+                "'{}' names an equation and cannot be used inside an expression",
+                name)};
+        }
+        active.push_back(b);
+        for (const std::string& s : free_symbols(std::get<Expr>(b->value))) {
+            frontier.push_back(s);
+        }
+    }
+
+    // Parents-first topological order (DFS post-order, reversed). The
+    // definition-time cycle check keeps the graph acyclic; the visiting set
+    // and the depth bound are belt-and-braces only. The bound is the active
+    // set's size — a simple path cannot visit more bindings than exist — so
+    // it can never fire on legal acyclic input, however deep the chain
+    // (a fixed constant here once misdiagnosed a 66-deep chain as a cycle).
+    std::vector<const Binding*> ordered;
+    std::set<std::string> done;
+    std::set<std::string> visiting;
+    const int max_depth = static_cast<int>(active.size());
+    auto visit = [&](auto&& self, const Binding* b, int depth) -> void {
+        if (depth > max_depth || visiting.contains(b->name)) {
+            throw Error{"internal error: assignment cycle detected"};
+        }
+        if (done.contains(b->name)) {
+            return;
+        }
+        visiting.insert(b->name);
+        for (const Binding* dep : active) {
+            if (dep != b && contains_symbol(std::get<Expr>(b->value), dep->name)) {
+                self(self, dep, depth + 1);
+            }
+        }
+        visiting.erase(b->name);
+        done.insert(b->name);
+        ordered.push_back(b);
+    };
+    for (const Binding* b : active) {
+        visit(visit, b, 0);
+    }
+    std::reverse(ordered.begin(), ordered.end());
+    return ordered;
+}
+
+Expr resolve_expr(const Expr& e, const Environment& env,
+                  const std::set<std::string>& excluded = {}) {
+    Expr r = e;
+    for (const Binding* b : active_bindings(free_symbols(e), env, excluded)) {
+        r = substitute(r, b->name, std::get<Expr>(b->value));
+    }
+    return r;
+}
+
+Equation resolve_equation(const Equation& eq, const Environment& env,
+                          const std::set<std::string>& excluded = {}) {
+    Equation r = eq;
+    for (const Binding* b : active_bindings(equation_symbols(eq), env, excluded)) {
+        const Expr& v = std::get<Expr>(b->value);
+        r.lhs = substitute(r.lhs, b->name, v);
+        r.rhs = substitute(r.rhs, b->name, v);
+    }
+    return r;
+}
+
+/// Resolve a whole parsed input to plain text (round-trip-guaranteed), ready
+/// to feed an existing run_* verb.
+std::string resolve_input_text(const std::string& input, const Environment& env,
+                               const std::set<std::string>& excluded = {}) {
+    const auto parsed = parse_input_diag(input);
+    if (const Expr* e = std::get_if<Expr>(&parsed)) {
+        return to_string(resolve_expr(*e, env, excluded), PrintStyle::Plain);
+    }
+    return to_string(resolve_equation(std::get<Equation>(parsed), env, excluded),
+                     PrintStyle::Plain);
+}
+
+constexpr std::string_view k_assign_target_error =
+    "assignment target must be a single variable name (e.g. x, alpha, E_1)";
+
+/// Names the lexer reads as functions (docs/GRAMMAR.md): never assignable.
+bool is_function_word(std::string_view s) {
+    static constexpr std::string_view names[] = {
+        "sin",  "cos",  "tan", "asin", "acos", "atan", "arcsin",
+        "arccos", "arctan", "sinh", "cosh", "tanh", "sec", "csc",
+        "cot",  "exp",  "ln",  "log",  "sqrt", "abs"};
+    return std::ranges::find(names, s) != std::ranges::end(names);
+}
+
+/// `x_{max}` and `\alpha` lex to the symbols x_max / alpha; normalize the
+/// typed target so it can be compared against the parsed symbol's name.
+std::string normalize_target_text(std::string_view s) {
+    std::string out{s};
+    if (!out.empty() && out.front() == '\\') {
+        out.erase(0, 1);
+    }
+    const std::size_t sub = out.find("_{");
+    if (sub != std::string::npos && !out.empty() && out.back() == '}') {
+        out = out.substr(0, sub + 1) + out.substr(sub + 2, out.size() - sub - 3);
+    }
+    return out;
+}
+
+/// Validate the left side of `name := value` (spec §2.3) and return the
+/// canonical symbol name it binds.
+std::string validate_assignment_target(const std::string& target) {
+    if (is_function_word(target)) {
+        throw UsageError{
+            std::format("cannot assign to the function name '{}'", target)};
+    }
+    Expr parsed;
+    try {
+        parsed = parse_expression(target);
+    } catch (const ParseError&) {
+        parsed = nullptr;
+    }
+    const std::string normalized = normalize_target_text(target);
+    if (parsed && parsed->kind() == Kind::Constant &&
+        (normalized == "pi" || normalized == "e")) {
+        throw UsageError{std::format("cannot assign to the constant '{}'", target)};
+    }
+    if (parsed && parsed->kind() == Kind::Symbol &&
+        parsed->symbol_name() == normalized) {
+        return normalized;
+    }
+
+    // 'E1' lexes as E*1 — suggest the subscript spelling.
+    std::size_t letters_end = 0;
+    while (letters_end < target.size() &&
+           std::isalpha(static_cast<unsigned char>(target[letters_end])) != 0) {
+        ++letters_end;
+    }
+    const std::string letters = target.substr(0, letters_end);
+    const std::string digits = target.substr(letters_end);
+    const bool all_digits =
+        !digits.empty() && std::ranges::all_of(digits, [](char c) {
+            return std::isdigit(static_cast<unsigned char>(c)) != 0;
+        });
+    if (!letters.empty() && all_digits) {
+        Expr letter_expr;
+        try {
+            letter_expr = parse_expression(letters);
+        } catch (const ParseError&) {
+            letter_expr = nullptr;
+        }
+        if (letter_expr && letter_expr->kind() == Kind::Symbol &&
+            letter_expr->symbol_name() == letters) {
+            throw UsageError{std::format(
+                "{} — '{}' reads as {}*{}; did you mean {}_{}?",
+                k_assign_target_error, target, letters, digits, letters, digits)};
+        }
+    }
+    if (!parsed) {
+        // A multi-letter word (the v0.4 word guard) or any other lex error:
+        // reuse the guard's rule text plus assignment-specific guidance
+        // (spec §6).
+        throw UsageError{std::format(
+            "{} — variables are single letters (a-z), Greek names, or "
+            "subscripted (v_1); assignment targets follow the same rule — try "
+            "a subscripted name like s_max := 5",
+            k_assign_target_error)};
+    }
+    throw UsageError{std::string{k_assign_target_error}};
+}
+
+/// Depth-first search for a dependency path from any of `starts` back to
+/// `name` through the defined bindings; returns the path (start .. name) or
+/// empty when none exists.
+std::vector<std::string> find_cycle_path(const std::string& name,
+                                         const std::set<std::string>& starts,
+                                         const Environment& env) {
+    std::vector<std::string> path;
+    std::set<std::string> seen;
+    auto dfs = [&](auto&& self, const std::string& cur) -> bool {
+        if (cur == name) {
+            path.push_back(cur);
+            return true;
+        }
+        if (!seen.insert(cur).second) {
+            return false;
+        }
+        const Binding* b = find_binding(env, cur);
+        if (b == nullptr) {
+            return false;
+        }
+        path.push_back(cur);
+        for (const std::string& next : binding_free_symbols(*b)) {
+            if (self(self, next)) {
+                return true;
+            }
+        }
+        path.pop_back();
+        return false;
+    };
+    for (const std::string& s : starts) {
+        if (dfs(dfs, s)) {
+            return path;
+        }
+    }
+    return {};
+}
+
+/// An input line whose first `:=` splits it into a non-empty left part is an
+/// assignment; a ':' not followed by '=' falls through to the parser and
+/// keeps its existing lex error.
+bool is_assignment_line(const std::string& line) {
+    const std::size_t pos = line.find(":=");
+    return pos != std::string::npos && !trim(line.substr(0, pos)).empty();
+}
+
+/// `name := value` (spec §2): validate the target, parse the value now
+/// (caret diagnostics at definition time), reject cycles (§5.2), store, and
+/// echo the binding in canonical plain form.
+void repl_assign(const std::string& line, Environment& env) {
+    const std::size_t pos = line.find(":=");
+    const std::string target = trim(line.substr(0, pos));
+    const std::string value_text = trim(line.substr(pos + 2));
+    const std::string name = validate_assignment_target(target);
+    if (value_text.empty()) {
+        throw UsageError{"assignment needs a value (e.g. x := 2)"};
+    }
+    Binding binding{name, parse_input_diag(value_text)};
+
+    const std::set<std::string> value_syms = binding_free_symbols(binding);
+    if (value_syms.contains(name)) {
+        throw UsageError{
+            std::format("'{}' cannot be defined in terms of itself", name)};
+    }
+    const std::vector<std::string> cycle = find_cycle_path(name, value_syms, env);
+    if (!cycle.empty()) {
+        std::string msg = std::format("assignment would create a cycle: {}", name);
+        for (const std::string& n : cycle) {
+            msg += " -> " + n;
+        }
+        throw UsageError{msg};
+    }
+
+    // Redefinition replaces in place (keeps definition order for `vars`).
+    const auto it = std::ranges::find(env, name, &Binding::name);
+    if (it != env.end()) {
+        *it = std::move(binding);
+        std::println("{}", binding_text(*it));
+    } else {
+        env.push_back(std::move(binding));
+        std::println("{}", binding_text(env.back()));
+    }
+}
+
+/// Spec §7: solving (or diff/integrate/collect) for an assigned variable
+/// ignores the assignment, warn-and-proceed. Prints in the warnings position
+/// (after the result lines and `method:`).
+void warn_assigned_variable(const std::string& var, const Environment& env) {
+    if (var.empty()) {
+        return;
+    }
+    if (const Binding* b = find_binding(env, var)) {
+        std::println(
+            "warning: '{}' has an assigned value ({}), which is ignored while "
+            "solving for it; 'unset {}' removes the assignment",
+            var, binding_text(*b), var);
+    }
+}
+
+/// Spec §7: explicit eval bindings / subs substitutions shadow the
+/// environment for one command, with a note per shadowed name.
+void print_override_notes(const std::vector<std::string>& args,
+                          const Environment& env) {
+    for (const std::string& arg : args) {
+        const std::size_t eq = arg.find('=');
+        if (eq == std::string::npos) {
+            continue;
+        }
+        if (const Binding* b = find_binding(env, trim(arg.substr(0, eq)))) {
+            std::println(
+                "note: binding {} overrides the assignment {} for this command",
+                trim(arg), binding_text(*b));
+        }
+    }
+}
+
+/// REPL solve with the environment: an equation-valued name may stand as a
+/// whole ';'-separated segment (spec §4); every requested variable is
+/// excluded from resolution and warned about when assigned (§7).
+void repl_solve(const std::string& input, std::vector<std::string> vars,
+                const Environment& env) {
+    const std::vector<std::string> segments = split_top_level(input, ';');
+    const auto segment_equation = [&](const std::string& segment) -> Equation {
+        // An equation-valued name may stand as a whole segment (spec §4).
+        if (const Binding* b = find_binding(env, segment);
+            b != nullptr && std::holds_alternative<Equation>(b->value)) {
+            return std::get<Equation>(b->value);
+        }
+        return parse_equation_diag(segment);
+    };
+
+    // `solve <eq>` with no explicit variable: when the equation's only free
+    // symbol is itself assigned, resolving first would consume the unknown
+    // (x := 3; solve x^2 = 9 -> "no free symbols"). Infer the variable from
+    // the unresolved input instead and warn-and-proceed exactly as if it had
+    // been requested explicitly (§7 doctrine). With several symbols left
+    // nothing is inferable and run_solve's error stands.
+    if (vars.empty() && segments.size() == 1 && !segments[0].empty()) {
+        const Equation eq = segment_equation(segments[0]);
+        const std::set<std::string> raw = equation_symbols(eq);
+        if (raw.size() == 1 &&
+            equation_symbols(resolve_equation(eq, env)).empty()) {
+            vars.push_back(*raw.begin());
+        }
+    }
+
+    const std::set<std::string> excluded(vars.begin(), vars.end());
+    std::string resolved;
+    bool first = true;
+    for (const std::string& segment : segments) {
+        if (!first) {
+            resolved += "; ";
+        }
+        first = false;
+        if (segment.empty()) {
+            continue;  // run_solve_system reports the empty-segment error
+        }
+        resolved += to_string(resolve_equation(segment_equation(segment), env, excluded),
+                              PrintStyle::Plain);
+    }
+    if (segments.size() > 1) {
+        run_solve_system(resolved, vars, PrintStyle::Plain);
+    } else {
+        if (vars.size() > 1) {
+            throw UsageError{"too many arguments: usage: solve <input>[, <variable>]"};
+        }
+        run_solve(resolved, vars.empty() ? std::string{} : vars[0],
+                  NumericOptions{}, PrintStyle::Plain);
+    }
+    for (const std::string& v : vars) {
+        warn_assigned_variable(v, env);
+    }
+}
+
+/// Bare equation with the environment (spec §7): resolve both sides fully;
+/// one free symbol left → solve for it, none → evaluate the truth, several →
+/// today's "use solve ..., var" prompt.
+void repl_bare_equation(const Equation& eq, const Environment& env) {
+    const Equation resolved = resolve_equation(eq, env);
+    const std::set<std::string> syms = equation_symbols(resolved);
+    if (syms.empty()) {
+        const Expr difference = simplify(make_sub(resolved.lhs, resolved.rhs));
+        if (difference->kind() == Kind::Number) {
+            std::println("{}", difference->number().is_zero()
+                                   ? "equation holds (identity)"
+                                   : "equation is false (contradiction)");
+            return;
+        }
+        // Symbol-free but not exactly foldable (e.g. sin(1)^2 + cos(1)^2 - 1).
+        // "identity"/"contradiction" are exactness claims a float comparison
+        // cannot make (sin(1e-7)^2 is nonzero but < 1e-12), so the numeric
+        // path answers with an explicit caveat — the solver's standing
+        // doctrine (§9 warnings) — instead of a false certainty.
+        const double d = evaluate(difference);
+        if (std::abs(d) < 1e-12) {
+            std::println(
+                "equation holds numerically (lhs - rhs ≈ {}; not verified "
+                "exactly)",
+                d);
+        } else {
+            std::println("equation is false numerically (lhs - rhs ≈ {})", d);
+        }
+        return;
+    }
+    if (syms.size() > 1) {
+        std::string list;
+        for (const std::string& s : syms) {
+            if (!list.empty()) {
+                list += ", ";
+            }
+            list += s;
+        }
+        throw UsageError{std::format(
+            "the equation has {} free symbols ({}); use: solve <equation>, <variable>",
+            syms.size(), list)};
+    }
+    const std::string var = *syms.begin();
+    print_solve_result(solve(resolved, var), var, PrintStyle::Plain);
+}
+
+void repl_command(const std::string& command, const std::string& rest,
+                  const Environment& env) {
     const std::vector<std::string> parts = split_top_level_commas(rest);
     if (parts.empty() || parts[0].empty()) {
         const std::string_view suffix =
@@ -832,24 +1299,32 @@ void repl_command(const std::string& command, const std::string& rest) {
     }
     const std::string& input = parts[0];
 
-    if (command == "solve" && has_top_level_semicolon(input)) {
-        // System of equations: the first comma segment holds the ';'-separated
-        // equations, the remaining segments are the variables.
-        const std::vector<std::string> vars(parts.begin() + 1, parts.end());
-        run_solve_system(input, vars, PrintStyle::Plain);
-    } else if (command == "solve" || command == "diff" || command == "collect") {
+    // The environment applies to the input of every computing verb, with the
+    // verb's designated symbols excluded; display verbs (latex, debug) never
+    // resolve — they must show the input as typed (spec §7).
+    if (command == "solve") {
+        // The first comma segment holds the equation(s) (';'-separated for a
+        // system), the remaining segments are the variables.
+        repl_solve(input, {parts.begin() + 1, parts.end()}, env);
+    } else if (command == "diff" || command == "collect") {
         if (parts.size() > 2) {
             throw UsageError{std::format(
                 "too many arguments: usage: {} <input>[, <variable>]", command)};
         }
         const std::string var = parts.size() > 1 ? parts[1] : "";
-        if (command == "solve") {
-            run_solve(input, var, NumericOptions{}, PrintStyle::Plain);
-        } else if (command == "diff") {
-            run_diff(input, var, PrintStyle::Plain);
-        } else {
-            run_collect(input, var, PrintStyle::Plain);
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
         }
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
+        if (command == "diff") {
+            run_diff(resolved, var, PrintStyle::Plain);
+        } else {
+            run_collect(resolved, var, PrintStyle::Plain);
+        }
+        warn_assigned_variable(var, env);
     } else if (command == "integrate") {
         // integrate <expr>[, <var>[, <lo>, <hi>]] — bounds come as a pair.
         if (parts.size() == 3 || parts.size() > 4) {
@@ -857,27 +1332,68 @@ void repl_command(const std::string& command, const std::string& rest) {
                 "usage: integrate <expression>[, <variable>[, <lo>, <hi>]]"};
         }
         const std::string var = parts.size() >= 2 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
         std::optional<std::string> from_text;
         std::optional<std::string> to_text;
         if (parts.size() == 4) {
-            from_text = parts[2];
-            to_text = parts[3];
+            // Bounds are ordinary expressions: resolve them fully (spec §7).
+            // A bound that blows up while folding keeps the §8b contract
+            // (Unsolved + warning), exactly like run_integrate's own parse.
+            try {
+                from_text = to_string(
+                    resolve_expr(parse_expression_diag(parts[2]), env),
+                    PrintStyle::Plain);
+                to_text = to_string(
+                    resolve_expr(parse_expression_diag(parts[3]), env),
+                    PrintStyle::Plain);
+            } catch (const Error&) {
+                std::println("unable to integrate");
+                std::println(
+                    "warning: integration bounds must evaluate to finite numbers");
+                return;
+            }
         }
-        run_integrate(input, var, from_text, to_text, PrintStyle::Plain);
+        run_integrate(resolved, var, from_text, to_text, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
     } else if (command == "eval") {
         Bindings bindings;
         for (std::size_t i = 1; i < parts.size(); ++i) {
             add_binding(bindings, parts[i]);
         }
-        run_eval(input, bindings);
+        // Explicitly bound names shadow the environment for this command.
+        std::set<std::string> excluded;
+        for (const auto& [name, value] : bindings) {
+            excluded.insert(name);
+        }
+        run_eval(to_string(resolve_expr(parse_expression_diag(input), env, excluded),
+                           PrintStyle::Plain),
+                 bindings);
+        print_override_notes({parts.begin() + 1, parts.end()}, env);
     } else if (command == "subs") {
-        run_subs(input, {parts.begin() + 1, parts.end()}, PrintStyle::Plain);
+        const std::vector<std::string> args(parts.begin() + 1, parts.end());
+        // Explicit substitution names shadow the environment; resolution runs
+        // once, before the verb (expressions introduced by explicit values
+        // are not re-resolved — spec §7 single-pass doctrine).
+        std::set<std::string> excluded;
+        for (const std::string& a : args) {
+            if (const std::size_t eq = a.find('='); eq != std::string::npos) {
+                excluded.insert(trim(a.substr(0, eq)));
+            }
+        }
+        run_subs(resolve_input_text(input, env, excluded), args, PrintStyle::Plain);
+        print_override_notes(args, env);
     } else if (command == "simplify") {
-        run_simplify(input, PrintStyle::Plain);
+        run_simplify(resolve_input_text(input, env), PrintStyle::Plain);
     } else if (command == "expand") {
-        run_expand(input, PrintStyle::Plain);
+        run_expand(resolve_input_text(input, env), PrintStyle::Plain);
     } else if (command == "factor") {
-        run_factor(input, PrintStyle::Plain);
+        run_factor(resolve_input_text(input, env), PrintStyle::Plain);
     } else if (command == "latex") {
         run_latex(input);
     } else {  // debug
@@ -885,7 +1401,14 @@ void repl_command(const std::string& command, const std::string& rest) {
     }
 }
 
-void repl_line(const std::string& line) {
+void repl_line(const std::string& line, Environment& env) {
+    // Assignment (`name := value`) is recognized at the input layer, before
+    // the parser or command dispatch ever see the text (spec §2).
+    if (is_assignment_line(line)) {
+        repl_assign(line, env);
+        return;
+    }
+
     // A leading known command word (followed by whitespace or end of line)
     // selects command mode; anything else is a bare expression/equation.
     std::size_t word_end = 0;
@@ -897,37 +1420,69 @@ void repl_line(const std::string& line) {
     const bool word_terminated =
         word_end == line.size() ||
         std::isspace(static_cast<unsigned char>(line[word_end])) != 0;
+
+    // Environment management (spec §7.1). As bare inputs all three words are
+    // word-guard parse errors today, so claiming them changes no working
+    // input.
+    if (line == "vars") {
+        if (env.empty()) {
+            std::println("no variables defined");
+        }
+        for (const Binding& b : env) {
+            std::println("{}", binding_text(b));
+        }
+        return;
+    }
+    if (line == "clear") {
+        std::println("cleared {} assignment(s)", env.size());
+        env.clear();
+        return;
+    }
+    if (word == "unset" && word_terminated) {
+        const std::string typed = trim(line.substr(word_end));
+        if (typed.empty()) {
+            throw UsageError{"usage: unset <name>"};
+        }
+        // Accept both spellings of a name, exactly like the assignment side:
+        // `vars` displays `x_{max}`, the stored symbol is `x_max` — copy/
+        // pasting the displayed name must work.
+        const std::string name = normalize_target_text(typed);
+        const auto it = std::ranges::find(env, name, &Binding::name);
+        if (it == env.end()) {
+            std::println("note: '{}' is not defined", typed);
+        } else {
+            env.erase(it);
+        }
+        return;
+    }
+
     if (word_terminated && is_repl_command(word)) {
-        repl_command(word, trim(line.substr(word_end)));
+        repl_command(word, trim(line.substr(word_end)), env);
         return;
     }
 
     const auto parsed = parse_input_diag(line);
     if (std::holds_alternative<Expr>(parsed)) {
-        std::println("{}", to_string(simplify(std::get<Expr>(parsed))));
+        const Expr& e = std::get<Expr>(parsed);
+        // A name bound to an equation may stand as the entire input line
+        // (spec §4): it denotes the stored equation.
+        if (e->kind() == Kind::Symbol) {
+            if (const Binding* b = find_binding(env, e->symbol_name());
+                b != nullptr && std::holds_alternative<Equation>(b->value)) {
+                repl_bare_equation(std::get<Equation>(b->value), env);
+                return;
+            }
+        }
+        std::println("{}", to_string(simplify(resolve_expr(e, env))));
         return;
     }
-    const Equation& eq = std::get<Equation>(parsed);
-    std::set<std::string> syms = equation_symbols(eq);
-    if (syms.size() != 1) {
-        std::string list;
-        for (const std::string& s : syms) {
-            if (!list.empty()) {
-                list += ", ";
-            }
-            list += s;
-        }
-        throw UsageError{std::format(
-            "the equation has {} free symbols{}; use: solve <equation>, <variable>",
-            syms.size(), syms.empty() ? std::string{} : " (" + list + ")")};
-    }
-    const std::string var = *syms.begin();
-    print_solve_result(solve(eq, var), var, PrintStyle::Plain);
+    repl_bare_equation(std::get<Equation>(parsed), env);
 }
 
 int run_repl() {
     std::println("MathSolver {} — type \"help\" for commands, \"quit\" to exit",
                  k_version);
+    Environment env;  // session `:=` assignments; lives and dies with the process
     std::string line;
     for (;;) {
         std::print(">>> ");
@@ -948,7 +1503,7 @@ int run_repl() {
             continue;
         }
         try {
-            repl_line(input);
+            repl_line(input, env);
         } catch (const UsageError& e) {
             std::fflush(stdout);
             std::println(stderr, "error: {}", e.message);

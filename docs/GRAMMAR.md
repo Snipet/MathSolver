@@ -17,6 +17,7 @@ This page is the complete reference for what the parser accepts.
 [Applying functions](#applying-functions) ·
 [Absolute value](#absolute-value) ·
 [Equations](#equations) ·
+[Assignments](#assignments-repl-and-web) ·
 [Pitfalls](#differences-from-real-latex-and-common-pitfalls) ·
 [Errors](#error-messages)
 
@@ -341,6 +342,45 @@ x^2 = 4
 - `=` is only allowed at the top level — never inside parentheses or braces.
 
 Anything without `=` is parsed as a plain expression.
+
+---
+
+## Assignments (REPL and web)
+
+In the REPL (and the web app's Variables panel) you can bind a variable for
+the session with `:=`:
+
+```text
+>>> a := 2
+a := 2
+>>> a*x + 3
+2*x + 3
+```
+
+**`:=` is not part of the expression grammar.** The parser never sees it — a
+bare `:` is still a parse error, and one-shot CLI subcommands
+(`mathsolver simplify "x := 3"`) reject it the same way. Assignment is
+recognized by the REPL's input layer, and everything to the right of `:=` is
+one ordinary input from this page: an expression or an equation.
+
+- **Targets** must be a name this grammar reads as a single symbol: a single
+  letter (`x`), a Greek name (`alpha`), or a subscripted form (`x_1`, `E_1`,
+  `x_{max}`). Words like `speed` stay errors (the
+  [word guard](#how-multi-letter-words-are-read)) — use a subscripted name
+  (`s_max := 5`). Constants (`pi`, `e`) and function names (`sin`) cannot be
+  assigned. `E1 := ...` is an error with a hint: `E1` reads as `E*1`; write
+  `E_1`.
+- **Values** may be equations: `E_1 := x + y = 3` names an equation, which
+  may then stand wherever a whole equation is expected (a bare input line,
+  or a `;`-separated segment of a `solve`) — never inside an expression.
+- Bindings resolve **lazily** at each use (`f := g + 1` before `g` exists is
+  fine; redefining `g` updates `f`), and definitions that would create a
+  cycle are rejected.
+- `vars` lists the bindings, `unset <name>` removes one, `clear` removes
+  all. `latex` and `debug` display the input as typed, without resolving.
+
+For the stateless one-shot equivalent, use `subs`:
+`mathsolver subs "a*x + 3" a=2`.
 
 ---
 

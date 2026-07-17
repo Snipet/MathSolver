@@ -97,7 +97,7 @@ Interactive REPL (like `python` with no arguments):
 
 ```console
 $ mathsolver
-MathSolver 0.4.0 — type "help" for commands, "quit" to exit
+MathSolver 0.5.0 — type "help" for commands, "quit" to exit
 >>> 2x + 3x
 5*x
 >>> solve x^2 - 4 = 0, x
@@ -111,8 +111,37 @@ cos(x)/x - sin(x)/x^2
 
 A bare expression is simplified; a bare equation is solved for its single
 free symbol; `help` lists the commands (`solve`, `diff`, `integrate`,
-`eval`, `expand`, `factor`, `latex`, `debug` — e.g.
+`eval`, `subs`, `collect`, `expand`, `factor`, `latex`, `debug` — e.g.
 `integrate sin(x), x, 0, pi`); errors keep the session alive.
+
+The REPL (and the web app) also keeps a session environment of **variable
+assignments**, entered as `name := value` and applied lazily to every
+computing command (`latex`/`debug` show input as typed; a `solve`/`diff`
+variable is excluded with a warning):
+
+```console
+>>> a := 2
+a := 2
+>>> f := g + 1
+f := g + 1
+>>> g := x^2
+g := x^2
+>>> f + a
+x^2 + 3
+>>> vars
+a := 2
+f := g + 1
+g := x^2
+>>> unset a
+>>> clear
+cleared 2 assignment(s)
+```
+
+Values may be expressions or equations (`E_1 := x + y = 3`, then
+`solve E_1; x - y = 1, x, y`); cycles are rejected at definition time. The
+full contract is docs/proposals/variable-assignment.md (condensed in
+DESIGN.md §10). One-shot subcommands stay stateless — the composable
+equivalent is `mathsolver subs "a*x + 3" a=2`.
 
 Input accepts both LaTeX (`\frac{1}{2}`, `\sin{x}`, `\sqrt[3]{x}`, `\pi`,
 `\alpha`) and plain style (`1/2`, `sin(x)`, `pi`) with implicit

@@ -46,6 +46,16 @@ check("evaluate", ms.evaluate("x^2 + y", "x=3, y=0.5"), (r) => r.ok && r.value =
 check("evaluate error", ms.evaluate("ln(x)", "x=-1"), (r) => !r.ok && r.error.length > 0, "domain error");
 check("sample", ms.sample("1/x", "x", -1, 1, 5), (r) => r.ok && r.ys.length === 5 && r.ys[2] === null && typeof r.ys[0] === "number", "null at x=0");
 check("latex json escaping", ms.latex("\\frac{1}{2} + \\sqrt{x}"), (r) => r.ok && r.latex.includes("\\sqrt"), "backslashes survive JSON");
+// subs: expression + equation arms and the simplifyResult flag
+// (variable-assignment spec §8: false returns the substituted form
+// un-simplified so "computed from" shows the resolved input as resolved).
+check("subs expression", ms.subs("a*x + 3", "a=2", true), (r) => r.ok && r.plain === "2*x + 3", "2*x + 3");
+check("subs sequential parents-first", ms.subs("f + y", "f=g + 1,g=x^2", true), (r) => r.ok && r.plain === "x^2 + y + 1", "x^2 + y + 1");
+check("subs equation both sides", ms.subs("a*x = a + 3", "a=2", true), (r) => r.ok && r.plain === "2*x = 5", "2*x = 5");
+check("subs unsimplified", ms.subs("x + x + w", "w=7", false), (r) => r.ok && r.plain === "x + x + 7", "x + x + 7 (no simplify)");
+check("subs unsimplified latex", ms.subs("x + x + w", "w=7", false), (r) => r.ok && r.latex === "x + x + 7", "x + x + 7");
+check("subs subscripted name", ms.subs("v_{max} + 1", "v_max=8", true), (r) => r.ok && r.plain === "9", "9 (canonical symbol names accepted)");
+check("subs malformed", ms.subs("x", "x", true), (r) => !r.ok && r.error.includes("malformed substitution"), "malformed error");
 
 console.log(failures === 0 ? `\nALL PASS` : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

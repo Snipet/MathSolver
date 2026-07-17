@@ -1,11 +1,30 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { call, engineReady } from "./lib/engine";
-  import type { AnalyzeResult, SolveResult, SystemResult } from "./lib/engine/types";
+  import type {
+    AnalyzeResult,
+    Rendered,
+    SolveResult,
+    SystemResult,
+  } from "./lib/engine/types";
   import { TABS, type TabId } from "./lib/tabs";
   import type { Ok, Outcome } from "./lib/outcome";
   import { history, type HistoryEntry } from "./lib/history.svelte";
-  import { fmt, hasTopLevelSemicolon, numOr } from "./lib/format";
+  import { fmt, hasTopLevelSemicolon, numOr, splitTopLevel } from "./lib/format";
+  import { vars } from "./lib/vars.svelte";
+  import {
+    closure,
+    serializeAssignments,
+    findCycle,
+    cycleMessage,
+    equationRefMessage,
+  } from "./lib/vars/resolve";
+  import {
+    nameVerdict,
+    valueVerdict,
+    normalizeTypedName,
+    EMPTY_VALUE_ERROR,
+  } from "./lib/vars/validate";
   import Tabs from "./lib/components/Tabs.svelte";
   import ThemeToggle from "./lib/components/ThemeToggle.svelte";
   import ExpressionInput from "./lib/components/ExpressionInput.svelte";
@@ -13,6 +32,10 @@
   import ResultCard from "./lib/components/ResultCard.svelte";
   import Plot from "./lib/components/Plot.svelte";
   import History from "./lib/components/History.svelte";
+  import VariablesPanel from "./lib/components/VariablesPanel.svelte";
+  import VarChips, { type Chip } from "./lib/components/VarChips.svelte";
+  import Katex from "./lib/components/Katex.svelte";
+  import SpanHighlight from "./lib/components/SpanHighlight.svelte";
 
   // --- engine readiness ------------------------------------------------------
   let ready = $state(false);
@@ -56,23 +79,122 @@
   let plotNonce = $state(0);
   let antiAvailable = $state(true);
 
+  // --- `:=` assignment recognition (spec §2: the input layer, not the parser)
+  interface AssignParts {
+    name: string;
+    value: string;
+  }
+  interface AssignPreview extends AssignParts {
+    error: string | null;
+    /** Caret span into `value` for parse errors. */
+    span?: { begin?: number; end?: number };
+    latex?: string;
+    commit?: {
+      symbol: string;
+      nameLatex: string;
+      kind: "expression" | "equation";
+      valuePlain: string;
+      valueLatex: string;
+      symbols: string[];
+    };
+  }
+
+  /**
+   * The first `:=` with a non-empty left part makes the line an assignment.
+   * (`:=` with an empty left side falls through to the parser and keeps its
+   * existing `':'` lex error; an empty right side is the §2.3 value error.)
+   */
+  function splitAssignment(text: string): AssignParts | null {
+    const i = text.indexOf(":=");
+    if (i < 0) return null;
+    const name = text.slice(0, i).trim();
+    if (!name) return null;
+    return { name, value: text.slice(i + 2).trim() };
+  }
+
+  async function buildAssignPreview(parts: AssignParts): Promise<AssignPreview> {
+    const name = normalizeTypedName(parts.name);
+    const nv = nameVerdict(name, await call("analyze", [name]));
+    if (!nv.ok) return { ...parts, error: nv.error };
+    if (!parts.value) return { ...parts, error: EMPTY_VALUE_ERROR };
+    const vv = valueVerdict(await call("analyze", [parts.value]));
+    if (!vv.ok)
+      return { ...parts, error: vv.error, span: { begin: vv.begin, end: vv.end } };
+    // Definition-time cycle check (§5.2) against the environment as it would
+    // become; redefinition replaces, so the old binding of this name is out.
+    const others = vars.active.filter((b) => b.name !== nv.symbol);
+    const path = findCycle(nv.symbol, vv.symbols, others);
+    if (path) return { ...parts, error: cycleMessage(path) };
+    return {
+      ...parts,
+      error: null,
+      latex: `${nv.latex} \\mathrel{:=} ${vv.latex}`,
+      commit: {
+        symbol: nv.symbol,
+        nameLatex: nv.latex,
+        kind: vv.kind,
+        valuePlain: vv.plain,
+        valueLatex: vv.latex,
+        symbols: vv.symbols,
+      },
+    };
+  }
+
+  /**
+   * §4 equation-name placement: on the Solve tab, a whole `;`-segment that is
+   * exactly an equation-valued name denotes the stored equation. Swapping is
+   * textual over plain-printed values (round-trip-safe, §5) and happens
+   * before the engine ever sees the text — `analyze`/`solveSystem` require
+   * an `=` in every segment.
+   */
+  function swapEqSegments(text: string): { text: string; swapped: boolean } {
+    const act = vars.active;
+    let swapped = false;
+    const segments = splitTopLevel(text).map((seg) => {
+      const b = act.find((x) => x.kind === "equation" && x.name === seg);
+      if (!b) return seg;
+      swapped = true;
+      return b.value;
+    });
+    return swapped ? { text: segments.join("; "), swapped } : { text, swapped };
+  }
+
   // --- live parse preview (debounced analyze) --------------------------------
   let analysis = $state<AnalyzeResult | null>(null);
+  let assign = $state<AssignPreview | null>(null);
   let analyzeSeq = 0;
   $effect(() => {
     const text = input.trim();
     const my = ++analyzeSeq;
+    const onSolve = tab === "solve";
+    void vars.active; // re-run the cycle pre-check when the environment changes
     if (!text) {
       analysis = null;
+      assign = null;
       return;
     }
+    const parts = splitAssignment(text);
     const timer = setTimeout(async () => {
       try {
-        const r = await call("analyze", [text]);
-        if (my === analyzeSeq) analysis = r;
+        if (parts) {
+          const a = await buildAssignPreview(parts);
+          if (my === analyzeSeq) {
+            assign = a;
+            analysis = null;
+          }
+        } else {
+          const target = onSolve ? swapEqSegments(text).text : text;
+          const r = await call("analyze", [target]);
+          if (my === analyzeSeq) {
+            analysis = r;
+            assign = null;
+          }
+        }
       } catch (e) {
-        if (my === analyzeSeq)
+        if (my === analyzeSeq) {
+          assign = null;
           analysis = { ok: false, error: e instanceof Error ? e.message : String(e) };
+        }
       }
     }, 250);
     return () => clearTimeout(timer);
@@ -82,6 +204,189 @@
   const isSystem = $derived(
     (analysis?.ok && analysis.kind === "system") || hasTopLevelSemicolon(input),
   );
+
+  // --- session environment wiring (spec §5, §7, §8, §9.1) --------------------
+  const eqBound = $derived(
+    new Set(vars.active.filter((b) => b.kind === "equation").map((b) => b.name)),
+  );
+
+  // Seeds for the closure: the analyzed symbols (on the Solve tab, analysis
+  // already ran over the eq-segment-swapped text, so the stored equations'
+  // side symbols are included). `appliedEq` is which equation bindings the
+  // current input applies as whole segments (§4), for the chips.
+  const seedInfo = $derived.by(() => {
+    const act = vars.active;
+    const appliedEq: typeof act = [];
+    if (tab === "solve") {
+      for (const seg of splitTopLevel(input.trim())) {
+        const b = act.find((x) => x.kind === "equation" && x.name === seg);
+        if (b && !appliedEq.includes(b)) appliedEq.push(b);
+      }
+    }
+    return { seeds: [...symbols], appliedEq };
+  });
+
+  // Exclusion-free closure: which symbols remain after full resolution.
+  const envBase = $derived.by(() => {
+    if (!analysis?.ok) return null;
+    try {
+      return closure(seedInfo.seeds, vars.active, []);
+    } catch {
+      return null;
+    }
+  });
+
+  // Variable pickers offer the post-resolution residual first (that's what
+  // is still free — the environment disambiguates, §7), then the raw input
+  // symbols (an assigned name stays pickable: solving/differentiating for it
+  // excludes its binding with a warning chip).
+  const pickerSymbols = $derived.by(() => {
+    const raw = symbols.filter((s) => !eqBound.has(s));
+    if (!envBase) return raw;
+    return [
+      ...new Set([...envBase.residual.filter((s) => !eqBound.has(s)), ...raw]),
+    ];
+  });
+
+  // Evaluate binds numerically only what resolution leaves free (§7 eval row).
+  const evalSymbols = $derived(
+    envBase ? envBase.residual.filter((s) => !eqBound.has(s)) : [],
+  );
+
+  // §7 table: designated symbols excluded from resolution, per operation.
+  const excludedNames = $derived.by((): string[] => {
+    switch (tab) {
+      case "solve":
+        return isSystem ? [...systemVars] : [variable];
+      case "derivative":
+      case "integral":
+      case "plot":
+        return [variable];
+      default:
+        return [];
+    }
+  });
+
+  function ignoreReason(v: string): string {
+    switch (tab) {
+      case "solve":
+        return `solving for ${v}`;
+      case "derivative":
+        return `differentiating with respect to ${v}`;
+      case "integral":
+        return `integrating with respect to ${v}`;
+      case "plot":
+        return `plot variable`;
+      default:
+        return "not applied";
+    }
+  }
+
+  // Indicator chips (§9.1): applied bindings, amber exclusions, muted
+  // equation names.
+  const chips = $derived.by((): Chip[] => {
+    if (!analysis?.ok || assign) return [];
+    const act = vars.active;
+    if (act.length === 0) return [];
+    let env;
+    try {
+      env = closure(seedInfo.seeds, act, excludedNames);
+    } catch {
+      return [];
+    }
+    const out: Chip[] = [];
+    for (const b of seedInfo.appliedEq)
+      out.push({ kind: "applied", label: `${b.name} := ${b.value}`, symbol: b.name });
+    for (const b of env.active)
+      out.push({ kind: "applied", label: `${b.name} := ${b.value}`, symbol: b.name });
+    for (const n of excludedNames) {
+      const b = act.find((x) => x.name === n && x.kind === "expression");
+      if (b && symbols.includes(n))
+        out.push({
+          kind: "ignored",
+          label: `${b.name} := ${b.value} ignored (${ignoreReason(n)})`,
+          symbol: n,
+        });
+    }
+    for (const n of env.directEquationRefs)
+      out.push({
+        kind: "muted",
+        label: `${n} is an equation — not applied here`,
+        symbol: n,
+      });
+    return out;
+  });
+
+  /** Resolution failure that should surface as an ordinary error card. */
+  class EnvError extends Error {}
+
+  interface Applied {
+    text: string;
+    computedFrom: Rendered | null;
+  }
+
+  /**
+   * Apply the environment to `text` (§5 resolve + §8 one `subs` call per
+   * equation segment), returning the resolved input for the operation and
+   * its rendering for the "computed from" line. Returns `text` unchanged
+   * when nothing applies.
+   */
+  async function applyEnv(
+    text: string,
+    excluded: string[],
+    mode: "expr" | "solve",
+  ): Promise<Applied> {
+    const act = vars.active;
+    if (act.length === 0) return { text, computedFrom: null };
+    let segments = [text];
+    let swapped = false;
+    if (mode === "solve") {
+      const sw = swapEqSegments(text);
+      swapped = sw.swapped;
+      segments = splitTopLevel(sw.text);
+      if (segments.length === 0) segments = [sw.text];
+    }
+    const joined = segments.join("; ");
+    // The verb reports parse errors on the (swapped) text it will receive.
+    const a = await call("analyze", [joined]);
+    if (!a.ok) return { text: joined, computedFrom: null };
+    const env = closure(a.symbols, act, excluded);
+    // §4 placement rule: an equation name is an error inside an expression
+    // (always when referenced from a binding's value; on the Solve tab also
+    // when it is not a whole segment). Other tabs leave it un-applied (§9.1).
+    if (env.nestedEquationRefs.length > 0)
+      throw new EnvError(equationRefMessage(env.nestedEquationRefs[0]));
+    if (mode === "solve" && env.directEquationRefs.length > 0)
+      throw new EnvError(equationRefMessage(env.directEquationRefs[0]));
+    if (env.active.length === 0 && !swapped) return { text, computedFrom: null };
+
+    const outs: Rendered[] = [];
+    if (env.active.length === 0) {
+      for (const seg of segments) {
+        const sa = await call("analyze", [seg]);
+        if (!sa.ok || sa.kind === "system")
+          return { text: segments.join("; "), computedFrom: null };
+        outs.push({ plain: sa.plain, latex: sa.latex });
+      }
+    } else {
+      const csv = serializeAssignments(env.active);
+      for (const seg of segments) {
+        // simplifyResult=false (§8): "computed from" must show the resolved
+        // input un-simplified (x + x + 7, not 2x + 7); the operation itself
+        // simplifies downstream as usual.
+        const r = await call("subs", [seg, csv, false]);
+        if (!r.ok) throw new EnvError(r.error);
+        outs.push({ plain: r.plain, latex: r.latex });
+      }
+    }
+    return {
+      text: outs.map((o) => o.plain).join("; "),
+      computedFrom: {
+        plain: outs.map((o) => o.plain).join("; "),
+        latex: outs.map((o) => o.latex).join(" ;\\; "),
+      },
+    };
+  }
 
   // Suppress the live preview error while an identical error card is shown for
   // the same input — one mistake should read as one error, not two.
@@ -102,25 +407,40 @@
   // user-entered values (e.g. evaluate bindings) — keep the last good set.
   $effect(() => {
     if (!analysis?.ok) return;
-    const syms = symbols;
+    const picks = pickerSymbols;
+    const evals = evalSymbols;
     untrack(() => {
-      if (syms.length > 0 && !syms.includes(variable)) variable = syms[0];
-      const kept = systemVars.filter((s) => syms.includes(s));
+      if (picks.length > 0 && !picks.includes(variable))
+        variable = defaultVariable(picks, evals);
+      const kept = systemVars.filter((s) => picks.includes(s));
       if (
         kept.length !== systemVars.length ||
-        (kept.length === 0 && syms.length > 0)
+        (kept.length === 0 && picks.length > 0)
       ) {
-        systemVars = kept.length > 0 ? kept : [...syms];
+        systemVars = kept.length > 0 ? kept : [...picks];
       }
       const nb: Record<string, number> = {};
       let changed = false;
-      for (const s of syms) {
+      for (const s of evals) {
         nb[s] = bindings[s] ?? 1;
         if (!(s in bindings)) changed = true;
       }
-      if (changed || Object.keys(bindings).length !== syms.length) bindings = nb;
+      if (changed || Object.keys(bindings).length !== evals.length) bindings = nb;
     });
   });
+
+  /**
+   * Default variable when the current pick is stale: prefer a symbol that is
+   * still free after resolution (the environment disambiguates, §7); among
+   * those — or, when every input symbol is assigned and no choice is
+   * mathematically forced — prefer the conventional `x` over the
+   * alphabetical accident (differentiating `x^2 + g` with everything
+   * assigned should land on x, not g).
+   */
+  function defaultVariable(picks: string[], residual: string[]): string {
+    const pool = residual.length > 0 ? residual : picks;
+    return pool.includes("x") ? "x" : pool[0];
+  }
 
   function toggleSystemVar(s: string) {
     systemVars = systemVars.includes(s)
@@ -134,11 +454,20 @@
   }
 
   async function pickVariable(text: string): Promise<string> {
-    if (analysis?.ok && analysis.symbols.includes(variable)) return variable;
+    if (analysis?.ok && pickerSymbols.includes(variable)) return variable;
     const a = await call("analyze", [text]);
     if (a.ok) {
-      if (a.symbols.includes(variable)) return variable;
-      if (a.symbols.length > 0) return a.symbols[0];
+      let opts = a.symbols.filter((s) => !eqBound.has(s));
+      let residual: string[] = [];
+      try {
+        const env = closure(a.symbols, vars.active, []);
+        residual = env.residual.filter((s) => !eqBound.has(s));
+        opts = [...new Set([...residual, ...opts])];
+      } catch {
+        /* defensive-only failure; fall back to the raw symbols */
+      }
+      if (opts.includes(variable)) return variable;
+      if (opts.length > 0) return defaultVariable(opts, residual);
     }
     return variable || "x";
   }
@@ -163,33 +492,63 @@
     return parts.join("; ") || "underdetermined";
   }
 
+  /** Save a `name := value` line from the main input (§2). */
+  async function computeAssignment(text: string) {
+    const parts = splitAssignment(text)!;
+    // Re-validate fresh (the debounced preview may lag the latest keystroke).
+    const st = await buildAssignPreview(parts);
+    if (st.error || !st.commit) {
+      outcome = { kind: "error", message: st.error ?? "invalid assignment", input: text };
+      return;
+    }
+    const res = vars.commitAssignment(st.commit);
+    if (!res.ok) {
+      outcome = { kind: "error", message: res.error, input: text };
+      return;
+    }
+    // Echo the binding in canonical plain form (§2.3) — never a computed result.
+    outcome = {
+      kind: "assignment",
+      name: st.commit.symbol,
+      plain: `${st.commit.symbol} := ${st.commit.valuePlain}`,
+      latex: st.latex!,
+    };
+  }
+
   async function compute() {
     const text = input.trim();
     if (!text || computing || !ready) return;
     const op: TabId = tab;
     computing = true;
+    outcome = null; // a stale result must not outlive the click that replaces it
     try {
+      if (splitAssignment(text)) {
+        await computeAssignment(text);
+        return;
+      }
       switch (op) {
         case "simplify":
         case "expand":
         case "factor": {
-          const r = await call(op, [text]);
+          const env = await applyEnv(text, [], "expr");
+          const r = await call(op, [env.text]);
           if (!r.ok) {
-            fail(r, text);
+            fail(r, env.text);
             break;
           }
-          outcome = { kind: "transform", result: r };
+          outcome = { kind: "transform", result: r, computedFrom: env.computedFrom };
           history.add({ tab: op, input: text, params: {}, summary: r.plain });
           break;
         }
         case "derivative": {
           const v = await pickVariable(text);
-          const r = await call("derivative", [text, v]);
+          const env = await applyEnv(text, [v], "expr");
+          const r = await call("derivative", [env.text, v]);
           if (!r.ok) {
-            fail(r, text);
+            fail(r, env.text);
             break;
           }
-          outcome = { kind: "transform", result: r };
+          outcome = { kind: "transform", result: r, computedFrom: env.computedFrom };
           history.add({
             tab: op,
             input: text,
@@ -200,15 +559,23 @@
         }
         case "integral": {
           const v = await pickVariable(text);
+          const env = await applyEnv(text, [v], "expr");
           if (definite) {
-            const from = intFrom.trim() || "0";
-            const to = intTo.trim() || "1";
-            const r = await call("integrateDefinite", [text, v, from, to]);
+            // Bounds are ordinary expressions: resolve them fully (§7).
+            const from = (await applyEnv(intFrom.trim() || "0", [], "expr")).text;
+            const to = (await applyEnv(intTo.trim() || "1", [], "expr")).text;
+            const r = await call("integrateDefinite", [env.text, v, from, to]);
             if (!r.ok) {
-              fail(r, text);
+              fail(r, env.text);
               break;
             }
-            outcome = { kind: "definite", from, to, result: r };
+            outcome = {
+              kind: "definite",
+              from,
+              to,
+              result: r,
+              computedFrom: env.computedFrom,
+            };
             history.add({
               tab: op,
               input: text,
@@ -216,12 +583,17 @@
               summary: r.status === "unsolved" ? "no closed form" : r.plain,
             });
           } else {
-            const r = await call("integrate", [text, v]);
+            const r = await call("integrate", [env.text, v]);
             if (!r.ok) {
-              fail(r, text);
+              fail(r, env.text);
               break;
             }
-            outcome = { kind: "integral", variable: v, result: r };
+            outcome = {
+              kind: "integral",
+              variable: v,
+              result: r,
+              computedFrom: env.computedFrom,
+            };
             history.add({
               tab: op,
               input: text,
@@ -233,33 +605,40 @@
         }
         case "solve": {
           if (isSystem) {
-            let vars = systemVars;
-            if (vars.length === 0) {
+            let sv = systemVars;
+            if (sv.length === 0) {
               const a = await call("analyze", [text]);
-              vars = a.ok ? a.symbols : [];
+              sv = a.ok ? a.symbols.filter((s) => !eqBound.has(s)) : [];
             }
-            const r = await call("solveSystem", [text, vars.join(",")]);
+            const env = await applyEnv(text, sv, "solve");
+            const r = await call("solveSystem", [env.text, sv.join(",")]);
             if (!r.ok) {
-              fail(r, text);
+              fail(r, env.text);
               break;
             }
-            outcome = { kind: "system", result: r };
+            outcome = { kind: "system", result: r, computedFrom: env.computedFrom };
             history.add({
               tab: op,
               input: text,
-              params: { vars: [...vars] },
+              params: { vars: [...sv] },
               summary: systemSummary(r),
             });
           } else {
             const v = await pickVariable(text);
+            const env = await applyEnv(text, [v], "solve");
             const lo = numOr(rangeLo, -100);
             const hi = numOr(rangeHi, 100);
-            const r = await call("solve", [text, v, lo, hi, useRange]);
+            const r = await call("solve", [env.text, v, lo, hi, useRange]);
             if (!r.ok) {
-              fail(r, text);
+              fail(r, env.text);
               break;
             }
-            outcome = { kind: "solve", variable: v, result: r };
+            outcome = {
+              kind: "solve",
+              variable: v,
+              result: r,
+              computedFrom: env.computedFrom,
+            };
             history.add({
               tab: op,
               input: text,
@@ -270,15 +649,16 @@
           break;
         }
         case "evaluate": {
+          const env = await applyEnv(text, [], "expr");
           const b = Object.entries(bindings)
             .map(([k, v]) => `${k}=${numOr(v, 0)}`)
             .join(",");
-          const r = await call("evaluate", [text, b]);
+          const r = await call("evaluate", [env.text, b]);
           if (!r.ok) {
-            fail(r, text);
+            fail(r, env.text);
             break;
           }
-          outcome = { kind: "evaluate", result: r };
+          outcome = { kind: "evaluate", result: r, computedFrom: env.computedFrom };
           history.add({
             tab: op,
             input: text,
@@ -334,6 +714,35 @@
     void compute();
   }
 
+  // Plot samples continuously, so its input resolves reactively (worker
+  // round-trip) rather than per Compute click; null = resolution in flight.
+  let plotResolved = $state<string | null>(null);
+  let plotSeq = 0;
+  $effect(() => {
+    if (tab !== "plot") return;
+    const text = input.trim();
+    const v = variable;
+    const act = vars.active;
+    const my = ++plotSeq;
+    if (!text || act.length === 0) {
+      plotResolved = text;
+      return;
+    }
+    if (splitAssignment(text)) {
+      plotResolved = "";
+      return;
+    }
+    plotResolved = null;
+    void (async () => {
+      try {
+        const env = await applyEnv(text, [v], "expr");
+        if (my === plotSeq) plotResolved = env.text;
+      } catch {
+        if (my === plotSeq) plotResolved = text;
+      }
+    })();
+  });
+
   let exprInput: ReturnType<typeof ExpressionInput> | undefined = $state();
 
   // Example chips fill the input, then hand focus back to the textarea with
@@ -380,11 +789,11 @@
 {#snippet variableSelect()}
   <label class="ctl">
     <span>Variable</span>
-    <select bind:value={variable} disabled={symbols.length === 0}>
-      {#if symbols.length === 0}
+    <select bind:value={variable} disabled={pickerSymbols.length === 0}>
+      {#if pickerSymbols.length === 0}
         <option value={variable}>{variable || "x"}</option>
       {/if}
-      {#each symbols as s (s)}
+      {#each pickerSymbols as s (s)}
         <option value={s}>{s}</option>
       {/each}
     </select>
@@ -440,16 +849,42 @@
           {/each}
         </div>
 
-        <ParsePreview analysis={previewAnalysis} input={input.trim()} />
+        {#if assign && input.trim()}
+          <div
+            class="assign-preview"
+            class:has-error={!!assign.error}
+            role="status"
+            data-testid="assign-preview"
+          >
+            {#if assign.error}
+              <p class="assign-error">{assign.error}</p>
+              {#if assign.span && assign.value}
+                <SpanHighlight
+                  input={assign.value}
+                  begin={assign.span.begin}
+                  end={assign.span.end}
+                />
+              {/if}
+            {:else if assign.latex}
+              <span class="lead">assignment:</span>
+              <Katex latex={assign.latex} />
+              <span class="assign-hint">Compute saves it to Variables</span>
+            {/if}
+          </div>
+        {:else}
+          <ParsePreview analysis={previewAnalysis} input={input.trim()} />
+        {/if}
+
+        <VarChips {chips} />
 
         {#if tab === "solve"}
           {#if isSystem}
             <div class="ctl-row" role="group" aria-label="Variables to solve for">
               <span class="ctl-label">Solve for</span>
-              {#if symbols.length === 0}
+              {#if pickerSymbols.length === 0}
                 <span class="ctl-hint">variables appear once the system parses</span>
               {/if}
-              {#each symbols as s (s)}
+              {#each pickerSymbols as s (s)}
                 <button
                   class="var-chip"
                   aria-pressed={systemVars.includes(s)}
@@ -523,9 +958,9 @@
             {/if}
           </div>
         {:else if tab === "evaluate"}
-          {#if symbols.length > 0}
+          {#if evalSymbols.length > 0}
             <div class="ctl-row" role="group" aria-label="Variable values">
-              {#each symbols as s (s)}
+              {#each evalSymbols as s (s)}
                 <label class="ctl">
                   <span>{s} =</span>
                   <input
@@ -579,7 +1014,7 @@
 
         {#if tab === "plot"}
           <Plot
-            {input}
+            input={plotResolved ?? ""}
             {variable}
             lo={numOr(plotLo, -10)}
             hi={numOr(plotHi, 10)}
@@ -596,6 +1031,13 @@
         <ResultCard {outcome} />
 
         <details class="history-inline">
+          <summary>Variables</summary>
+          <div class="history-inline-body">
+            <VariablesPanel />
+          </div>
+        </details>
+
+        <details class="history-inline">
           <summary>History</summary>
           <div class="history-inline-body">
             <History onrestore={restore} />
@@ -604,7 +1046,8 @@
       </div>
     </main>
 
-    <aside class="sidebar" aria-label="Computation history">
+    <aside class="sidebar" aria-label="Session variables and computation history">
+      <VariablesPanel />
       <History onrestore={restore} />
     </aside>
   </div>
@@ -704,7 +1147,9 @@
       justify-content: center;
     }
     .sidebar {
-      display: block;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
       padding-top: 0.25rem;
     }
     .history-inline {
@@ -740,6 +1185,30 @@
     display: flex;
     gap: 0.4rem;
     flex-wrap: wrap;
+  }
+
+  .assign-preview {
+    font-size: 0.9rem;
+    color: var(--fg-muted);
+    min-height: 1.5rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+  }
+  .assign-preview.has-error {
+    display: block;
+  }
+  .assign-preview .lead {
+    flex: 0 0 auto;
+  }
+  .assign-error {
+    margin: 0;
+    color: var(--error);
+  }
+  .assign-hint {
+    font-size: 0.78rem;
+    font-style: italic;
   }
   .example-chip {
     font-family: var(--font-mono);

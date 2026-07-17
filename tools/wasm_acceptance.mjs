@@ -114,8 +114,12 @@ function hasTopLevelSemicolon(s) {
 /** Single free symbol of the input, via the analyze binding (CLI: choose_variable). */
 function inferVariable(ms, input, what) {
   const a = JSON.parse(ms.analyze(input));
+  // Unparseable input: return any placeholder and let the operation itself
+  // report the parse error (the CLI parses before inferring, so the parse
+  // diagnostic — e.g. asn-02's ':' lex error — must win here too).
+  if (!a.ok) return "x";
   const symbols = a.symbols ?? [];
-  if (a.ok && symbols.length === 1) return symbols[0];
+  if (symbols.length === 1) return symbols[0];
   throw new HarnessError(
     `cannot infer the variable for ${what}: symbols = [${symbols.join(", ")}]`,
   );
@@ -226,7 +230,7 @@ function runCase(ms, c) {
 
     case "subs": {
       // CLI "x=y+1 z=2" -> assignments "x=y+1,z=2" (values are expressions).
-      const r = JSON.parse(ms.subs(c.input, toks.join(",")));
+      const r = JSON.parse(ms.subs(c.input, toks.join(","), true));
       return r.ok ? { ok: true, stream: r.plain, raw: r } : errStream(r);
     }
 

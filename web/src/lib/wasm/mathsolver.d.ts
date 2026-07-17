@@ -8,6 +8,8 @@ export interface MathSolverModule {
   expand(input: string): string;
   factor(input: string): string;
   latex(input: string): string;
+  subs(input: string, assignments: string, simplifyResult: boolean): string;
+  collect(input: string, variable: string): string;
   derivative(input: string, variable: string): string;
   integrate(input: string, variable: string): string;
   integrateDefinite(input: string, variable: string, lo: string, hi: string): string;
