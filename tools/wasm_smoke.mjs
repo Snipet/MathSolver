@@ -117,7 +117,7 @@ check("seq error", ms.seq("1, 2, x, 4"), (r) => !r.ok && r.error.includes("exact
 check("sys dde", ms.pluginCall("sys", "dde", "-x_d,1,1,20"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.title === "Delay response") && r.blocks.some((b) => b.type === "kv" && b.items.some(([k]) => k === "Delay tau")), "oscillatory delay decay");
 check("sys dde error", ms.pluginCall("sys", "dde", "-x_d + y,1,1,20"), (r) => !r.ok && r.error.includes("found 'y'"), "stray symbol rejected");
 // pde plugin
-check("pde catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name === "pde" && p.commands.length === 2), "pde listed");
+check("pde catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name === "pde" && p.commands.length === 3), "pde listed");
 check("pde heat", ms.pluginCall("pde", "heat", "1,1,x*(1-x)"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.title === "Temperature profiles" && b.series.length === 4), "profile evolution chart");
 check("pde wave", ms.pluginCall("pde", "wave", "1,2,sin(pi*x)"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Fundamental period" && v === "1")), "period 2L/c = 1");
 check("pde error", ms.pluginCall("pde", "heat", "1,1,x*y"), (r) => !r.ok && r.error.includes("found"), "stray symbol rejected");

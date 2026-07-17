@@ -235,6 +235,60 @@ std::string cmd_wave(const std::vector<std::string>& args) {
          profile_block("Displacement profiles", *length, times, profiles)});
 }
 
+std::string cmd_simulate(const std::vector<std::string>& args) {
+    if (args.size() < 5 || args.size() > 6) {
+        return error_json(
+            "usage: pde.simulate <L>, <alpha>, <f(u)>, <u0(x)>, <T>[, <steps>]");
+    }
+    const auto length = parse_double(args[0]);
+    const auto alpha = parse_double(args[1]);
+    const auto horizon = parse_double(args[4]);
+    if (!length || !(*length > 0) || !alpha || !(*alpha > 0)) {
+        return error_json("L and alpha must be positive numbers");
+    }
+    if (!horizon || !(*horizon > 0)) {
+        return error_json("T must be a positive number");
+    }
+    int steps = 400;
+    if (args.size() == 6) {
+        const auto n = parse_double(args[5]);
+        if (!n || *n != static_cast<int>(*n)) {
+            return error_json("steps must be an integer");
+        }
+        steps = static_cast<int>(*n);
+    }
+    const Expr f = simplify(parse_expression(args[2]));
+    const Expr u0 = simplify(parse_expression(args[3]));
+    // interior = 119 makes the grid exactly the 121-point chart grid.
+    const pd::SimulateResult r = pd::simulate_reaction_diffusion(
+        *length, *alpha, f, u0, *horizon, k_points - 2, steps);
+
+    std::vector<std::pair<std::string, std::string>> kv{
+        {"Equation", "u_t = alpha u_xx + f(u), u(0)=u(L)=0"},
+        {"L / alpha", std::format("{:.6g} / {:.6g}", *length, *alpha)},
+        {"Reaction f(u)", to_string(f, PrintStyle::Plain)},
+        {"Initial profile", to_string(u0, PrintStyle::Plain)},
+        {"Method",
+         "method of lines: central differences + Crank–Nicolson + Newton "
+         "with the exact symbolic f'(u) (tridiagonal solves)"},
+        {"Grid / steps",
+         std::format("{} points / {} steps", k_points, steps)},
+        {"Newton iterations",
+         std::format("{} total, {} worst step{}", r.newton_total,
+                     r.newton_max,
+                     r.halvings > 0
+                         ? std::format(", {} step halvings", r.halvings)
+                         : std::string{})}};
+    if (!r.note.empty()) {
+        kv.emplace_back("Stopped early", r.note);
+    }
+    return envelope(
+        std::format("reaction–diffusion on [0, {:.4g}]", *length),
+        {kv_block(kv),
+         profile_block("Concentration profiles", *length, r.times,
+                       r.profiles)});
+}
+
 class PdePlugin final : public Plugin {
   public:
     std::string_view name() const override { return "pde"; }
@@ -253,6 +307,11 @@ class PdePlugin final : public Plugin {
              "Wave equation u_tt = c^2 u_xx with displacement f, velocity g",
              "pde.wave <L>, <c>, <f(x)>[, <g(x)>[, <T>]]",
              "pde.wave 1, 2, sin(pi*x)"},
+            {"simulate",
+             "Nonlinear reaction–diffusion u_t = alpha u_xx + f(u) by the "
+             "method of lines (Crank–Nicolson + exact-Jacobian Newton)",
+             "pde.simulate <L>, <alpha>, <f(u)>, <u0(x)>, <T>[, <steps>]",
+             "pde.simulate 10, 1, u*(1-u), 0.5*sin(pi*x/10), 8"},
         };
     }
     std::string invoke(std::string_view command,
@@ -260,6 +319,7 @@ class PdePlugin final : public Plugin {
         try {
             if (command == "heat") return cmd_heat(args);
             if (command == "wave") return cmd_wave(args);
+            if (command == "simulate") return cmd_simulate(args);
             return error_json(std::format("pde has no command '{}'", command));
         } catch (const Error& e) {
             return error_json(e.what());

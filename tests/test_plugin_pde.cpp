@@ -89,7 +89,7 @@ TEST_CASE("pde plugin: command envelopes") {
     register_builtin_plugins();
     const Plugin* p = find("pde");
     REQUIRE(p != nullptr);
-    CHECK(p->commands().size() == 2);
+    CHECK(p->commands().size() == 3);
 
     const std::string heat = p->invoke("heat", {"1", "1", "x*(1-x)"});
     CHECK_THAT(heat, ContainsSubstring("\"ok\":true"));
@@ -104,4 +104,100 @@ TEST_CASE("pde plugin: command envelopes") {
     CHECK_THAT(err, ContainsSubstring("positive"));
     const std::string err2 = p->invoke("heat", {"1", "1", "x*y"});
     CHECK_THAT(err2, ContainsSubstring("found"));
+}
+
+TEST_CASE("pde.simulate: linear reaction-diffusion matches the exact rate") {
+    // u_t = u_xx + 2u with u0 = sin(pi x) on [0, 1]:
+    // u(x, t) = e^{(2 - pi^2) t} sin(pi x) exactly.
+    const pd::SimulateResult r = pd::simulate_reaction_diffusion(
+        1.0, 1.0, parse_expression("2u"), parse_expression("sin(pi*x)"), 0.2);
+    REQUIRE(r.times.size() == 5);
+    REQUIRE(r.profiles.back().size() == r.x.size());
+    const double rate = 2.0 - std::numbers::pi * std::numbers::pi;
+    for (std::size_t k = 1; k < r.times.size(); ++k) {
+        const double t = r.times[k];
+        for (std::size_t i = 0; i < r.x.size(); i += 10) {
+            const double want =
+                std::exp(rate * t) * std::sin(std::numbers::pi * r.x[i]);
+            CHECK(std::abs(r.profiles[k][i] - want) < 2e-4);
+        }
+    }
+    CHECK_FALSE(r.stopped_early);
+    CHECK(r.newton_total > 0);
+}
+
+TEST_CASE("pde.simulate: pure diffusion agrees with the separated solution") {
+    const pd::SimulateResult r = pd::simulate_reaction_diffusion(
+        1.0, 1.0, parse_expression("0"), parse_expression("sin(pi*x)"), 0.1);
+    const double t = r.times.back();
+    for (std::size_t i = 0; i < r.x.size(); i += 12) {
+        const double want =
+            std::exp(-std::numbers::pi * std::numbers::pi * t) *
+            std::sin(std::numbers::pi * r.x[i]);
+        CHECK(std::abs(r.profiles.back()[i] - want) < 1e-4);
+    }
+}
+
+TEST_CASE("pde.simulate: Fisher-KPP grows toward the carrying capacity") {
+    // On L = 10 the domain is supercritical (L > pi sqrt(alpha)): a small
+    // bump grows toward u = 1 in the interior instead of dying out.
+    const pd::SimulateResult r = pd::simulate_reaction_diffusion(
+        10.0, 1.0, parse_expression("u*(1-u)"),
+        parse_expression("0.5*sin(pi*x/10)"), 8.0);
+    const std::size_t mid = r.x.size() / 2;
+    CHECK(r.profiles.back()[mid] > 0.9);
+    for (const auto& row : r.profiles) {
+        for (const double v : row) {
+            CHECK(v > -1e-8);
+            CHECK(v < 1.001);
+        }
+    }
+    // Monotone growth at the center across snapshots.
+    for (std::size_t k = 1; k < r.profiles.size(); ++k) {
+        CHECK(r.profiles[k][mid] >= r.profiles[k - 1][mid] - 1e-9);
+    }
+}
+
+TEST_CASE("pde.simulate: reaction blow-up stops with a note") {
+    // u_t = u_xx + u^2 with large data escapes in finite time.
+    const pd::SimulateResult r = pd::simulate_reaction_diffusion(
+        1.0, 1.0, parse_expression("u^2"), parse_expression("50*sin(pi*x)"),
+        1.0);
+    CHECK(r.stopped_early);
+    CHECK_THAT(r.note, ContainsSubstring("stopped"));
+    CHECK(r.times.back() < 1.0);
+}
+
+TEST_CASE("pde.simulate: errors are specific") {
+    CHECK_THROWS_WITH(
+        pd::simulate_reaction_diffusion(1.0, 1.0, parse_expression("u + y"),
+                                        parse_expression("sin(pi*x)"), 1.0),
+        ContainsSubstring("found 'y'"));
+    CHECK_THROWS_WITH(
+        pd::simulate_reaction_diffusion(1.0, 1.0, parse_expression("0"),
+                                        parse_expression("u"), 1.0),
+        ContainsSubstring("found 'u'"));
+    CHECK_THROWS_AS(
+        pd::simulate_reaction_diffusion(1.0, -1.0, parse_expression("0"),
+                                        parse_expression("x"), 1.0),
+        Error);
+    CHECK_THROWS_AS(
+        pd::simulate_reaction_diffusion(1.0, 1.0, parse_expression("0"),
+                                        parse_expression("x"), -1.0),
+        Error);
+}
+
+TEST_CASE("pde plugin: simulate command envelope") {
+    register_builtin_plugins();
+    const Plugin* p = find("pde");
+    REQUIRE(p != nullptr);
+    const std::string sim = p->invoke(
+        "simulate", {"10", "1", "u*(1-u)", "0.5*sin(pi*x/10)", "4"});
+    CHECK_THAT(sim, ContainsSubstring("\"ok\":true"));
+    CHECK_THAT(sim, ContainsSubstring("Concentration profiles"));
+    CHECK_THAT(sim, ContainsSubstring("Newton iterations"));
+    CHECK_THAT(p->invoke("simulate", {"1", "1", "u*y", "x", "1"}),
+               ContainsSubstring("found 'y'"));
+    CHECK_THAT(p->invoke("simulate", {"1", "1", "u", "sin(pi*x)"}),
+               ContainsSubstring("usage"));
 }
