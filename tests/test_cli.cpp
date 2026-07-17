@@ -510,12 +510,12 @@ TEST_CASE("cli: eval rejects names that can never lex as a bound variable") {
 }
 
 TEST_CASE("cli: unexpected non-ASCII byte reports a valid, whole-character error") {
-    // 'α' (U+03B1 = 0xCE 0xB1) must be reported as the full two-byte sequence
+    // '¤' (U+00A4 = 0xC2 0xA4) must be reported as the full two-byte sequence
     // (as a hex escape, so stderr stays valid UTF-8) with a span covering both.
-    const RunResult r = run_cli({"simplify", "\xCE\xB1"}, "2>&1 1>/dev/null");
+    const RunResult r = run_cli({"simplify", "\xC2\xA4"}, "2>&1 1>/dev/null");
     INFO(r.output);
     CHECK(r.exit_code == 1);
-    CHECK(contains(r.output, "\\xCE\\xB1")); // whole character, not a lone 0xCE
+    CHECK(contains(r.output, "\\xC2\\xA4")); // whole character, not a lone 0xC2
     CHECK(contains(r.output, "\n    ^~"));    // caret spans both bytes
 }
 

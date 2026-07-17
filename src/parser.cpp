@@ -200,14 +200,49 @@ private:
             }
             while (pos_ < src_.size() && is_digit(src_[pos_])) ++pos_;
         }
+        const std::size_t mantissa_end = pos_;
+
+        // Scientific notation (v0.4): e/E + optional sign + digits. Only
+        // consumed when digits actually follow, so "2e" stays 2*Euler and
+        // "2e x" stays 2*e*x.
+        long long exp10 = 0;
+        bool has_exponent = false;
+        if (pos_ < src_.size() && (src_[pos_] == 'e' || src_[pos_] == 'E')) {
+            std::size_t p = pos_ + 1;
+            bool neg = false;
+            if (p < src_.size() && (src_[p] == '+' || src_[p] == '-')) {
+                neg = src_[p] == '-';
+                ++p;
+            }
+            if (p < src_.size() && is_digit(src_[p])) {
+                std::size_t digits_begin = p;
+                while (p < src_.size() && is_digit(src_[p])) ++p;
+                has_exponent = true;
+                for (std::size_t i = digits_begin; i < p; ++i) {
+                    exp10 = exp10 * 10 + (src_[i] - '0');
+                    if (exp10 > 1000) break; // clamp; overflow-checked below anyway
+                }
+                if (neg) exp10 = -exp10;
+                pos_ = p;
+            }
+        }
+
         Rational value;
         try {
-            value = Rational::from_decimal_string(src_.substr(begin, pos_ - begin));
+            value = Rational::from_decimal_string(src_.substr(begin, mantissa_end - begin));
+            if (has_exponent) {
+                value = value * Rational(10).pow(exp10);
+            }
         } catch (const ParseError&) {
             // Re-anchor the span into the original input.
             throw ParseError(
                 std::format("malformed number literal '{}'", src_.substr(begin, pos_ - begin)),
                 begin, pos_);
+        } catch (const OverflowError&) {
+            throw ParseError(std::format("number '{}' does not fit the exact 64-bit "
+                                         "rational range",
+                                         src_.substr(begin, pos_ - begin)),
+                             begin, pos_);
         }
         Token t;
         t.kind = Tok::Number;
@@ -220,8 +255,44 @@ private:
     // Segment a maximal [A-Za-z]+ run greedily, longest known name first at
     // each position; unknown letters become single-letter symbols.
     void lex_identifier_run() {
+        const std::size_t run_begin = pos_;
         std::size_t run_end = pos_;
         while (run_end < src_.size() && is_letter(src_[run_end])) ++run_end;
+
+        // Word-variable guard (v0.4, DESIGN.md §4): a run whose greedy
+        // segmentation contains 3+ single-letter symbols is almost certainly
+        // an intended word ("speed" -> s*p*e*e*d with e as Euler's number) —
+        // reject it with a helpful error instead of silently producing wrong
+        // math. Runs dominated by known names ("sinx", "pie", "exy") keep
+        // the greedy segmentation.
+        if (run_end - run_begin >= 3) {
+            int soup = 0;
+            for (std::size_t p = run_begin; p < run_end;) {
+                if (const KnownName* k = longest_known_prefix(src_.substr(p, run_end - p))) {
+                    p += k->name.size();
+                } else {
+                    ++soup;
+                    ++p;
+                }
+            }
+            if (soup >= 3) {
+                const std::string_view word = src_.substr(run_begin, run_end - run_begin);
+                throw ParseError(
+                    std::format("unknown name '{}': variables are single letters (x, y), "
+                                "greek names (alpha), or subscripted (x_1); for a product, "
+                                "write it explicitly ({})",
+                                word, [&] {
+                                    std::string prod;
+                                    for (const char c : word) {
+                                        if (!prod.empty()) prod += '*';
+                                        prod += c;
+                                    }
+                                    return prod;
+                                }()),
+                    run_begin, run_end);
+            }
+        }
+
         while (pos_ < run_end) {
             std::string_view rest = src_.substr(pos_, run_end - pos_);
             if (const KnownName* k = longest_known_prefix(rest)) {
@@ -238,6 +309,103 @@ private:
                 ++pos_;
             }
         }
+    }
+
+    // Unicode math input (v0.4, DESIGN.md §4): the characters that phone
+    // keyboards and copy-pasted text produce. Each match consumes the whole
+    // UTF-8 sequence and pushes ordinary tokens carrying its span, so caret
+    // diagnostics keep working. Returns false when the sequence is not one
+    // of ours (caller emits the standard unexpected-character error).
+    bool lex_unicode(std::size_t begin) {
+        const auto starts = [&](std::string_view seq) {
+            return src_.compare(pos_, seq.size(), seq) == 0;
+        };
+        const auto emit = [&](Tok kind, std::size_t len) {
+            push(kind, begin, pos_ += len);
+            return true;
+        };
+
+        if (starts("×") || starts("⋅") || starts("·")) { // × ⋅ ·
+            return emit(Tok::Star, starts("×") || starts("·") ? 2 : 3);
+        }
+        if (starts("÷")) return emit(Tok::Slash, 2);  // ÷
+        if (starts("−")) return emit(Tok::Minus, 3);  // − (minus sign)
+        if (starts("√")) {                            // √ behaves like sqrt
+            pos_ += 3;
+            push_func("sqrt", begin, pos_);
+            return true;
+        }
+        if (starts("π")) { // π
+            pos_ += 2;
+            push_constant(ConstantId::Pi, begin, pos_);
+            return true;
+        }
+        // Greek letters with the same names as the §4 backslash/ASCII table.
+        static constexpr std::pair<std::string_view, std::string_view> k_greek[] = {
+            {"α", "alpha"}, {"β", "beta"},   {"γ", "gamma"},
+            {"δ", "delta"}, {"ε", "epsilon"}, {"θ", "theta"},
+            {"λ", "lambda"}, {"μ", "mu"},     {"φ", "phi"},
+            {"ω", "omega"},
+        };
+        for (const auto& [seq, name] : k_greek) {
+            if (starts(seq)) {
+                pos_ += seq.size();
+                push_symbol(std::string(name), begin, pos_);
+                return true;
+            }
+        }
+        // Superscript run (optionally signed) becomes ^ [-] digits.
+        static constexpr std::pair<std::string_view, char> k_super[] = {
+            {"⁰", '0'}, {"¹", '1'}, {"²", '2'}, {"³", '3'},
+            {"⁴", '4'}, {"⁵", '5'}, {"⁶", '6'}, {"⁷", '7'},
+            {"⁸", '8'}, {"⁹", '9'},
+        };
+        const auto super_digit = [&]() -> std::optional<char> {
+            for (const auto& [seq, d] : k_super) {
+                if (starts(seq)) {
+                    pos_ += seq.size();
+                    return d;
+                }
+            }
+            return std::nullopt;
+        };
+        const bool super_minus = starts("⁻"); // ⁻
+        if (super_minus) pos_ += 3;
+        if (std::optional<char> first = super_digit()) {
+            std::string digits(1, *first);
+            while (std::optional<char> d = super_digit()) digits.push_back(*d);
+            push(Tok::Caret, begin, begin);
+            if (super_minus) push(Tok::Minus, begin, begin);
+            Token t;
+            t.kind = Tok::Number;
+            t.begin = begin;
+            t.end = pos_;
+            t.value = Rational::from_decimal_string(digits);
+            tokens_.push_back(std::move(t));
+            return true;
+        }
+        if (super_minus) pos_ -= 3; // lone ⁻ with no digits: not ours
+
+        if (starts("°")) { // ° = *(pi/180), as synthesized tokens
+            pos_ += 2;
+            push(Tok::Star, begin, pos_);
+            push(Tok::LParen, begin, pos_);
+            push_constant(ConstantId::Pi, begin, pos_);
+            push(Tok::Slash, begin, pos_);
+            Token t;
+            t.kind = Tok::Number;
+            t.begin = begin;
+            t.end = pos_;
+            t.value = Rational(180);
+            tokens_.push_back(std::move(t));
+            push(Tok::RParen, begin, pos_);
+            return true;
+        }
+        if (starts("≤") || starts("≥") || starts("≠")) { // ≤ ≥ ≠
+            throw ParseError("inequalities are not supported yet (only '=' equations)",
+                             begin, pos_ + 3);
+        }
+        return false;
     }
 
     void lex_command() {
@@ -365,6 +533,9 @@ private:
         case ',': push(Tok::Comma, begin, ++pos_); return;
         case '|': push(Tok::Pipe, begin, ++pos_); return;
         default:
+            if (lex_unicode(begin)) {
+                return;
+            }
             throw unexpected_character(begin);
         }
     }
@@ -491,6 +662,7 @@ private:
         case Tok::LParen:
         case Tok::LBrace:
         case Tok::LBracket:
+        case Tok::Pipe: // bare |x| absolute value opens in operand position
         case Tok::Left: return true;
         default: return false;
         }
@@ -506,8 +678,11 @@ private:
             } else if (peek().kind == Tok::Slash) {
                 advance();
                 cur = make_div(cur, parse_unary());
-            } else if (starts_atom(peek().kind)) {
-                cur = make_mul({cur, parse_unary()}); // implicit multiplication
+            } else if (starts_atom(peek().kind) &&
+                       !(peek().kind == Tok::Pipe && bar_depth_ > 0)) {
+                // Implicit multiplication — but inside an open |...| group a
+                // '|' closes the group instead of starting a new one.
+                cur = make_mul({cur, parse_unary()});
             } else {
                 break;
             }
@@ -552,10 +727,33 @@ private:
         case Tok::LBrace: return parse_group(Tok::RBrace, '}');
         case Tok::LBracket: return parse_group(Tok::RBracket, ']');
         case Tok::Left: return parse_left_right();
+        case Tok::Pipe: return parse_bare_abs();
         case Tok::Frac: return parse_frac();
         case Tok::Func: return parse_function_application();
         default: fail_unexpected(t);
         }
+    }
+
+    // Bare |expr| absolute value. A '|' in operand position opens; the next
+    // top-level '|' closes. Nested bars work when the inner pair is also in
+    // operand position (|x - |y||); genuinely ambiguous forms need abs() or
+    // parentheses (documented in DESIGN.md §4). While a bar group is open,
+    // '|' never starts an implicit-multiplication atom (see starts_atom's
+    // caller) — it closes.
+    Expr parse_bare_abs() {
+        Token open = advance();
+        ++bar_depth_;
+        Expr e = parse_expr();
+        --bar_depth_;
+        const Token& t = peek();
+        if (t.kind != Tok::Pipe) {
+            if (t.kind == Tok::End) {
+                throw ParseError("missing closing '|'", open.begin, open.end);
+            }
+            throw ParseError(std::format("expected '|', found '{}'", slice(t)), t.begin, t.end);
+        }
+        advance();
+        return make_fn(FunctionId::Abs, std::move(e));
     }
 
     // '(' expr ')' and the {} / [] grouping forms.
@@ -763,6 +961,7 @@ private:
     std::vector<Token> tokens_;
     std::size_t idx_ = 0;
     std::size_t depth_ = 0;
+    int bar_depth_ = 0; // open bare |...| groups (v0.4 absolute-value bars)
 };
 
 } // namespace

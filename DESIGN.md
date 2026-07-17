@@ -151,10 +151,21 @@ diagnostics.
 
 ### Tokens
 
-- Numbers: integers `42`, decimals `3.14`. **No** scientific notation (`2e3`
-  is `2·e·3`... actually `2*e*3`? No — see identifier rules: `e3` is `e * 3`?
-  digits can't follow letters in one token, so `2e3` lexes as `2, e, 3` →
-  `2·e·3`. Documented limitation.)
+- Numbers: integers `42`, decimals `3.14`, and (v0.4) scientific notation
+  `2e3`, `1.5E-10`, `2e+5` — consumed as one Number token ONLY when digits
+  follow the `e`/`E` (with optional sign), so `2e` stays `2·e` (Euler) and
+  `2e x` stays `2·e·x`. The value is exact (`2e-3` = 1/500); a literal whose
+  exact value cannot fit the 64-bit rational range (`1e300`) is a clean
+  ParseError, never a crash or a silent approximation.
+- Unicode math input (v0.4) — what phone keyboards and copy-pasted text
+  produce, handled in the LEXER so byte-span caret diagnostics keep working:
+  `×`, `⋅`, `·` → `*`; `÷` → `/`; `−` (U+2212) → `-`; `√` → `sqrt` (same
+  bare-argument rule as any function name); `π` → pi; bare greek letters
+  `α β γ δ ε θ λ μ φ ω` → the same symbols as their `\alpha`-style names;
+  superscript runs `x²`, `x⁻¹`, `2x³` → `^` powers; `°` → `*(pi/180)` (so
+  `sin(30°)` = `sin(pi/6)`); `≤ ≥ ≠` → targeted "inequalities are not
+  supported yet" ParseError. Anything else non-ASCII keeps the standard
+  unexpected-character error with the whole UTF-8 sequence hex-escaped.
 - Operators: `+ - * / ^ = ( ) { } [ ]`, `**` (synonym for `^`), `,` (only
   meaningful to callers like the REPL, not inside expressions except function
   call syntax has exactly one argument — a comma inside parens is a
@@ -173,9 +184,17 @@ diagnostics.
   `tanh`, `sec`, `csc`, `cot`, `exp`, `ln`, `log`, `sqrt`, `abs`), constants
   (`pi`, `e`), greek names (same list as above). Anything else consumes a
   single letter as a **symbol**. So `xy` → `x·y`, `sinx` → `sin(x)` (function
-  then continues lexing), `alpha` → symbol `alpha`, `foo` → `f·o·o`.
+  then continues lexing), `alpha` → symbol `alpha`.
   Consequence: variables are single letters (or greek names), and `e` is
   always Euler's number — documented in README.
+  **Word-variable guard (v0.4):** a run whose greedy segmentation contains
+  **3 or more single-letter symbols** is rejected with a helpful ParseError
+  instead of silently becoming a product — `speed` would otherwise parse as
+  `s·p·e·e·d` with `e` as Euler's number, which is wrong math nobody asked
+  for. The error names the word and shows the explicit-product escape hatch
+  (`s*p*e*e*d`). Runs dominated by known names still segment: `sinx`,
+  `pie` → `pi·e`, `exy` → `e·x·y` (two symbols — allowed); `xy` (two
+  letters) stays a product.
 - Subscripts: `x_1`, `x_{12}`, `x_a` → single symbol named `x_1`, `x_12`,
   `x_a`. After `_` **without** braces, the subscript is exactly one letter or
   one maximal digit run: `x_12` ≡ `x_{12}` (one symbol `x_12`), while `x_ab`
@@ -194,8 +213,8 @@ term        := unary ( ('*' | '/' | implicit) unary )*     ; implicit multiplica
 unary       := ('-' | '+') unary | postfix
 postfix     := atom ( '^' unary )?                          ; right-assoc: 2^3^2 = 2^(3^2)
 atom        := number | symbol | constant | '(' expr ')' | '{' expr '}'
-             | '[' expr ']' | \frac{expr}{expr} | \sqrt[expr]{expr}
-             | function-application
+             | '[' expr ']' | '|' expr '|' | \frac{expr}{expr}
+             | \sqrt[expr]{expr} | function-application
 ```
 
 - Implicit multiplication: two adjacent atoms/factors multiply (`2x`,
@@ -281,9 +300,10 @@ LaTeX style: same structure but `\frac{...}{...}` for the division rendering,
 re-rendered (`x_12` → `x_{12}`). Exception to the function-call form:
 `abs(u)` renders as `\left|u\right|` (standard LaTeX has no `\abs`; bars are
 what external renderers like KaTeX expect), and the parser accepts
-`\left| ... \right|` as absolute value so the round-trip holds. Bare `|`
-outside `\left`/`\right` remains a parse error (ambiguous nesting; see
-ROADMAP). Juxtaposition between factors (`2 x` →
+`\left| ... \right|` as absolute value so the round-trip holds. Bare
+`|expr|` is also accepted (§4): a `|` in operand position opens, the next
+top-level `|` closes; genuinely ambiguous nestings need `abs()` or
+parentheses. Juxtaposition between factors (`2 x` →
 `2x`) EXCEPT: emit `\cdot` whenever the preceding factor ends in a digit and
 the following factor's rendering starts with a digit (e.g.
 `Mul(2, Pow(10, x))` → `2 \cdot 10^{x}`, which would otherwise re-lex as
@@ -796,4 +816,8 @@ numeric, diff, eval, a parse-error exit code, and a piped-stdin REPL session).
 - Rational arithmetic is 64-bit and overflow-checked (throws, never wraps).
 - Formal cancellations (`x/x → 1`) assume nonzero denominators.
 - Numeric root search only covers the requested interval.
-- No scientific-notation literals.
+- Scientific-notation literals are exact and must fit 64-bit rationals
+  (`1e300` is a clean ParseError).
+- Multi-letter words that would segment into 3+ single-letter variables are
+  rejected with a helpful error (v0.4 word guard) rather than silently
+  parsed as products.

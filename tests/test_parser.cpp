@@ -73,8 +73,10 @@ TEST_CASE("parser: greek letters, backslash and bare", "[parser]") {
 TEST_CASE("parser: identifier run segmentation", "[parser]") {
     check_parse("xy", make_mul({x(), y()}));
     check_parse("sinx", make_fn(FunctionId::Sin, x()));
-    check_parse("foo", make_mul({make_sym("f"), make_sym("o"), make_sym("o")}));
-    check_parse("2e3", make_mul({num(2), make_const(ConstantId::E), num(3)})); // no sci notation
+    // v0.4: 3+ letter runs with no known name are rejected (word guard),
+    // and e-notation with digits is a numeric literal.
+    CHECK_THROWS_AS(parse_expression("foo"), ParseError);
+    check_parse("2e3", num(2000)); // scientific notation
     check_parse("pie", make_mul({make_const(ConstantId::Pi), make_const(ConstantId::E)}));
     check_parse("exy", make_mul({make_const(ConstantId::E), x(), y()}));
 }
@@ -478,11 +480,12 @@ TEST_CASE("parser: deeply nested input throws instead of overflowing the stack",
 
 TEST_CASE("parser: unexpected non-ASCII byte reports the whole character",
           "[parser][error]") {
-    // A bare greek letter 'α' (U+03B1 = 0xCE 0xB1) is not a valid token. The
+    // '¤' (U+00A4 = 0xC2 0xA4) is not a valid token (α is a symbol since
+    // v0.4). The
     // error must cover BOTH bytes of the UTF-8 sequence (not a lone 0xCE byte)
     // and spell it out as a hex escape so the message is itself valid UTF-8.
-    ParseError e = capture_error([] { parse_expression("\xCE\xB1"); });
-    CHECK(message_contains(e, "\\xCE\\xB1"));
+    ParseError e = capture_error([] { parse_expression("\xC2\xA4"); });
+    CHECK(message_contains(e, "\\xC2\\xA4"));
     CHECK(e.begin() == 0);
     CHECK(e.end() == 2); // span covers the full two-byte character
 
@@ -501,6 +504,68 @@ TEST_CASE("parser: \\left| ... \\right| is absolute value") {
     // Mismatched bar delimiters are errors.
     CHECK_THROWS_AS(parse_expression("\\left|x\\right)"), ParseError);
     CHECK_THROWS_AS(parse_expression("\\left(x\\right|"), ParseError);
-    // Bare '|' outside \left/\right stays an error.
-    CHECK_THROWS_AS(parse_expression("|x|"), ParseError);
+}
+
+TEST_CASE("parser: bare |x| absolute value (v0.4)") {
+    CHECK(structurally_equal(parse_expression("|x|"),
+                             make_fn(FunctionId::Abs, make_sym("x"))));
+    CHECK(structurally_equal(parse_expression("|x - 1| + 2"),
+                             parse_expression("abs(x - 1) + 2")));
+    CHECK(structurally_equal(parse_expression("2|x|"),
+                             parse_expression("2*abs(x)")));
+    CHECK(structurally_equal(parse_expression("|x - |y||"),
+                             parse_expression("abs(x - abs(y))")));
+    CHECK_THROWS_AS(parse_expression("|x"), ParseError);
+}
+
+// ---------------------------------------------------------------------------
+// v0.4 "Forgiving Input": scientific notation, unicode, word guard.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("parser: scientific notation literals") {
+    check_parse("2e3", num(2000));
+    check_parse("1.5E2", num(150));
+    CHECK(structurally_equal(parse_expression("2e-3"), make_num(Rational(1, 500))));
+    CHECK(structurally_equal(parse_expression("2e+2"), make_num(Rational(200))));
+    // 'e' with no digits after keeps its Euler meaning.
+    check_parse("2e", make_mul({num(2), make_const(ConstantId::E)}));
+    CHECK(structurally_equal(parse_expression("2e x"),
+                             parse_expression("2*e*x")));
+    // Out-of-range literals are clean parse errors, not overflow crashes.
+    CHECK_THROWS_AS(parse_expression("1e300"), ParseError);
+}
+
+TEST_CASE("parser: unicode math input") {
+    CHECK(structurally_equal(parse_expression("2×3"), parse_expression("2*3")));
+    CHECK(structurally_equal(parse_expression("x÷2"), parse_expression("x/2")));
+    CHECK(structurally_equal(parse_expression("5−x"), parse_expression("5-x")));
+    CHECK(structurally_equal(parse_expression("2·x"), parse_expression("2*x")));
+    CHECK(structurally_equal(parse_expression("√2"), parse_expression("sqrt(2)")));
+    CHECK(structurally_equal(parse_expression("π/2"), parse_expression("pi/2")));
+    CHECK(structurally_equal(parse_expression("α + θ"),
+                             parse_expression("alpha + theta")));
+    CHECK(structurally_equal(parse_expression("x²"), parse_expression("x^2")));
+    CHECK(structurally_equal(parse_expression("x⁻¹"), parse_expression("x^-1")));
+    CHECK(structurally_equal(parse_expression("2x³ + x²"),
+                             parse_expression("2*x^3 + x^2")));
+    CHECK(structurally_equal(parse_expression("180°"), parse_expression("pi")));
+    CHECK(structurally_equal(parse_expression("sin(30°)"),
+                             parse_expression("sin(pi/6)")));
+    ParseError ineq = capture_error([] { parse_expression("x ≤ 4"); });
+    CHECK(std::string(ineq.what()).find("inequalit") != std::string::npos);
+}
+
+TEST_CASE("parser: word-variable guard") {
+    ParseError e = capture_error([] { parse_expression("speed"); });
+    CHECK(std::string(e.what()).find("unknown name 'speed'") != std::string::npos);
+    CHECK(e.begin() == 0);
+    CHECK(e.end() == 5);
+    CHECK_THROWS_AS(parse_expression("price - cost"), ParseError);
+    CHECK_THROWS_AS(parse_expression("xyz"), ParseError);
+    // Two letters stay a product; runs containing known names still segment.
+    CHECK(structurally_equal(parse_expression("xy"), parse_expression("x*y")));
+    CHECK(structurally_equal(parse_expression("sinx"), parse_expression("sin(x)")));
+    CHECK(structurally_equal(parse_expression("pie"), parse_expression("pi*e")));
+    CHECK(structurally_equal(parse_expression("xsinx"),
+                             parse_expression("x*sin(x)")));
 }
