@@ -38,6 +38,7 @@ add_executable(mathsolver_tests
     test_plugin_pde.cpp
     test_plugin_ie.cpp
     test_plugin_hyb.cpp
+    test_plugin_fem.cpp
 )
 target_link_libraries(mathsolver_tests PRIVATE mathsolver_core mathsolver_plugins Catch2::Catch2WithMain)
 
