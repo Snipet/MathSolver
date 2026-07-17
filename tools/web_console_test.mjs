@@ -211,6 +211,54 @@ try {
   );
   check("dsp error card", pluginErr.includes("(0, fs/2)"), pluginErr);
 
+  // --- console UX overhaul: reference panel, autocomplete, cell actions ----
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector(".sidebar .cmd-ref")
+        ?.textContent?.includes("dsp.butter") ?? false,
+    { timeout: 10000 },
+  );
+  check("command reference lists plugin commands", true);
+
+  await page.evaluate(() => {
+    const items = [...document.querySelectorAll(".sidebar .cmd-ref .ref-item")];
+    items.find((b) => b.textContent.includes("solve <equation>")).click();
+  });
+  const inserted = await page.$eval(TA, (el) => el.value);
+  check("reference click inserts into prompt", inserted.startsWith("solve"), inserted);
+  await page.$eval(TA, (el) => {
+    el.value = "";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  await page.click(TA);
+  await page.type(TA, "integ");
+  await page.waitForSelector(".suggest-item", { timeout: 5000 });
+  const sugg = await page.$eval(".suggest-item", (el) => el.textContent);
+  check("autocomplete suggests integrate", sugg.includes("integrate"), sugg);
+  await page.keyboard.press("Tab");
+  const completed = await page.$eval(TA, (el) => el.value);
+  check("tab completes the command", completed === "integrate ", JSON.stringify(completed));
+  await page.waitForSelector(".usage-hint", { timeout: 5000 });
+  const usage = await page.$eval(".usage-hint", (el) => el.textContent ?? "");
+  check("usage hint shown after completion", usage.includes("integrate <expr>"), usage);
+  await page.$eval(TA, (el) => {
+    el.value = "";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+
+  const beforeRerun = await page.$$eval(".cells .cell", (e) => e.length);
+  await page.evaluate(() => {
+    document.querySelector(".cells .cell .action[aria-label^='Run input']").click();
+  });
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".cells .cell").length === n + 1,
+    { timeout: 20000 },
+    beforeRerun,
+  );
+  check("cell rerun appends a new cell", true);
+
   // The console session survives a reload (localStorage).
   const before = await page.$$eval(".cells .cell", (e) => e.length);
   await page.reload({ waitUntil: "load" });

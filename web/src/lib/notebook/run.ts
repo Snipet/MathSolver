@@ -83,7 +83,7 @@ function boundNames(pairs: string[]): string[] {
 let catalogPromise: Promise<PluginMeta[]> | null = null;
 
 /** The compiled-in plugin catalog, fetched once per session. */
-function getCatalog(): Promise<PluginMeta[]> {
+export function getCatalog(): Promise<PluginMeta[]> {
   catalogPromise ??= call("plugins", []).then((r) => (r.ok ? r.plugins : []));
   return catalogPromise;
 }

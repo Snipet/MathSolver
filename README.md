@@ -171,8 +171,11 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   ```
 
   Each entry becomes an In[n]/Out[n] cell; `:=` assignments feed the same
-  Variables environment the Workbench uses, `help` lists the grammar, and the
-  session persists locally. ↑/↓ recall previous lines.
+  Variables environment the Workbench uses, and the session persists locally.
+  The console fills the viewport with a clickable **Commands** reference
+  panel (built-ins plus the live plugin catalog), Tab autocompletion with
+  inline usage hints, ↑/↓ history recall, per-cell rerun/edit actions, and
+  Ctrl+L to clear.
 
   The console also dispatches **plugin commands** — compiled-in C++ modules
   for numeric domains the CAS doesn't cover (see

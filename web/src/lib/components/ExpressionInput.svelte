@@ -7,6 +7,8 @@
     oncompute: () => void;
     /** Optional pre-handler (e.g. console history recall); may preventDefault. */
     onkeydownextra?: (e: KeyboardEvent) => void;
+    /** Label of the action button (defaults to "Compute"). */
+    buttonLabel?: string;
   }
 
   let {
@@ -16,6 +18,7 @@
     computeDisabled = false,
     oncompute,
     onkeydownextra,
+    buttonLabel = "Compute",
   }: Props = $props();
 
   let ta: HTMLTextAreaElement | undefined = $state();
@@ -60,7 +63,7 @@
     {onkeydown}
   ></textarea>
   <button class="compute" onclick={() => oncompute()} disabled={computeDisabled}>
-    {computing ? "Computing…" : "Compute"}
+    {computing ? "Computing…" : buttonLabel}
   </button>
 </div>
 
