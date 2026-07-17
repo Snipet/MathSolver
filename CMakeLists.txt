@@ -76,6 +76,8 @@ add_library(mathsolver_plugins STATIC
     plugins/sys/sys_lti.cpp
     plugins/linalg/linalg.cpp
     plugins/linalg/linalg_core.cpp
+    plugins/pde/pde.cpp
+    plugins/pde/pde_core.cpp
 )
 target_link_libraries(mathsolver_plugins PUBLIC mathsolver_core PRIVATE mathsolver_warnings)
 

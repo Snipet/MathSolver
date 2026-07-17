@@ -184,6 +184,18 @@ try {
     "linalg symbolic det",
     (await run("linalg.det [a b; c d]")).includes("a*d"),
   );
+  const pdeOut = await run("pde.heat 1, 1, x*(1-x)");
+  check(
+    "pde.heat renders profiles",
+    pdeOut.includes("heat equation") && pdeOut.includes("Temperature profiles"),
+    pdeOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const dsysOut = await run("dsolve x' = y; y' = -x, x(0)=1, y(0)=0");
+  check(
+    "dsolve system in console",
+    dsysOut.includes("cos") && dsysOut.includes("sin"),
+    dsysOut.replace(/\n/g, " ").slice(0, 80),
+  );
   check(
     "curl verb",
     (await run("curl -y; x; 0, x, y, z")).includes("(0, 0, 2)"),
