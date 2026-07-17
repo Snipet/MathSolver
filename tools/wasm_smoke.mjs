@@ -87,6 +87,12 @@ check("sys feedback", ms.pluginCall("sys", "feedback", "1,s + 1,3"), (r) => r.ok
 check("sys rlocus", ms.pluginCall("sys", "rlocus", "1,s^3 + 3s^2 + 2s,100"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.series.some((s) => s.label.startsWith("locus"))) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Verdict" && v.includes("unstable near K"))), "locus + critical gain");
 check("sys tfz", ms.pluginCall("sys", "tfz", "z,z^2 - 0.5z + 0.06,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.equal === true && b.series.some((s) => s.label === "unit circle")) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("inside |z| = 1"))), "z-plane analysis");
 check("sys tfz unstable", ms.pluginCall("sys", "tfz", "1,z - 1.2,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("outside |z| = 1"))), "unstable z pole");
+// limits (limit.hpp)
+check("limit lhopital", ms.limit("sin(x)/x", "x", "0", ""), (r) => r.ok && r.status === "exact" && r.plain === "1", "sin x/x -> 1");
+check("limit rational inf", ms.limit("(3x^2+1)/(x^2-5)", "x", "inf", ""), (r) => r.ok && r.status === "exact" && r.plain === "3", "leading coefficients");
+check("limit one-sided diverges", ms.limit("1/x", "x", "0", "right"), (r) => r.ok && r.status === "diverges" && r.sign === 1, "+inf from the right");
+check("limit does not exist", ms.limit("1/x", "x", "0", ""), (r) => r.ok && r.status === "doesNotExist" && r.warnings.length === 2, "sides disagree");
+check("limit numeric", ms.limit("(1+1/x)^x", "x", "inf", ""), (r) => r.ok && r.status === "numeric" && Math.abs(r.approx - Math.E) < 1e-4, "~e numerically");
 // vector calculus (vector_calculus.hpp)
 check("vector grad", ms.vectorOp("grad", "x^2 + y^2", "x,y"), (r) => r.ok && r.plain === "(2*x, 2*y)", "(2x, 2y)");
 check("vector div", ms.vectorOp("div", "x*y; y*z; z*x", "x,y,z"), (r) => r.ok && r.plain === "x + y + z", "x+y+z");

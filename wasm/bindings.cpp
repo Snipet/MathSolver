@@ -444,6 +444,45 @@ std::string ms_sample_field(std::string fx, std::string fy, std::string xvar,
     });
 }
 
+/// limit(expr, variable, point, direction): direction is "left", "right",
+/// or "" (two-sided); point accepts inf/-inf/oo. Returns status plus the
+/// rendered value where one exists.
+std::string ms_limit(std::string input, std::string variable, std::string point,
+                     std::string direction) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        const std::string var = trim(variable);
+        const std::string pt = trim(point);
+        const std::string dir_text = trim(direction);
+        const int dir = dir_text == "left" ? -1 : dir_text == "right" ? +1 : 0;
+        LimitResult r;
+        if (pt == "inf" || pt == "+inf" || pt == "oo") {
+            r = limit_at_infinity(e, var, true);
+        } else if (pt == "-inf" || pt == "-oo") {
+            r = limit_at_infinity(e, var, false);
+        } else {
+            r = limit(e, var, parse_expression(pt), dir);
+        }
+        const char* status =
+            r.status == LimitResult::Status::Exact        ? "exact"
+            : r.status == LimitResult::Status::Numeric    ? "numeric"
+            : r.status == LimitResult::Status::Diverges   ? "diverges"
+            : r.status == LimitResult::Status::DoesNotExist ? "doesNotExist"
+                                                            : "unsolved";
+        std::string out = std::format("{{\"ok\":true,\"status\":{},\"sign\":{}",
+                                      jstr(status), r.sign);
+        if (r.status == LimitResult::Status::Exact) {
+            out += "," + rendered_fields(r.value);
+        } else if (r.status == LimitResult::Status::Numeric) {
+            out += std::format(",\"approx\":{}",
+                               jnum(evaluate(r.value, Bindings{})));
+        }
+        out += std::format(",\"method\":{},\"warnings\":{}}}", jstr(r.method),
+                           jarr_str(r.warnings));
+        return out;
+    });
+}
+
 /// series(expr, variable, center, order): Taylor expansion. Empty variable
 /// infers the single free symbol; empty center means 0.
 std::string ms_series(std::string input, std::string variable,
@@ -760,6 +799,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("dsolve", &ms_dsolve);
     emscripten::function("series", &ms_series);
     emscripten::function("vectorOp", &ms_vector_op);
+    emscripten::function("limit", &ms_limit);
     emscripten::function("sampleField", &ms_sample_field);
     emscripten::function("laplace", &ms_laplace);
     emscripten::function("ilaplace", &ms_ilaplace);

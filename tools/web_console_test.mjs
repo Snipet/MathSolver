@@ -159,6 +159,11 @@ try {
     "grad verb",
     (await run("grad x^2 + y^2, x, y")).includes("(2*x, 2*y)"),
   );
+  check("limit verb exact", (await run("limit sin(x)/x, x, 0")).includes("1"));
+  check(
+    "limit verb divergence message",
+    (await run("limit 1/x, x, 0, right")).includes("+∞"),
+  );
   check(
     "curl verb",
     (await run("curl -y; x; 0, x, y, z")).includes("(0, 0, 2)"),

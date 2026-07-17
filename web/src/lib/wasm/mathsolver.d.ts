@@ -14,6 +14,7 @@ export interface MathSolverModule {
   dsolve(ode: string, conditionsCsv: string): string;
   series(input: string, variable: string, center: string, order: number): string;
   vectorOp(op: string, fieldSemi: string, varsCsv: string): string;
+  limit(input: string, variable: string, point: string, direction: string): string;
   sampleField(
     fx: string,
     fy: string,

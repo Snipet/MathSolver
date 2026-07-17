@@ -56,6 +56,7 @@ const MATH_VERBS = new Set([
   "jacobian",
   "hessian",
   "vecfield",
+  "limit",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -185,6 +186,7 @@ function helpMessage(): NotebookMessage {
       "dsolve <ode>[, y(0)=v, y'(0)=v, …]  solve an IVP, e.g.",
       "       dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0",
       "series <expr>[, <var>[, <center>[, <order>]]]   Taylor expansion",
+      "limit <expr>, <var>, <point>[, left|right]   (point: number, inf, -inf)",
       "grad <f>, <vars…>    div/curl <F1;F2;…>, <vars…>    laplacian <f>, <vars…>",
       "jacobian <F1;F2;…>, <vars…>    hessian <f>, <vars…>",
       "vecfield <Fx>; <Fy>[, <xlo>, <xhi>, <ylo>, <yhi>]   quiver plot",
@@ -317,6 +319,31 @@ async function runVerb(verb: string, rest: string): Promise<CellResult> {
       const r = await call("series", [env.text, v, args[2] ?? "", order]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "limit": {
+      // limit <expr>, <var>, <point>[, left|right]
+      if (args.length < 3 || args.length > 4)
+        return usage("usage: limit <expr>, <var>, <point>[, left|right]");
+      const v = args[1];
+      const env = await applyEnv(expr, [v], "expr");
+      const r = await call("limit", [env.text, v, args[2], args[3] ?? ""]);
+      if (!r.ok) return err(env.text, r);
+      if (r.status === "exact" && r.plain && r.latex) {
+        return {
+          kind: "transform",
+          result: { ok: true, plain: r.plain, latex: r.latex },
+          computedFrom: env.computedFrom,
+        };
+      }
+      const lines: string[] = [];
+      if (r.status === "numeric") lines.push(`limit ≈ ${r.approx}`);
+      else if (r.status === "diverges")
+        lines.push(`limit = ${r.sign > 0 ? "+∞" : r.sign < 0 ? "−∞" : "∞ (unsigned)"}`);
+      else if (r.status === "doesNotExist") lines.push("the limit does not exist");
+      else lines.push("unable to determine the limit");
+      if (r.method) lines.push(`method: ${r.method}`);
+      lines.push(...r.warnings);
+      return { kind: "message", tone: "info", lines };
     }
     case "grad":
     case "div":

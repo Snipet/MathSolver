@@ -349,6 +349,60 @@ void run_series(const std::string& input, const std::string& explicit_var,
 
 std::vector<std::string> split_top_level(const std::string& s, char delim);
 
+/// `limit <expr> <var> <point> [left|right]`. The point accepts inf/-inf/oo.
+void run_limit(const std::string& input, const std::string& var,
+               const std::string& point_text, const std::string& dir_text,
+               PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    if (var.empty() || point_text.empty()) {
+        throw UsageError{
+            "usage: limit <expression>, <variable>, <point>[, left|right]"};
+    }
+    int dir = 0;
+    if (dir_text == "left") {
+        dir = -1;
+    } else if (dir_text == "right") {
+        dir = +1;
+    } else if (!dir_text.empty() && dir_text != "both") {
+        throw UsageError{std::format(
+            "the limit direction must be left, right, or both (got '{}')",
+            dir_text)};
+    }
+    LimitResult r;
+    if (point_text == "inf" || point_text == "+inf" || point_text == "oo") {
+        r = limit_at_infinity(e, var, true);
+    } else if (point_text == "-inf" || point_text == "-oo") {
+        r = limit_at_infinity(e, var, false);
+    } else {
+        r = limit(e, var, parse_expression_diag(point_text), dir);
+    }
+    switch (r.status) {
+        case LimitResult::Status::Exact:
+            std::println("limit = {}", to_string(r.value, style));
+            break;
+        case LimitResult::Status::Numeric:
+            std::println("limit ≈ {:.10g}", evaluate(r.value, Bindings{}));
+            break;
+        case LimitResult::Status::Diverges:
+            std::println("limit = {}", r.sign > 0   ? "+inf"
+                                       : r.sign < 0 ? "-inf"
+                                                    : "inf (unsigned)");
+            break;
+        case LimitResult::Status::DoesNotExist:
+            std::println("the limit does not exist");
+            break;
+        case LimitResult::Status::Unsolved:
+            std::println("unable to determine the limit");
+            break;
+    }
+    if (!r.method.empty()) {
+        std::println("method: {}", r.method);
+    }
+    for (const std::string& w : r.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
 /// Vector-calculus verbs (grad/div/curl/laplacian/jacobian/hessian). The
 /// first positional is the scalar field or a ';'-separated vector field; the
 /// remaining positionals are the variables (in order). Scalar operators
@@ -738,6 +792,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver ilaplace \"1/(s^2 + 2s + 5)\" [s]\n"
                "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
                "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
+               "  mathsolver limit    \"sin(x)/x\" x 0\n"
                "  mathsolver grad     \"x^2 + y^2\" x y\n"
                "  mathsolver curl     \"x*y; y*z; z*x\" x y z\n"
                "  mathsolver eval     \"x^2 + y\" x=3 y=0.5\n"
@@ -764,7 +819,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "subs" || s == "collect" || s == "laplace" || s == "ilaplace" ||
            s == "apart" || s == "dsolve" || s == "series" || s == "grad" ||
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
-           s == "hessian";
+           s == "hessian" || s == "limit";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -879,6 +934,14 @@ int run_one_shot(const std::vector<std::string>& args) {
         } else if (sub == "grad" || sub == "div" || sub == "curl" ||
                    sub == "laplacian" || sub == "jacobian" || sub == "hessian") {
             run_vector(sub, positionals, style);
+        } else if (sub == "limit") {
+            if (positionals.size() < 3 || positionals.size() > 4) {
+                throw UsageError{
+                    "usage: mathsolver limit \"<expr>\" <var> <point> "
+                    "[left|right]"};
+            }
+            run_limit(input, positionals[1], positionals[2],
+                      positionals.size() > 3 ? positionals[3] : "", style);
         } else if (sub == "series") {
             if (positionals.size() > 4) {
                 throw UsageError{std::format(
@@ -961,6 +1024,8 @@ void print_repl_help() {
         "  dsolve <ode>[, y(0)=v, y'(0)=v, ...]   solve an IVP, e.g.\n"
         "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
+        "  limit <expression>, <variable>, <point>[, left|right]\n"
+        "         (point accepts numbers, inf, -inf)\n"
         "  grad <f>, <vars...>       div/curl <F1;F2;..>, <vars...>\n"
         "  laplacian <f>, <vars...>  jacobian <F1;..>, <vars...>  hessian <f>, <vars...>\n"
         "  simplify <expression>      expand <expression>\n"
@@ -989,7 +1054,7 @@ bool is_repl_command(std::string_view word) {
            word == "ilaplace" || word == "apart" || word == "dsolve" ||
            word == "series" || word == "grad" || word == "div" ||
            word == "curl" || word == "laplacian" || word == "jacobian" ||
-           word == "hessian";
+           word == "hessian" || word == "limit";
 }
 
 // ---------------------------------------------------------------------------
@@ -1557,6 +1622,19 @@ void repl_command(const std::string& command, const std::string& rest,
         }
         run_integrate(resolved, var, from_text, to_text, PrintStyle::Plain);
         warn_assigned_variable(var, env);
+    } else if (command == "limit") {
+        // limit <expr>, <var>, <point>[, left|right]
+        if (parts.size() < 3 || parts.size() > 4) {
+            throw UsageError{
+                "usage: limit <expression>, <variable>, <point>[, left|right]"};
+        }
+        std::set<std::string> excluded{parts[1]};
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
+        run_limit(resolved, parts[1], parts[2],
+                  parts.size() > 3 ? parts[3] : "", PrintStyle::Plain);
+        warn_assigned_variable(parts[1], env);
     } else if (command == "series") {
         // series <expr>[, <var>[, <center>[, <order>]]]
         if (parts.size() > 4) {

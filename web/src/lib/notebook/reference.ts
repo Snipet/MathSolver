@@ -80,6 +80,11 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         usage: "series <expr>[, <var>[, <center>[, <order>]]]",
         hint: "Taylor expansion (center 0, order 6 by default)",
       },
+      {
+        insert: "limit",
+        usage: "limit <expr>, <var>, <point>[, left|right]",
+        hint: "Limit at a point or ±inf (exact where possible)",
+      },
     ],
   },
   {

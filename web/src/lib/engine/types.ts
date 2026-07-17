@@ -21,6 +21,17 @@ export type AnalyzeResult =
 
 export type TransformResult = ({ ok: true } & Rendered) | EngineError;
 
+export type LimitCallResult =
+  | ({
+      ok: true;
+      status: "exact" | "numeric" | "diverges" | "doesNotExist" | "unsolved";
+      sign: number;
+      approx?: number;
+      method: string;
+      warnings: string[];
+    } & Partial<Rendered>)
+  | EngineError;
+
 export type FieldResult =
   | {
       ok: true;
@@ -167,6 +178,10 @@ export interface EngineApi {
     TransformResult,
   ];
   vectorOp: [[op: string, fieldSemi: string, varsCsv: string], TransformResult];
+  limit: [
+    [input: string, variable: string, point: string, direction: string],
+    LimitCallResult,
+  ];
   sampleField: [
     [
       fx: string,

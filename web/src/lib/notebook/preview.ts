@@ -129,6 +129,23 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
     case "dsolve":
       // The ODE prime grammar (y'' …) is not an expression; no live preview.
       return NONE;
+    case "limit": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      const v = args[1] ?? "x";
+      const pt =
+        args[2] === "inf" || args[2] === "oo"
+          ? "\\infty"
+          : args[2] === "-inf" || args[2] === "-oo"
+            ? "-\\infty"
+            : (args[2] ?? "?");
+      const side = args[3] === "left" ? "^-" : args[3] === "right" ? "^+" : "";
+      return {
+        kind: "math",
+        latex: `\\lim_{${v} \\to ${pt}${side}} ${f.latex}`,
+      };
+    }
     case "grad":
     case "div":
     case "curl":
