@@ -6,6 +6,7 @@ import type {
   IntegrateResult,
   DefiniteResult,
   EvaluateResult,
+  PluginCallResult,
   Rendered,
 } from "./engine/types";
 
@@ -28,5 +29,6 @@ export type Outcome =
   | ({ kind: "integral"; variable: string; result: Ok<IntegrateResult> } & EnvApplied)
   | ({ kind: "definite"; from: string; to: string; result: Ok<DefiniteResult> } & EnvApplied)
   | ({ kind: "evaluate"; result: Ok<EvaluateResult> } & EnvApplied)
+  | { kind: "plugin"; plugin: string; command: string; result: Ok<PluginCallResult> }
   | { kind: "assignment"; name: string; plain: string; latex: string }
   | { kind: "error"; message: string; input: string; begin?: number; end?: number };

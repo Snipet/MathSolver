@@ -7,7 +7,7 @@
 // bindings the workbench uses and applies the shared `:=` environment, so a
 // console line and the equivalent workbench action compute identically.
 import { call } from "../engine";
-import type { EngineError } from "../engine/types";
+import type { EngineError, PluginMeta } from "../engine/types";
 import { hasTopLevelSemicolon, splitTopLevelCommas } from "../format";
 import type { Outcome } from "../outcome";
 import { vars } from "../vars.svelte";
@@ -78,6 +78,62 @@ function boundNames(pairs: string[]): string[] {
   return pairs.map((p) => p.split("=")[0].trim()).filter(Boolean);
 }
 
+// --- plugins (docs/PLUGINS.md) ---------------------------------------------
+
+let catalogPromise: Promise<PluginMeta[]> | null = null;
+
+/** The compiled-in plugin catalog, fetched once per session. */
+function getCatalog(): Promise<PluginMeta[]> {
+  catalogPromise ??= call("plugins", []).then((r) => (r.ok ? r.plugins : []));
+  return catalogPromise;
+}
+
+/** `dsp.butter` -> {plugin: "dsp", command: "butter"}; null if not that shape. */
+function splitPluginHead(head: string): { plugin: string; command: string } | null {
+  const m = /^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$/.exec(head);
+  if (!m) return null;
+  return { plugin: m[1], command: m[2] };
+}
+
+async function runPluginCommand(
+  plugin: string,
+  command: string,
+  rest: string,
+  line: string,
+): Promise<CellResult> {
+  const catalog = await getCatalog();
+  const meta = catalog.find((p) => p.name === plugin);
+  if (!meta) {
+    return usage(
+      `no plugin named '${plugin}' — run plugins to list what is available`,
+    );
+  }
+  const cmd = meta.commands.find((c) => c.name === command);
+  if (!cmd) {
+    const names = meta.commands.map((c) => `${plugin}.${c.name}`).join(", ");
+    return usage(`${plugin} has no command '${command}' — it offers: ${names}`);
+  }
+  // Arguments are the top-level comma-separated remainder, re-joined for the
+  // engine's CSV convention (plugin args cannot contain commas).
+  const args = splitTopLevelCommas(rest).join(",");
+  const r = await call("pluginCall", [plugin, command, args]);
+  if (!r.ok)
+    return { kind: "error", message: r.error, input: line, begin: r.begin, end: r.end };
+  return { kind: "plugin", plugin, command, result: r };
+}
+
+async function pluginsMessage(): Promise<NotebookMessage> {
+  const catalog = await getCatalog();
+  if (catalog.length === 0)
+    return { kind: "message", tone: "muted", lines: ["no plugins compiled in"] };
+  const lines: string[] = [];
+  for (const p of catalog) {
+    lines.push(`${p.name} ${p.version} — ${p.summary}`);
+    for (const c of p.commands) lines.push(`  ${c.usage}`);
+  }
+  return { kind: "message", tone: "info", title: "Plugins", lines };
+}
+
 // --- session commands ------------------------------------------------------
 
 function helpMessage(): NotebookMessage {
@@ -95,7 +151,9 @@ function helpMessage(): NotebookMessage {
       "eval <expr>, x=1[, y=2 …]           subs <expr>, x=y+1[, …]",
       "collect <expr>[, <var>]             latex <expr>",
       "<name> := <value>      bind a variable (applies to later lines)",
-      "vars      unset <name>      clear      help",
+      "<plugin>.<command> …   call a plugin (run plugins for the catalog),",
+      "                       e.g. dsp.butter lowpass, 4, 1000, 48000",
+      "vars      unset <name>      clear      plugins      help",
     ],
   };
 }
@@ -296,10 +354,15 @@ export async function runLine(raw: string): Promise<CellResult> {
     if (splitAssignment(line)) return await runAssignment(line);
 
     const { head, rest } = splitHead(line);
+    const pluginHead = splitPluginHead(head);
+    if (pluginHead)
+      return await runPluginCommand(pluginHead.plugin, pluginHead.command, rest, line);
     const verb = head.toLowerCase();
     switch (verb) {
       case "help":
         return helpMessage();
+      case "plugins":
+        return await pluginsMessage();
       case "vars":
         return varsMessage();
       case "clear":

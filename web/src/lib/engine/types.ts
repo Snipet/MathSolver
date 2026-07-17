@@ -72,6 +72,46 @@ export type EvaluateResult = { ok: true; value: number | null } | EngineError;
 
 export type SampleResult = { ok: true; ys: (number | null)[] } | EngineError;
 
+// --- plugins (mathsolver/plugin.hpp, docs/PLUGINS.md) -----------------------
+
+export interface PluginCommandMeta {
+  name: string;
+  summary: string;
+  usage: string;
+}
+
+export interface PluginMeta {
+  name: string;
+  version: string;
+  summary: string;
+  commands: PluginCommandMeta[];
+}
+
+export type PluginCatalogResult =
+  | { ok: true; plugins: PluginMeta[] }
+  | EngineError;
+
+/** Declarative UI blocks a plugin result is rendered from. */
+export type PluginBlock =
+  | { type: "kv"; title?: string; items: [string, string][] }
+  | { type: "table"; title?: string; columns: string[]; rows: (string | number)[][] }
+  | {
+      type: "series";
+      title?: string;
+      xlabel?: string;
+      ylabel?: string;
+      logx?: boolean;
+      x: number[];
+      series: { label: string; ys: (number | null)[] }[];
+      /** Vertical marker lines (e.g. filter cutoffs). */
+      vlines?: { x: number; label: string }[];
+    }
+  | { type: "text"; lines: string[] };
+
+export type PluginCallResult =
+  | { ok: true; title: string; blocks: PluginBlock[] }
+  | EngineError;
+
 /** fn name -> [args, result] for the worker protocol. */
 export interface EngineApi {
   version: [[], { ok: true; version: string } | EngineError];
@@ -101,6 +141,8 @@ export interface EngineApi {
     [input: string, variable: string, lo: number, hi: number, n: number],
     SampleResult,
   ];
+  plugins: [[], PluginCatalogResult];
+  pluginCall: [[plugin: string, command: string, argsCsv: string], PluginCallResult];
 }
 
 export type EngineFn = keyof EngineApi;

@@ -174,6 +174,20 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   Variables environment the Workbench uses, `help` lists the grammar, and the
   session persists locally. ↑/↓ recall previous lines.
 
+  The console also dispatches **plugin commands** — compiled-in C++ modules
+  for numeric domains the CAS doesn't cover (see
+  [docs/PLUGINS.md](docs/PLUGINS.md)). The built-in `dsp` plugin does IIR
+  filter design:
+
+  ```text
+  dsp.butter lowpass, 4, 1000, 48000     → biquads + magnitude/phase/time
+  dsp.cheby1 bandpass, 3, 1, 500, 2000, 48000
+  dsp.ellip lowpass, 5, 1, 60, 1000, 48000
+  dsp.fir lowpass, 101, 1000, 48000, kaiser, 10
+  dsp.freqz 48000, 0.2,0.4,0.2,-0.5,0.3  → response of your own biquads
+  plugins                                → catalog of compiled-in plugins
+  ```
+
 Results render as KaTeX with copyable plain text, a live "as parsed" preview
 underlines errors in place, and computation history persists locally. All
 computation runs in your browser via WebAssembly — nothing is sent to a

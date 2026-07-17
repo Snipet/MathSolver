@@ -161,6 +161,56 @@ try {
 
   check("eval with explicit bindings", (await run("eval x^2 + y, x=3, y=0.5")).includes("9.5"));
 
+  // Plugins (docs/PLUGINS.md): catalog, a real dsp.butter design (kv + table
+  // + chart), and plugin error handling.
+  const cat = await run("plugins");
+  check("plugins catalog lists dsp", cat.includes("dsp.butter"), cat.replace(/\n/g, " ").slice(0, 60));
+  const butterOut = await run("dsp.butter lowpass, 4, 1000, 48000");
+  check(
+    "dsp.butter renders design",
+    butterOut.includes("Butterworth") && butterOut.includes("Gain at cutoff") && butterOut.includes("-3.0"),
+    butterOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const hasChart = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => !!el.querySelector("canvas") && !!el.querySelector("table"),
+  );
+  check("dsp.butter has table + chart", hasChart);
+  const chebyOut = await run("dsp.cheby1 bandpass, 3, 1, 500, 2000, 48000");
+  check(
+    "dsp.cheby1 bandpass renders",
+    chebyOut.includes("Chebyshev I") && chebyOut.includes("Gain at f1") &&
+      chebyOut.includes("Phase response"),
+    chebyOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const chartCount = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => el.querySelectorAll("canvas").length,
+  );
+  check("magnitude + phase + time charts", chartCount === 3, `canvases: ${chartCount}`);
+
+  const firOut = await run("dsp.fir lowpass, 63, 1000, 48000");
+  check(
+    "dsp.fir renders",
+    firOut.includes("FIR windowed-sinc") && firOut.includes("linear phase") &&
+      firOut.includes("Time response"),
+    firOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
+  const ellipOut = await run("dsp.ellip lowpass, 5, 1, 60, 1000, 48000");
+  check(
+    "dsp.ellip renders",
+    ellipOut.includes("Elliptic") && ellipOut.includes("-1.00 dB"),
+    ellipOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
+  await run("dsp.butter lowpass, 4, 30000, 48000");
+  const pluginErr = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => el.querySelector(".error-msg")?.textContent ?? "",
+  );
+  check("dsp error card", pluginErr.includes("(0, fs/2)"), pluginErr);
+
   // The console session survives a reload (localStorage).
   const before = await page.$$eval(".cells .cell", (e) => e.length);
   await page.reload({ waitUntil: "load" });

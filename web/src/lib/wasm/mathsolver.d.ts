@@ -17,6 +17,8 @@ export interface MathSolverModule {
   solveSystem(input: string, varsCsv: string): string;
   evaluate(input: string, bindings: string): string;
   sample(input: string, variable: string, lo: number, hi: number, n: number): string;
+  plugins(): string;
+  pluginCall(plugin: string, command: string, argsCsv: string): string;
 }
 
 export default function createMathSolverModule(options?: {
