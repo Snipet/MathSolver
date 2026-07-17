@@ -4,9 +4,18 @@
   import { fmt, varLatex } from "../format";
   import Katex from "./Katex.svelte";
   import MethodMeta from "./MethodMeta.svelte";
+  import CopyField from "./CopyField.svelte";
+  import CopyButton from "./CopyButton.svelte";
 
   let { variable, result }: { variable: string; result: Ok<SolveResult> } =
     $props();
+
+  const allPlain = $derived(
+    result.solutions.map((s) => `${variable} = ${s.plain}`).join("; "),
+  );
+  const allLatex = $derived(
+    result.solutions.map((s) => `${varLatex(variable)} = ${s.latex}`).join(",\\; "),
+  );
 </script>
 
 {#if result.status === "noRealSolution"}
@@ -24,6 +33,10 @@
           {#if sol.exact && sol.approx !== null}
             <span class="approx">≈ {fmt(sol.approx)}</span>
           {/if}
+          <CopyButton
+            text={`${varLatex(variable)} = ${sol.latex}`}
+            label={`Copy solution ${i + 1} as LaTeX`}
+          />
         </div>
         {#if sol.note}
           <p class="note">{sol.note}</p>
@@ -31,6 +44,12 @@
       </li>
     {/each}
   </ul>
+  {#if result.solutions.length > 0}
+    <div class="sources">
+      <CopyField label="Plain" text={allPlain} />
+      <CopyField label="LaTeX" text={allLatex} />
+    </div>
+  {/if}
 {/if}
 <MethodMeta method={result.method} warnings={result.warnings} />
 
@@ -79,5 +98,10 @@
     margin: 0.1rem 0 0;
     font-size: 0.8rem;
     color: var(--fg-muted);
+  }
+  .sources {
+    margin-top: 0.75rem;
+    display: grid;
+    gap: 0.4rem;
   }
 </style>

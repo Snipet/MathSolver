@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { tick, untrack } from "svelte";
   import { call, engineReady } from "./lib/engine";
   import type { AnalyzeResult, SolveResult, SystemResult } from "./lib/engine/types";
   import { TABS, type TabId } from "./lib/tabs";
@@ -82,6 +82,20 @@
   const isSystem = $derived(
     (analysis?.ok && analysis.kind === "system") || hasTopLevelSemicolon(input),
   );
+
+  // Suppress the live preview error while an identical error card is shown for
+  // the same input — one mistake should read as one error, not two.
+  const previewAnalysis = $derived.by(() => {
+    if (
+      outcome?.kind === "error" &&
+      analysis &&
+      !analysis.ok &&
+      analysis.error === outcome.message &&
+      input.trim() === outcome.input
+    )
+      return null;
+    return analysis;
+  });
 
   // Reconcile per-tab params when the free symbols change. Bail while the
   // input is empty or transiently unparsable so mid-edit states don't wipe
@@ -312,6 +326,24 @@
     outcome = null;
   }
 
+  // Enter in any secondary control (bounds, bindings, ranges) computes, just
+  // like Enter in the main textarea.
+  function ctlKeydown(e: KeyboardEvent) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    void compute();
+  }
+
+  let exprInput: ReturnType<typeof ExpressionInput> | undefined = $state();
+
+  // Example chips fill the input, then hand focus back to the textarea with
+  // the cursor at the end so Enter/typing continues the flow.
+  async function useExample(ex: string) {
+    input = ex;
+    await tick();
+    exprInput?.focusEnd();
+  }
+
   // --- history restore ---------------------------------------------------------
   function restore(e: HistoryEntry) {
     tab = e.tab;
@@ -384,6 +416,7 @@
         aria-labelledby={"tab-" + tab}
       >
         <ExpressionInput
+          bind:this={exprInput}
           bind:value={input}
           placeholder={tabDef.placeholder}
           {computing}
@@ -401,13 +434,13 @@
 
         <div class="examples" role="group" aria-label="Examples">
           {#each tabDef.examples as ex (ex)}
-            <button class="example-chip" onclick={() => (input = ex)}>
+            <button class="example-chip" onclick={() => void useExample(ex)}>
               {ex}
             </button>
           {/each}
         </div>
 
-        <ParsePreview {analysis} input={input.trim()} />
+        <ParsePreview analysis={previewAnalysis} input={input.trim()} />
 
         {#if tab === "solve"}
           {#if isSystem}
@@ -436,11 +469,21 @@
               {#if useRange}
                 <label class="ctl">
                   <span>Lo</span>
-                  <input type="number" step="any" bind:value={rangeLo} />
+                  <input
+                    type="number"
+                    step="any"
+                    bind:value={rangeLo}
+                    onkeydown={ctlKeydown}
+                  />
                 </label>
                 <label class="ctl">
                   <span>Hi</span>
-                  <input type="number" step="any" bind:value={rangeHi} />
+                  <input
+                    type="number"
+                    step="any"
+                    bind:value={rangeHi}
+                    onkeydown={ctlKeydown}
+                  />
                 </label>
               {/if}
             </div>
@@ -459,11 +502,23 @@
             {#if definite}
               <label class="ctl">
                 <span>From</span>
-                <input type="text" class="expr" bind:value={intFrom} placeholder="0" />
+                <input
+                  type="text"
+                  class="expr"
+                  bind:value={intFrom}
+                  placeholder="0"
+                  onkeydown={ctlKeydown}
+                />
               </label>
               <label class="ctl">
                 <span>To</span>
-                <input type="text" class="expr" bind:value={intTo} placeholder="pi" />
+                <input
+                  type="text"
+                  class="expr"
+                  bind:value={intTo}
+                  placeholder="pi"
+                  onkeydown={ctlKeydown}
+                />
               </label>
             {/if}
           </div>
@@ -473,7 +528,12 @@
               {#each symbols as s (s)}
                 <label class="ctl">
                   <span>{s} =</span>
-                  <input type="number" step="any" bind:value={bindings[s]} />
+                  <input
+                    type="number"
+                    step="any"
+                    bind:value={bindings[s]}
+                    onkeydown={ctlKeydown}
+                  />
                 </label>
               {/each}
             </div>
@@ -483,11 +543,21 @@
             {@render variableSelect()}
             <label class="ctl">
               <span>From</span>
-              <input type="number" step="any" bind:value={plotLo} />
+              <input
+                type="number"
+                step="any"
+                bind:value={plotLo}
+                onkeydown={ctlKeydown}
+              />
             </label>
             <label class="ctl">
               <span>To</span>
-              <input type="number" step="any" bind:value={plotHi} />
+              <input
+                type="number"
+                step="any"
+                bind:value={plotHi}
+                onkeydown={ctlKeydown}
+              />
             </label>
             <label class="ctl checkbox">
               <input type="checkbox" bind:checked={plotD} />

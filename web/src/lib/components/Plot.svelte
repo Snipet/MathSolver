@@ -172,8 +172,40 @@
       : sorted[base];
   }
 
-  /** Fit a y-range to the finite values, clipping extreme outliers. */
-  function fitY(vals: number[]): [number, number] {
+  /**
+   * Interior local extrema (strict direction changes) of a sampled series.
+   * Poles/asymptotes produce huge "extrema" at the jump, which harmlessly
+   * disqualifies the detail zoom below.
+   */
+  function collectExtrema(ys: (number | null)[], out: number[]) {
+    for (let i = 1; i < ys.length - 1; i++) {
+      const a = ys[i - 1];
+      const b = ys[i];
+      const c = ys[i + 1];
+      if (a === null || b === null || c === null) continue;
+      if (!Number.isFinite(a) || !Number.isFinite(b) || !Number.isFinite(c))
+        continue;
+      const d1 = b - a;
+      const d2 = c - b;
+      if ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) out.push(b);
+    }
+  }
+
+  /**
+   * Fit a y-range to the finite values.
+   *
+   * Outliers are clipped only when the spread is genuinely dominated by them:
+   * the clip bound is max(4·IQR beyond the quartiles, the 1st/99th
+   * percentiles), so at least 98% of finite samples always stay in range
+   * (keeps 1/x readable without ever cutting into the bulk of the data).
+   *
+   * Separately, smooth functions with huge tails (e.g. x^3 - 3x) squash their
+   * local max/min into a flat line even though nothing is an outlier. When all
+   * interior local extrema sit in a tiny slice (<5%) of the fitted range, zoom
+   * so the extrema band occupies about a quarter of the plot height — the
+   * shape stays visible while the tails exit steeply.
+   */
+  function fitY(vals: number[], extrema: number[] = []): [number, number] {
     if (vals.length === 0) return [-1, 1];
     const s = [...vals].sort((x, y) => x - y);
     let min = s[0];
@@ -182,11 +214,26 @@
     const q3 = quantile(s, 0.75);
     const iqr = q3 - q1;
     if (iqr > 1e-9) {
-      min = Math.max(min, q1 - 4 * iqr);
-      max = Math.min(max, q3 + 4 * iqr);
+      min = Math.max(min, Math.min(q1 - 4 * iqr, quantile(s, 0.01)));
+      max = Math.min(max, Math.max(q3 + 4 * iqr, quantile(s, 0.99)));
     }
     min = Math.max(min, -1e6);
     max = Math.min(max, 1e6);
+    if (extrema.length >= 2) {
+      const eLo = Math.min(...extrema);
+      const eHi = Math.max(...extrema);
+      const eSpan = eHi - eLo;
+      if (eSpan > 1e-12 && eSpan < 0.05 * (max - min) && eHi > min && eLo < max) {
+        const mid = (eLo + eHi) / 2;
+        const half = 2 * eSpan;
+        const zLo = Math.max(min, mid - half);
+        const zHi = Math.min(max, mid + half);
+        if (zHi - zLo > 1e-12) {
+          min = zLo;
+          max = zHi;
+        }
+      }
+    }
     if (!(max > min)) {
       min -= 1;
       max += 1;
@@ -248,10 +295,13 @@
     if (a) series.push({ ys: a, color: colOk, lw: 1.5 });
 
     const finite: number[] = [];
-    for (const s of series)
+    const extrema: number[] = [];
+    for (const s of series) {
       for (const y of s.ys)
         if (y !== null && Number.isFinite(y)) finite.push(y);
-    const [yLo, yHi] = fitY(finite);
+      collectExtrema(s.ys, extrema);
+    }
+    const [yLo, yHi] = fitY(finite, extrema);
 
     const xOf = (x: number) => m.left + ((x - l) / (h - l)) * pw;
     const yOf = (y: number) => m.top + ((yHi - y) / (yHi - yLo)) * ph;

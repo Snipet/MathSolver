@@ -42,6 +42,22 @@ function load(): HistoryEntry[] {
 
 let nextId = Date.now();
 
+/** Structural equality for JSON-safe param values (key order insensitive). */
+function paramsEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null)
+    return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  return ka.every(
+    (k) =>
+      k in b &&
+      paramsEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
+  );
+}
+
 class HistoryStore {
   entries = $state<HistoryEntry[]>(load());
 
@@ -54,7 +70,25 @@ class HistoryStore {
   }
 
   add(e: Omit<HistoryEntry, "id" | "ts">) {
-    this.entries = [{ ...e, id: nextId++, ts: Date.now() }, ...this.entries].slice(0, CAP);
+    // Top-of-history dedupe: re-running the newest computation (manually or
+    // via a history restore) refreshes it in place instead of appending a clone.
+    const top = this.entries[0];
+    if (
+      top &&
+      top.tab === e.tab &&
+      top.input === e.input &&
+      paramsEqual(top.params, e.params)
+    ) {
+      this.entries = [
+        { ...top, summary: e.summary, ts: Date.now() },
+        ...this.entries.slice(1),
+      ];
+    } else {
+      this.entries = [{ ...e, id: nextId++, ts: Date.now() }, ...this.entries].slice(
+        0,
+        CAP,
+      );
+    }
     this.#persist();
   }
 

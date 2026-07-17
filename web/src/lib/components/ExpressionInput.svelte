@@ -17,6 +17,14 @@
 
   let ta: HTMLTextAreaElement | undefined = $state();
 
+  /** Focus the textarea and place the cursor at the end of its content. */
+  export function focusEnd() {
+    const el = ta;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }
+
   // Auto-grow: re-measure whenever the value changes.
   $effect(() => {
     void value;
