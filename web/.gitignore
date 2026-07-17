@@ -1,0 +1,4 @@
+node_modules/
+dist/
+src/lib/wasm/mathsolver.js
+src/lib/wasm/mathsolver.wasm
