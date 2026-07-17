@@ -12,8 +12,10 @@ This page is the complete reference for what the parser accepts.
 [Variables, subscripts, Greek letters](#variables-subscripts-and-greek-letters) ·
 [How words are read](#how-multi-letter-words-are-read) ·
 [Operators and precedence](#operators-and-precedence) ·
+[Unicode input](#unicode-input) ·
 [LaTeX commands](#supported-latex-commands) ·
 [Applying functions](#applying-functions) ·
+[Absolute value](#absolute-value) ·
 [Equations](#equations) ·
 [Pitfalls](#differences-from-real-latex-and-common-pitfalls) ·
 [Errors](#error-messages)
@@ -40,19 +42,33 @@ This page is the complete reference for what the parser accepts.
 
 ## Numbers
 
-Two literal forms:
+Three literal forms:
 
 ```text
 42        integer
 3.14      decimal
+2e3       scientific notation (= 2000)
 ```
 
 Decimals are stored **exactly** as rationals: `3.14` becomes `157/50`, not a
 floating-point approximation.
 
-There is **no scientific notation**. `2e3` is *not* 2000 — digits and letters
-never join into one token, so it reads as `2 · e · 3` where `e` is Euler's
-number (see [pitfalls](#differences-from-real-latex-and-common-pitfalls)).
+**Scientific notation** is stored exactly too: `2e3` is `2000`, `2e-3` is
+`1/500`, `1.5E-10` is `3/20000000000`, and `2e+5` is `200000`. A literal
+whose exact value cannot fit the 64-bit rational range (`1e300`) is a clean
+parse error, never a silent approximation.
+
+The `e` (or `E`) joins the number **only when digits follow it directly** —
+optionally after a `+`/`-` sign, with no space in between. Everywhere else
+`e` is still Euler's number:
+
+| Input    | Read as     | Why                                              |
+|----------|-------------|--------------------------------------------------|
+| `2e3`    | `2000`      | digits follow the `e` — one number token         |
+| `2e-3`   | `1/500`     | a sign then digits also joins                    |
+| `2e`     | `2 * e`     | no digits after `e` — Euler's number             |
+| `2e x`   | `2 * e * x` | same: `e` is the constant, `x` a variable        |
+| `2e - 3` | `2*e - 3`   | the space breaks the token — this is subtraction |
 
 Negative numbers are written with the ordinary unary minus: `-3`, `-3/2`
 (the latter parses as `(-3)/2`, which is the value −3/2).
@@ -116,14 +132,29 @@ Examples of what this rule does:
 |---------|----------------|------------------------------------------------------------|
 | `xy`    | `x * y`        | no known name starts with `x`, so two single letters       |
 | `sinx`  | `sin(x)`       | `sin` is a known name; `x` becomes its argument            |
-| `foo`   | `f * o * o`    | no known names anywhere, so three variables                |
+| `exy`   | `e * x * y`    | the constant `e`, then two variables                       |
 | `pie`   | `pi * e`       | `pi` matches first, then the constant `e`                  |
 | `alpha` | symbol `alpha` | Greek names are known, so the whole word is one symbol     |
 
+**The word guard.** A run whose segmentation would contain **three or more
+single-letter variables** is rejected with a helpful error instead of
+silently becoming a product — `speed` would otherwise read as `s*p*e*e*d`
+with `e` as Euler's number, which is math nobody asked for:
+
+```text
+error: unknown name 'speed': variables are single letters (x, y), greek names (alpha), or subscripted (x_1); for a product, write it explicitly (s*p*e*e*d)
+    speed
+    ^~~~~
+```
+
+Two-letter runs (`xy`) still multiply, and runs dominated by known names
+still segment (`sinx`, `pie`, `exy` above — `exy` has only two single-letter
+variables, so it passes). If you really do want the product, the error shows
+the escape hatch: write it explicitly (`s*p*e*e*d`).
+
 The practical consequences: **variables are single letters or Greek names**,
-and if you write a word like `speed`, you get a product of letters, not a
-variable named "speed". Use subscripts (`v_1`, `v_a`) or Greek names when one
-letter is not enough.
+and a word like `speed` is an error, not a variable named "speed". Use
+subscripts (`v_1`, `v_a`) or Greek names when one letter is not enough.
 
 ---
 
@@ -161,10 +192,39 @@ gotchas, all worth memorizing:
 1/2x     =  (1/2) * x        implicit mult is NOT tighter than /
 -x^2     =  -(x^2)           ^ binds tighter than unary minus
 2^3^2    =  2^(3^2) = 512    ^ is right-associative (not 8^2 = 64)
-2e3      =  2 * e * 3        no scientific notation; e is Euler's number
+2e3      =  2000             scientific notation — but bare 2e is still 2*e
 ```
 
 The exponent of `^` may itself be signed: `2^-3` is fine and means `2^(-3)`.
+
+---
+
+## Unicode input
+
+The math symbols that phone keyboards, Word documents, and copy-pasted web
+text produce are understood directly — no need to translate them to ASCII
+first:
+
+| You type              | Means                | Example                                      |
+|-----------------------|----------------------|----------------------------------------------|
+| `×`, `⋅`, `·`         | `*`                  | `3×4` = `12`                                 |
+| `÷`                   | `/`                  | `10÷4` = `5/2`                               |
+| `−` (minus sign)      | `-`                  | `5−2` = `3`                                  |
+| `√`                   | `sqrt`               | `√9` = `3`, `√(x+1)` = `sqrt(x + 1)`         |
+| `π`                   | `pi`                 | `2π` = `2*pi`                                |
+| `α β γ δ ε θ λ μ φ ω` | the Greek symbols    | `α+β` = `alpha + beta`                       |
+| superscripts          | `^` powers           | `x²` = `x^2`, `x⁻¹` = `1/x`, `2x³` = `2*x^3` |
+| `°`                   | degrees, `*(pi/180)` | `sin(30°)` = `1/2`, `90°` = `pi/2`           |
+
+Notes:
+
+- `√` follows the same bare-argument rule as any function name (see
+  [Applying functions](#applying-functions)): `√2x` is `sqrt(2*x)`, while
+  `√x+1` is `sqrt(x) + 1`.
+- The comparison signs `≤`, `≥`, `≠` are recognized just enough to give a
+  targeted error: `inequalities are not supported yet (only '=' equations)`.
+- Any other non-ASCII character is an ordinary parse error showing the
+  character's bytes (e.g. `unexpected character '\xE2\x98\x83'`).
 
 ---
 
@@ -242,6 +302,32 @@ A function name with no argument at all (e.g. `sin + 1`) is a parse error.
 
 ---
 
+## Absolute value
+
+Three equivalent spellings:
+
+```text
+|x|                  bars (plain style)
+\left|x\right|       bars (LaTeX style)
+abs(x)               function form
+```
+
+A `|` in operand position opens an absolute value, and the next `|` at the
+same level closes it. That covers everyday inputs — `|x - y|`, `|x| + |y|`,
+`2|x|`, `|3 - π|` — but it means a bar cannot tell "open" from "close" in
+every nesting: **immediately inside an open bar group, a `|` closes it**.
+So `2|x|` is fine at the top level, but `|2|x||` is a parse error — after
+`|2` the second bar closes the group. Use `abs()` or parentheses for the
+inner bars when nesting is ambiguous:
+
+```text
+2|x|          fine at top level: 2*abs(x)
+|2|x||        parse error — the inner | closes the outer group early
+abs(2|x|)     fine: the bars now sit inside abs()'s parentheses
+```
+
+---
+
 ## Equations
 
 An equation is two expressions joined by a single `=`:
@@ -260,13 +346,18 @@ Anything without `=` is parsed as a plain expression.
 
 ## Differences from real LaTeX and common pitfalls
 
-1. **Multi-letter names split into products.** `xy` is `x*y`; `foo` is
-   `f*o*o`. Variables are single letters, optionally subscripted, or Greek
-   names. There is no `\mathrm{...}` or multi-letter identifier support.
+1. **Multi-letter names are not variables.** `xy` is the product `x*y`, and
+   a longer word like `speed` is a parse error (the
+   [word guard](#how-multi-letter-words-are-read)): variables are single
+   letters, optionally subscripted (`x_1`), or Greek names. The error shows
+   the escape hatch — write `s*p*e*e*d` if you really meant the product.
+   There is no `\mathrm{...}` or multi-letter identifier support.
 2. **`e` is always Euler's number.** You cannot use `e` as a variable.
    Pick another letter, or a subscripted one like `E_1`.
-3. **No scientific notation.** `2e3` means `2*e*3` (which simplifies to
-   `6e`), not 2000. Write `2000` or `2*10^3`.
+3. **`2e3` is scientific notation** (= `2000`) — but only when digits
+   directly follow the `e`. Bare `2e` is still `2 * e` with Euler's number,
+   and `2e - 3` (with spaces) is the subtraction `2*e - 3`. See
+   [Numbers](#numbers).
 4. **`1/2x` means `(1/2)*x`,** not `1/(2x)`. Implicit multiplication binds
    exactly like `*`, not tighter. Write `1/(2x)` if that is what you mean.
 5. **`-x^2` means `-(x^2)`** (the usual math convention), not `(-x)^2`.
@@ -315,5 +406,7 @@ error: missing '}' after \frac numerator
 The caret (`^`) marks where the problem starts and the tildes (`~`) cover the
 rest of the offending span. Other inputs that raise parse errors include a
 comma inside parentheses, a function name with no argument, a subscript on a
-non-symbol (other than `\log_b`), a second `=`, and mismatched
-`\left`/`\right` delimiters.
+non-symbol (other than `\log_b`), a second `=`, mismatched `\left`/`\right`
+delimiters, a word that would split into three or more single-letter
+variables (`speed`), an inequality sign (`≤`, `≥`, `≠`), and a
+scientific-notation literal too large for 64-bit rationals (`1e300`).

@@ -2,10 +2,12 @@
 // Each test uses the exact reproducer from its finding.
 
 #include <chrono>
+#include <cmath>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
@@ -320,4 +322,81 @@ TEST_CASE("simplify: abs stays when nonnegativity is not provable") {
                              parse_expression("abs(x^3)")));
     CHECK(structurally_equal(simplify(parse_expression("abs(x - 1)")),
                              parse_expression("abs(x - 1)")));
+}
+
+// ---------------------------------------------------------------------------
+// v0.4: ln(a)/ln(b) folds to the exact rational log when one exists.
+// ---------------------------------------------------------------------------
+
+TEST_CASE("simplify: exact rational logarithm folding") {
+    CHECK(structurally_equal(simplify(parse_expression("ln(8)/ln(2)")),
+                             parse_expression("3")));
+    CHECK(structurally_equal(simplify(parse_expression("\\log_2(8)")),
+                             parse_expression("3")));
+    CHECK(structurally_equal(simplify(parse_expression("\\log_4(8)")),
+                             parse_expression("3/2")));
+    CHECK(structurally_equal(simplify(parse_expression("\\log_9(27)")),
+                             parse_expression("3/2")));
+    CHECK(structurally_equal(simplify(parse_expression("ln(1/8)/ln(2)")),
+                             parse_expression("-3")));
+    CHECK(structurally_equal(simplify(parse_expression("ln(8/27)/ln(2/3)")),
+                             parse_expression("3")));
+    // With a symbolic cofactor the fold still applies to the ln pair.
+    CHECK(structurally_equal(simplify(parse_expression("x*ln(8)/ln(2)")),
+                             parse_expression("3*x")));
+    // No exact log: unchanged (and idempotent).
+    const Expr stays = simplify(parse_expression("ln(5)/ln(3)"));
+    CHECK(structurally_equal(stays, parse_expression("ln(5)/ln(3)")));
+    CHECK(structurally_equal(simplify(stays), stays));
+}
+
+// ---------------------------------------------------------------------------
+// v0.4: radical normal form (coefficient * b^f, f in (0,1); square-free
+// radicands with rationalized denominators for square roots).
+// ---------------------------------------------------------------------------
+
+TEST_CASE("simplify: radical normal form") {
+    CHECK(structurally_equal(simplify(parse_expression("sqrt(8)")),
+                             parse_expression("2*sqrt(2)")));
+    CHECK(structurally_equal(simplify(parse_expression("sqrt(12)")),
+                             parse_expression("2*sqrt(3)")));
+    CHECK(structurally_equal(simplify(parse_expression("1/sqrt(2)")),
+                             parse_expression("sqrt(2)/2")));
+    CHECK(structurally_equal(simplify(parse_expression("sqrt(9/2)")),
+                             parse_expression("(3/2)*sqrt(2)")));
+    CHECK(structurally_equal(simplify(parse_expression("2^(3/2)")),
+                             parse_expression("2*sqrt(2)")));
+    CHECK(structurally_equal(simplify(parse_expression("8^(5/2)")),
+                             parse_expression("128*sqrt(2)")));
+    CHECK(structurally_equal(simplify(parse_expression("sqrt(45)")),
+                             parse_expression("3*sqrt(5)")));
+    // Guards: already-normal forms stay put; non-sqrt fractional exponents
+    // only get integer-part extraction; negative bases untouched.
+    const Expr sqrt2 = simplify(parse_expression("sqrt(2)"));
+    CHECK(structurally_equal(sqrt2, parse_expression("sqrt(2)")));
+    CHECK(structurally_equal(simplify(parse_expression("2^(7/6)")),
+                             parse_expression("2*2^(1/6)")));
+    const Expr cbrt16 = simplify(parse_expression("16^(1/3)"));
+    CHECK(structurally_equal(cbrt16, parse_expression("16^(1/3)")));
+}
+
+TEST_CASE("simplify: radical normal form is confluent with like-base combining") {
+    // 2*sqrt(2) must NOT re-merge to 2^(3/2) (the roadmap's confluence trap):
+    // idempotence proves the fixpoint is stable.
+    const Expr once = simplify(parse_expression("sqrt(8)"));
+    CHECK(structurally_equal(simplify(once), once));
+    // Radical parts still combine among themselves...
+    CHECK(structurally_equal(simplify(parse_expression("2^(1/2) * 2^(1/3)")),
+                             parse_expression("2^(5/6)")));
+    // ...and sqrt(2)*sqrt(2) collapses fully.
+    CHECK(structurally_equal(simplify(parse_expression("sqrt(2)*sqrt(2)")),
+                             parse_expression("2")));
+    // The roadmap probe: nested radical input keeps its 2*sqrt(2) inside.
+    CHECK(structurally_equal(simplify(parse_expression("sqrt(3 + 2*sqrt(2))")),
+                             parse_expression("sqrt(2*sqrt(2) + 3)")));
+    // Value preservation spot checks.
+    CHECK(evaluate(simplify(parse_expression("sqrt(8)"))) ==
+          Catch::Approx(std::sqrt(8.0)).epsilon(1e-12));
+    CHECK(evaluate(simplify(parse_expression("1/sqrt(2)"))) ==
+          Catch::Approx(1.0 / std::sqrt(2.0)).epsilon(1e-12));
 }

@@ -224,6 +224,18 @@ function runCase(ms, c) {
       return r.ok ? { ok: true, stream: String(r.value), raw: r } : errStream(r);
     }
 
+    case "subs": {
+      // CLI "x=y+1 z=2" -> assignments "x=y+1,z=2" (values are expressions).
+      const r = JSON.parse(ms.subs(c.input, toks.join(",")));
+      return r.ok ? { ok: true, stream: r.plain, raw: r } : errStream(r);
+    }
+
+    case "collect": {
+      const v = toks[0] ?? "";
+      const r = JSON.parse(ms.collect(c.input, v));
+      return r.ok ? { ok: true, stream: r.plain, raw: r } : errStream(r);
+    }
+
     case "solve": {
       if (hasTopLevelSemicolon(c.input)) {
         const r = JSON.parse(ms.solveSystem(c.input, toks.join(",")));

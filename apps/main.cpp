@@ -1,7 +1,7 @@
 // MathSolver command-line interface and REPL (DESIGN.md §10).
 //
-// One-shot subcommands (simplify/expand/factor/solve/diff/eval/latex) print
-// plain style by default; --latex switches to LaTeX. Errors go to stderr with
+// One-shot subcommands (simplify/expand/factor/solve/diff/integrate/eval/
+// subs/collect/latex) print plain style by default; --latex switches to LaTeX. Errors go to stderr with
 // caret diagnostics rendered from ParseError spans. Exit codes: 0 success,
 // 1 parse/math error, 2 usage error. With no arguments an interactive REPL
 // starts (">>> " prompt, plain std::getline — behaves identically when stdin
@@ -148,21 +148,13 @@ std::optional<double> parse_double(const std::string& s) {
     return v;
 }
 
-/// "x=3" -> binding; throws UsageError when malformed.
-void add_binding(Bindings& bindings, const std::string& arg) {
-    const std::size_t eq = arg.find('=');
-    if (eq == std::string::npos) {
-        throw UsageError{std::format(
-            "malformed binding '{}': expected name=value (e.g. x=3)", arg)};
-    }
-    const std::string name = trim(arg.substr(0, eq));
-    const std::string value_text = trim(arg.substr(eq + 1));
-
-    // Reject names that can never lex as a single bound variable. A bindable
-    // name parses to exactly one Symbol equal to itself — a single letter, a
-    // greek name, or a subscripted form (DESIGN §4). Constants (pi, e) parse to
-    // a Constant and multi-letter runs (`foo` -> f*o*o) to a Mul; neither can
-    // be bound, and they get distinct diagnostics.
+/// Reject names that can never lex as a single bound variable. A bindable
+/// name parses to exactly one Symbol equal to itself — a single letter, a
+/// greek name, or a subscripted form (DESIGN §4). Constants (pi, e) parse to
+/// a Constant and anything else (function names, multi-letter runs) never
+/// yields a lone matching Symbol; neither can be bound, and they get
+/// distinct diagnostics. Shared by eval bindings and subs substitutions.
+void require_bindable_name(const std::string& name) {
     Expr parsed_name;
     try {
         parsed_name = parse_expression(name);
@@ -179,6 +171,18 @@ void add_binding(Bindings& bindings, const std::string& arg) {
             "names)",
             name)};
     }
+}
+
+/// "x=3" -> binding; throws UsageError when malformed.
+void add_binding(Bindings& bindings, const std::string& arg) {
+    const std::size_t eq = arg.find('=');
+    if (eq == std::string::npos) {
+        throw UsageError{std::format(
+            "malformed binding '{}': expected name=value (e.g. x=3)", arg)};
+    }
+    const std::string name = trim(arg.substr(0, eq));
+    const std::string value_text = trim(arg.substr(eq + 1));
+    require_bindable_name(name);
 
     const std::optional<double> value = parse_double(value_text);
     if (!value) {
@@ -279,6 +283,15 @@ void run_diff(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(differentiate(e, var), style));
 }
 
+/// `collect` regroups the expression as a polynomial in the variable (§7
+/// collect); the variable is inferred exactly like diff when omitted.
+void run_collect(const std::string& input, const std::string& explicit_var,
+                 PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "collect");
+    std::println("{}", to_string(collect(e, var), style));
+}
+
 /// `integrate` (DESIGN.md §8b): indefinite prints `F(x) + C`, definite
 /// (--from/--to, both or neither) prints `value = ...` / `value ≈ ...`;
 /// Unsolved prints `unable to integrate` and still exits 0 — it is an answer.
@@ -344,6 +357,56 @@ void run_integrate(const std::string& input, const std::string& explicit_var,
 void run_eval(const std::string& input, const Bindings& bindings) {
     const Expr e = parse_expression_diag(input);
     std::println("{}", evaluate(e, bindings));
+}
+
+/// "x=y+1" -> (name, replacement); throws UsageError when malformed. Unlike
+/// an eval binding the value side is parsed as a full expression.
+std::pair<std::string, Expr> parse_substitution(const std::string& arg) {
+    const std::size_t eq = arg.find('=');
+    if (eq == std::string::npos) {
+        throw UsageError{std::format(
+            "malformed substitution '{}': expected name=expression (e.g. x=y+1)",
+            arg)};
+    }
+    const std::string name = trim(arg.substr(0, eq));
+    const std::string value_text = trim(arg.substr(eq + 1));
+    require_bindable_name(name);
+    if (value_text.empty()) {
+        throw UsageError{std::format(
+            "malformed substitution '{}': expected name=expression (e.g. x=y+1)",
+            arg)};
+    }
+    return {name, parse_expression_diag(value_text)};
+}
+
+/// `subs` substitutes an expression for each named symbol, left to right,
+/// then simplifies. An equation input substitutes into both sides.
+void run_subs(const std::string& input, const std::vector<std::string>& assignments,
+              PrintStyle style) {
+    if (assignments.empty()) {
+        throw UsageError{
+            "subs needs at least one name=expression argument (e.g. x=y+1)"};
+    }
+    std::vector<std::pair<std::string, Expr>> subs;
+    subs.reserve(assignments.size());
+    for (const std::string& a : assignments) {
+        subs.push_back(parse_substitution(a));
+    }
+    const auto parsed = parse_input_diag(input);
+    if (std::holds_alternative<Expr>(parsed)) {
+        Expr e = std::get<Expr>(parsed);
+        for (const auto& [name, replacement] : subs) {
+            e = substitute(e, name, replacement);
+        }
+        std::println("{}", to_string(simplify(e), style));
+    } else {
+        Equation eq = std::get<Equation>(parsed);
+        for (const auto& [name, replacement] : subs) {
+            eq.lhs = substitute(eq.lhs, name, replacement);
+            eq.rhs = substitute(eq.rhs, name, replacement);
+        }
+        std::println("{}", to_string(simplify(eq), style));
+    }
 }
 
 void print_solve_result(const SolveResult& res, const std::string& var,
@@ -575,7 +638,8 @@ void print_usage(std::FILE* out) {
 
 bool is_known_subcommand(std::string_view s) {
     return s == "simplify" || s == "expand" || s == "factor" || s == "solve" ||
-           s == "diff" || s == "integrate" || s == "eval" || s == "latex";
+           s == "diff" || s == "integrate" || s == "eval" || s == "latex" ||
+           s == "subs" || s == "collect";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -663,7 +727,8 @@ int run_one_shot(const std::vector<std::string>& args) {
             const std::vector<std::string> vars(positionals.begin() + 1,
                                                 positionals.end());
             run_solve_system(input, vars, style);
-        } else if (sub == "solve" || sub == "diff" || sub == "integrate") {
+        } else if (sub == "solve" || sub == "diff" || sub == "integrate" ||
+                   sub == "collect") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (usage: mathsolver {} \"<input>\" [var])",
@@ -674,6 +739,8 @@ int run_one_shot(const std::vector<std::string>& args) {
                 run_solve(input, var, opts, style);
             } else if (sub == "diff") {
                 run_diff(input, var, style);
+            } else if (sub == "collect") {
+                run_collect(input, var, style);
             } else {
                 run_integrate(input, var, from_text, to_text, style);
             }
@@ -683,6 +750,8 @@ int run_one_shot(const std::vector<std::string>& args) {
                 add_binding(bindings, positionals[i]);
             }
             run_eval(input, bindings);
+        } else if (sub == "subs") {
+            run_subs(input, {positionals.begin() + 1, positionals.end()}, style);
         } else {
             if (positionals.size() > 1) {
                 throw UsageError{std::format("unexpected argument '{}'", positionals[1])};
@@ -731,6 +800,8 @@ void print_repl_help() {
         "  diff <expression>[, <variable>]\n"
         "  integrate <expression>[, <variable>[, <lo>, <hi>]]\n"
         "  eval <expression>, x=1[, y=2 ...]\n"
+        "  subs <expression>, x=y+1[, z=2 ...]\n"
+        "  collect <expression>[, <variable>]\n"
         "  simplify <expression>      expand <expression>\n"
         "  factor <expression>        latex <expression>\n"
         "  debug <expression>         (s-expression dump)\n"
@@ -745,16 +816,19 @@ std::vector<std::string> split_top_level_commas(const std::string& s) {
 bool is_repl_command(std::string_view word) {
     return word == "simplify" || word == "expand" || word == "factor" ||
            word == "solve" || word == "diff" || word == "integrate" ||
-           word == "eval" || word == "latex" || word == "debug";
+           word == "eval" || word == "latex" || word == "debug" ||
+           word == "subs" || word == "collect";
 }
 
 void repl_command(const std::string& command, const std::string& rest) {
     const std::vector<std::string> parts = split_top_level_commas(rest);
     if (parts.empty() || parts[0].empty()) {
-        throw UsageError{std::format("usage: {} <input>{}", command,
-                                     command == "solve" || command == "diff"
-                                         ? "[, <variable>]"
-                                         : "")};
+        const std::string_view suffix =
+            command == "solve" || command == "diff" || command == "collect"
+                ? "[, <variable>]"
+            : command == "subs" ? ", <name>=<expr>[, ...]"
+                                : "";
+        throw UsageError{std::format("usage: {} <input>{}", command, suffix)};
     }
     const std::string& input = parts[0];
 
@@ -763,7 +837,7 @@ void repl_command(const std::string& command, const std::string& rest) {
         // equations, the remaining segments are the variables.
         const std::vector<std::string> vars(parts.begin() + 1, parts.end());
         run_solve_system(input, vars, PrintStyle::Plain);
-    } else if (command == "solve" || command == "diff") {
+    } else if (command == "solve" || command == "diff" || command == "collect") {
         if (parts.size() > 2) {
             throw UsageError{std::format(
                 "too many arguments: usage: {} <input>[, <variable>]", command)};
@@ -771,8 +845,10 @@ void repl_command(const std::string& command, const std::string& rest) {
         const std::string var = parts.size() > 1 ? parts[1] : "";
         if (command == "solve") {
             run_solve(input, var, NumericOptions{}, PrintStyle::Plain);
-        } else {
+        } else if (command == "diff") {
             run_diff(input, var, PrintStyle::Plain);
+        } else {
+            run_collect(input, var, PrintStyle::Plain);
         }
     } else if (command == "integrate") {
         // integrate <expr>[, <var>[, <lo>, <hi>]] — bounds come as a pair.
@@ -794,6 +870,8 @@ void repl_command(const std::string& command, const std::string& rest) {
             add_binding(bindings, parts[i]);
         }
         run_eval(input, bindings);
+    } else if (command == "subs") {
+        run_subs(input, {parts.begin() + 1, parts.end()}, PrintStyle::Plain);
     } else if (command == "simplify") {
         run_simplify(input, PrintStyle::Plain);
     } else if (command == "expand") {

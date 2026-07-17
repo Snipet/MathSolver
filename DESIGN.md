@@ -363,7 +363,20 @@ except formal cancellations, which are standard CAS behavior and documented):
 - Like terms: `2x + 3x → 5x`; more generally sum terms with equal non-numeric
   part fold coefficients (`x*y + 2*x*y → 3*x*y`).
 - Like factors: `x * x^2 → x^3`; equal bases with numeric exponents combine;
-  `x/x → 1` (formal; assumes `x ≠ 0`).
+  `x/x → 1` (formal; assumes `x ≠ 0`). **Number-base exception (v0.4):**
+  for a Number base, only factors with **non-integer** exponents combine
+  (`2^(1/2) · 2^(1/3) → 2^(5/6)`); a plain Number factor never joins a
+  radical group (`2 · 2^(1/2)` stays `2·√2`) — this is what makes the
+  radical normal form below confluent instead of looping.
+- **Radical normal form (v0.4):** `Pow(Number b > 0, non-integer rational
+  p/q)` normalizes to `Number(b^m) · b^f` with `m = floor(p/q)` and
+  `f = p/q − m ∈ (0,1)` (integer-part extraction; on 64-bit overflow of
+  `b^m` the node is left unchanged). When `f = 1/2`, the radicand is
+  additionally reduced square-free with the denominator rationalized:
+  `sqrt(8) → 2·sqrt(2)`, `sqrt(12) → 2·sqrt(3)`, `1/sqrt(2) → sqrt(2)/2`,
+  `sqrt(9/2) → (3/2)·sqrt(2)`, `2^(3/2) → 2·sqrt(2)`. Other fractional
+  exponents keep their reduced form after integer-part extraction (cube
+  roots are not factored in v0.4). Negative bases are not touched.
 - Power rules — `(u^a)^b → u^(a*b)` for rational Numbers `a`, `b`. `b`
   integer is already a §2 factory fold. For non-integer `b` the rule fires
   exactly when it cannot *restrict* the real domain or change the value
@@ -752,6 +765,8 @@ mathsolver factor   "x^2 - 5x + 6"
 mathsolver solve    "x^2 = 4" [x] [--range LO HI]     # var optional if unique
 mathsolver diff     "sin(x^2)" [x]                    # var optional if unique
 mathsolver eval     "x^2 + y" x=3 y=0.5
+mathsolver subs     "x^2 + y" x=y+1 [z=2 ...]         # values parsed as expressions
+mathsolver collect  "x*y + x*z + 1" [x]               # var optional if unique
 mathsolver latex    "sqrt(x)/2"                       # print LaTeX form
 mathsolver --help | --version
 mathsolver          # no args → REPL
@@ -763,6 +778,13 @@ applies (e.g. `2/4` → `\frac{1}{2}`); use `simplify --latex` for the
 simplified LaTeX form (`2x+3x` → `5x`). The REPL `latex` command behaves the
 same. A literal `--` argument ends option parsing (so an expression like
 `-- "--x"` can be passed positionally).
+
+`subs` substitutes each `name=expr` argument for the named symbol, left to
+right (the value side is parsed as an expression, unlike `eval`'s numeric
+bindings; an equation input substitutes into both sides), then simplifies and
+prints. `collect` regroups an expression as a polynomial in the variable (§7
+`collect`), inferring it like `diff` when the input has exactly one free
+symbol.
 
 Exit codes: **2 (usage error, `usage error:` prefix on stderr)** for a
 malformed command line — unknown subcommand or flag, missing/extra arguments,

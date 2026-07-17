@@ -154,6 +154,16 @@ ev-08	eval	2**3 + 1	-	approx	9	0
 ev-09	eval	x^2	-	contains	x	1
 ev-10	eval	1/x	x=0	contains	-	1
 #
+# ---------- subs and collect (ROADMAP P0-7) ----------
+sub-01	subs	x^2 + y	x=y+1	exact	(y + 1)^2 + y	0
+sub-02	subs	x^2 = y	x=z+1	exact	(z + 1)^2 = y	0
+# malformed assignment (no '=') is a usage error, exit 2
+sub-03	subs	x^2	y+1	contains	malformed substitution	2
+col-01	collect	x*y + x*z + 1	x	exact	x*(y + z) + 1	0
+# variable inferred (single free symbol); ambiguity is a usage error, exit 2
+col-02	collect	2*x + 3*x^2 + x + x^2	-	exact	4*x^2 + 3*x	0
+col-03	collect	x*y + 1	-	contains	cannot infer the variable for collect	2
+#
 # ---------- latex output ----------
 lx-01	latex	sqrt(x)/2	-	contains	\sqrt{x}	0
 lx-03	latex	x^10	-	contains	x^{10}	0

@@ -1,0 +1,50 @@
+# MathSolver v0.4 "Forgiving Input" acceptance battery — standalone; see README.md for column format.
+# Columns (tab-separated):
+# id	subcommand	input	extra_args	expected_kind	expected	expects_exit
+#
+# ---------- scientific notation ----------
+sci-01	simplify	2e3	-	exact	2000	0
+sci-02	simplify	1.5E-2	-	exact	3/200	0
+sci-03	simplify	2e+5	-	exact	200000	0
+sci-04	simplify	2e	-	exact	2*e	0
+sci-05	simplify	1e300	-	contains	does not fit the exact 64-bit rational range	1
+#
+# ---------- unicode operators, symbols, superscripts, degrees ----------
+uni-01	simplify	2×3	-	exact	6	0
+uni-02	simplify	x÷2	-	exact	x/2	0
+uni-03	simplify	5−x	-	regex	^-x \+ 5$|^5 - x$	0
+uni-04	simplify	√8	-	exact	2*sqrt(2)	0
+uni-05	simplify	π/2	-	exact	pi/2	0
+uni-06	simplify	α+θ	-	regex	^alpha \+ theta$|^theta \+ alpha$	0
+uni-07	simplify	x²	-	exact	x^2	0
+uni-08	simplify	x⁻¹	-	exact	1/x	0
+uni-09	simplify	2x³	-	exact	2*x^3	0
+uni-10	simplify	sin(30°)	-	exact	1/2	0
+uni-11	simplify	180°	-	exact	pi	0
+uni-12	solve	x ≤ 3	-	contains	inequalit	1
+#
+# ---------- absolute-value bars ----------
+bar-01	simplify	|3-π|	-	regex	^abs\(-pi \+ 3\)$|^abs\(3 - pi\)$	0
+bar-02	simplify	|x-1|	-	exact	abs(x - 1)	0
+bar-03	simplify	\left|x\right|	-	exact	abs(x)	0
+bar-04	simplify	|x	-	contains	missing closing '|'	1
+#
+# ---------- multi-letter word guard vs implicit multiplication ----------
+wg-01	simplify	speed	-	contains	unknown name 'speed'	1
+wg-02	simplify	xyz	-	contains	unknown name	1
+wg-03	simplify	xy	-	exact	x*y	0
+wg-04	simplify	sinx	-	exact	sin(x)	0
+wg-05	simplify	pie	-	exact	pi*e	0
+#
+# ---------- radical simplification and rationalization ----------
+rad-01	simplify	sqrt(8)	-	exact	2*sqrt(2)	0
+rad-02	simplify	sqrt(12)	-	exact	2*sqrt(3)	0
+rad-03	simplify	1/sqrt(2)	-	exact	sqrt(2)/2	0
+rad-04	simplify	sqrt(9/2)	-	exact	3*sqrt(2)/2	0
+rad-05	simplify	2^(3/2)	-	exact	2*sqrt(2)	0
+#
+# ---------- logarithm folds ----------
+log-01	simplify	ln(8)/ln(2)	-	exact	3	0
+log-02	simplify	\log_4(8)	-	exact	3/2	0
+log-03	solve	2^x = 8	-	regex	^x = 3$	0
+log-04	simplify	ln(5)/ln(3)	-	exact	ln(5)/ln(3)	0

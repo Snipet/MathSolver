@@ -22,7 +22,7 @@ export const TABS: TabDef[] = [
     id: "simplify",
     label: "Simplify",
     placeholder: "Enter an expression, e.g. 2x + 3x",
-    examples: ["2x + 3x", "sin(pi/6) + cos(0)"],
+    examples: ["2x + 3x", "sin(pi/6) + cos(0)", "sin(30°)", "|3 - π|"],
   },
   {
     id: "expand",
@@ -58,7 +58,7 @@ export const TABS: TabDef[] = [
     id: "evaluate",
     label: "Evaluate",
     placeholder: "Expression to evaluate numerically, e.g. pi^2/6",
-    examples: ["pi^2/6"],
+    examples: ["pi^2/6", "2e-3 + 1e2"],
   },
   {
     id: "plot",

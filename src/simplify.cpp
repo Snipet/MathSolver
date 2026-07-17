@@ -1,6 +1,7 @@
 #include "mathsolver/simplify.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <map>
 #include <memory>
@@ -466,6 +467,65 @@ Expr apply_add_rules(const Expr& e) {
 
 /// Like-factor collection: factors with structurally equal bases and numeric
 /// exponents combine (x * x^2 -> x^3, x/x -> 1, sqrt(2)*sqrt(2) -> 2).
+// --- ln(a)/ln(b) exact folding (v0.4, §7) ----------------------------------
+
+/// Exact integer k-th root of n >= 2, if it exists (double estimate verified
+/// by checked multiplication, same technique as the §2 factory folds).
+std::optional<long long> exact_llroot(long long n, int k) {
+    const auto estimate =
+        static_cast<long long>(std::llround(std::pow(static_cast<double>(n), 1.0 / k)));
+    for (long long c = std::max(2LL, estimate - 1); c <= estimate + 1; ++c) {
+        long long acc = 1;
+        bool overflow = false;
+        for (int i = 0; i < k && !overflow; ++i) {
+            overflow = __builtin_mul_overflow(acc, c, &acc) || acc > n;
+        }
+        if (!overflow && acc == n) {
+            return c;
+        }
+    }
+    return std::nullopt;
+}
+
+/// Decompose a positive rational a != 1 as r^k with k maximal (so r is the
+/// primitive base). a < 1 decomposes 1/a and negates k.
+std::pair<Rational, long long> primitive_power(Rational a) {
+    long long sign = 1;
+    if (a < Rational(1)) {
+        a = Rational(1) / a;
+        sign = -1;
+    }
+    for (int k = 62; k >= 2; --k) {
+        const auto rn = a.num() >= 2 ? exact_llroot(a.num(), k)
+                                     : std::optional<long long>(a.num()); // num == 1
+        if (!rn) continue;
+        if (a.den() == 1) {
+            if (a.num() >= 2) return {Rational(*rn), sign * k};
+            continue;
+        }
+        const auto rd = exact_llroot(a.den(), k);
+        if (!rd) continue;
+        if (a.num() == 1 && a.den() >= 2) return {Rational(1, *rd), sign * k};
+        if (a.num() >= 2) return {Rational(*rn, *rd), sign * k};
+    }
+    return {a, sign};
+}
+
+/// ln(a) * ln(b)^-1 -> the exact rational log_b(a) when a and b are powers
+/// of a common primitive base: ln(8)/ln(2) -> 3, ln(8)/ln(4) -> 3/2,
+/// ln(1/8)/ln(2) -> -3. Returns nullopt when no exact fold exists.
+std::optional<Rational> fold_ln_ratio(const Rational& a, const Rational& b) {
+    if (!(a > Rational(0)) || !(b > Rational(0)) || a.is_one() || b.is_one()) {
+        return std::nullopt;
+    }
+    const auto [ra, ka] = primitive_power(a);
+    const auto [rb, kb] = primitive_power(b);
+    if (ra != rb || kb == 0) {
+        return std::nullopt;
+    }
+    return Rational(ka, kb);
+}
+
 Expr apply_mul_rules(const Expr& e) {
     if (e->kind() != Kind::Mul) {
         return e;
@@ -487,13 +547,50 @@ Expr apply_mul_rules(const Expr& e) {
     }
     std::vector<Expr> out = std::move(passthrough);
     std::vector<bool> used(entries.size(), false);
+
+    // ln(a) * ln(b)^-1 with numeric a, b folds to the exact rational log
+    // when one exists (v0.4, §7): covers \log_b(a) as parsed and the
+    // solver's ln(c)/ln(a) isolation results (2^x = 8 -> x = 3).
+    const auto ln_number_arg = [](const Expr& base) -> const Rational* {
+        if (base->kind() == Kind::Function && base->function() == FunctionId::Ln &&
+            base->arg(0)->kind() == Kind::Number) {
+            return &base->arg(0)->number();
+        }
+        return nullptr;
+    };
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        if (used[i] || !(entries[i].exp == Rational(1))) continue;
+        const Rational* a = ln_number_arg(entries[i].base);
+        if (a == nullptr) continue;
+        for (std::size_t j = 0; j < entries.size(); ++j) {
+            if (i == j || used[j] || !(entries[j].exp == Rational(-1))) continue;
+            const Rational* b = ln_number_arg(entries[j].base);
+            if (b == nullptr) continue;
+            if (const auto folded = fold_ln_ratio(*a, *b)) {
+                used[i] = used[j] = true;
+                out.push_back(make_num(*folded));
+                break;
+            }
+        }
+    }
+
     for (std::size_t i = 0; i < entries.size(); ++i) {
         if (used[i]) {
             continue;
         }
+        // Number-base exception (v0.4, §7): for a Number base only
+        // non-integer exponents combine (2^(1/2)*2^(1/3) -> 2^(5/6)); a
+        // plain Number factor never joins a radical group, so 2*sqrt(2)
+        // stays 2*sqrt(2) and the radical normal form is confluent.
+        const bool num_base = entries[i].base->kind() == Kind::Number;
+        if (num_base && entries[i].exp.is_integer()) {
+            out.push_back(entries[i].original);
+            continue;
+        }
         std::vector<std::size_t> group{i};
         for (std::size_t j = i + 1; j < entries.size(); ++j) {
-            if (!used[j] && structurally_equal(entries[i].base, entries[j].base)) {
+            if (!used[j] && structurally_equal(entries[i].base, entries[j].base) &&
+                !(num_base && entries[j].exp.is_integer())) {
                 group.push_back(j);
             }
         }
@@ -525,6 +622,82 @@ Expr apply_mul_rules(const Expr& e) {
     return make_mul(std::move(out));
 }
 
+/// n = s^2 * r with s maximal over small primes (trial division to 65536,
+/// then a perfect-square check on the remainder); r is square-free for all
+/// n whose square factors have a prime component below the bound.
+std::pair<long long, long long> square_free_split(long long n) {
+    long long s = 1;
+    long long r = 1;
+    for (long long i = 2; i <= 65536 && i * i <= n; ++i) {
+        while (n % (i * i) == 0) {
+            s *= i;
+            n /= i * i;
+        }
+        if (n % i == 0) {
+            r *= i;
+            n /= i;
+        }
+    }
+    const auto root = static_cast<long long>(std::llround(std::sqrt(static_cast<double>(n))));
+    for (long long c = std::max(1LL, root - 1); c <= root + 1; ++c) {
+        long long sq = 0;
+        if (!__builtin_mul_overflow(c, c, &sq) && sq == n) {
+            s *= c;
+            n = 1;
+            break;
+        }
+    }
+    return {s, r * n};
+}
+
+/// Radical normal form (v0.4, §7): Pow(Number b > 0, non-integer p/q) ->
+/// Number(b^m) * b^f with m = floor(p/q), f in (0,1); square roots also get
+/// square-free radicands with rationalized denominators. Returns nullopt
+/// when the node is already normal (or on 64-bit overflow).
+std::optional<Expr> radical_normal_form(const Rational& b, const Rational& exp) {
+    if (!(b > Rational(0)) || exp.is_integer()) {
+        return std::nullopt;
+    }
+    const long long p = exp.num();
+    const long long q = exp.den();
+    const long long m = p >= 0 ? p / q : -((-p + q - 1) / q); // floor(p/q)
+    const Rational f = exp - Rational(m);                     // in (0,1)
+
+    Rational coeff(1);
+    try {
+        coeff = b.pow(m);
+    } catch (const OverflowError&) {
+        return std::nullopt;
+    }
+
+    Rational radicand = b;
+    if (f == Rational(1, 2)) {
+        // sqrt(n/d) = (sn/(sd*rd)) * sqrt(rn*rd): square-free radicand,
+        // denominator rationalized.
+        const auto [sn, rn] = square_free_split(b.num());
+        const auto [sd, rd] = square_free_split(b.den());
+        long long rad = 0;
+        long long den = 0;
+        if (__builtin_mul_overflow(rn, rd, &rad) || __builtin_mul_overflow(sd, rd, &den)) {
+            return std::nullopt;
+        }
+        try {
+            coeff = coeff * Rational(sn, den);
+        } catch (const OverflowError&) {
+            return std::nullopt;
+        }
+        radicand = Rational(rad);
+    }
+
+    if (m == 0 && radicand == b) {
+        return std::nullopt; // already normal
+    }
+    if (radicand.is_one()) {
+        return make_num(coeff);
+    }
+    return make_mul({make_num(coeff), make_pow(make_num(radicand), make_num(f))});
+}
+
 Expr apply_pow_rules(const Expr& e) {
     if (e->kind() != Kind::Pow) {
         return e;
@@ -538,6 +711,13 @@ Expr apply_pow_rules(const Expr& e) {
     const Rational* xr = as_number(x);
     if (xr == nullptr) {
         return e;
+    }
+    // Radical normal form for numeric bases (v0.4, §7): sqrt(8) -> 2*sqrt(2),
+    // 1/sqrt(2) -> sqrt(2)/2, 2^(3/2) -> 2*sqrt(2).
+    if (const Rational* br = as_number(b)) {
+        if (auto normal = radical_normal_form(*br, *xr)) {
+            return *normal;
+        }
     }
     // abs(u)^(even integer) -> u^(even integer)
     if (is_function(b, FunctionId::Abs) && xr->is_integer() && !odd(xr->num())) {

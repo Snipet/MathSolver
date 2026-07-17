@@ -59,12 +59,27 @@ kept as a project record of what was checked and repaired.
 - **Battery sol-17** — wrong-expectation: cases.tsv now checks `+ 2*pi*n`
   (DESIGN §9's pinned family) instead of the never-pinned word "periodic".
 
-## CLI/parser findings (in progress this session)
+## CLI/parser findings (fixed; commit 0a29b80)
 
 Finding 5 (recursion-depth segfault → clean exit 1), 6 (--range non-finite
 bounds), 7 (unbindable eval names), 8 (UTF-8 in lexer errors), 9 (caret
-alignment with tabs/newlines), 10 (`--` end-of-options). Being applied +
-regression-tested against parser.cpp/main.cpp.
+alignment with tabs/newlines), 10 (`--` end-of-options). All applied and
+regression-tested. Everything actionable in this file has shipped — current
+open work is tracked in docs/ROADMAP.md (v0.4 "Forgiving Input" underway).
+
+## Known limitation (pre-existing, filed 2026-07-16)
+
+- **Round-trip gap at 64-bit extremes.** When simplify's overflow fallback
+  (the FINDING-A fix) keeps two Number factors unfolded because their exact
+  product/sum does not fit 64 bits (e.g.
+  `simplify((-553850608048662470/12367)*(-43 + sin(pi))*pi)` →
+  `-553850608048662470*-43*pi/12367`), re-parsing the printed form throws
+  the factory OverflowError, so `parse(print(e))` fails for exactly this
+  class. Verified pre-existing (identical output from the pre-v0.4 engine);
+  unreachable for any expression whose numeric folds fit 64 bits. Candidate
+  fix (v0.5): give the parser the same fold-suppression fallback — but note
+  the tension with the pinned parse-time overflow diagnostics (`2^200` →
+  clean error, battery-pinned).
 
 ## Open / optional (not blocking)
 

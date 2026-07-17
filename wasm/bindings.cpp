@@ -3,6 +3,7 @@
 // Conventions:
 //   - Inputs are plain strings (expressions in the DESIGN.md §4 grammar;
 //     variable lists comma-separated; eval bindings as "x=1,y=2.5";
+//     subs assignments as "x=y+1,z=2" (values parsed as expressions);
 //     systems as top-level-';'-separated equations).
 //   - Every function returns a JSON string. Success envelopes carry
 //     ok:true; failures carry ok:false with error text and, for parse
@@ -224,6 +225,74 @@ std::string ms_latex(std::string input) {
     return transform_json(input, identity_op);
 }
 
+/// Substitute expressions for symbols: assignments as "x=y+1,z=2" (split
+/// like eval bindings, but the value side is parsed as an expression),
+/// applied left to right, then simplified.
+std::string ms_subs(std::string input, std::string assignments) {
+    return guarded([&]() -> std::string {
+        std::vector<std::pair<std::string, Expr>> subs;
+        for (const auto& part : split_csv(assignments)) {
+            const std::size_t eq = part.find('=');
+            const std::string name =
+                eq == std::string::npos ? std::string{} : trim(part.substr(0, eq));
+            const std::string value =
+                eq == std::string::npos ? std::string{} : trim(part.substr(eq + 1));
+            if (name.empty() || value.empty()) {
+                return err_json(std::format(
+                    "malformed substitution '{}': expected name=expression", part));
+            }
+            subs.emplace_back(name, parse_expression(value));
+        }
+        if (subs.empty()) {
+            return err_json("subs needs at least one name=expression assignment");
+        }
+        // Equations substitute on both sides, mirroring the CLI verb.
+        const auto parsed = parse_input(input);
+        if (std::holds_alternative<Equation>(parsed)) {
+            Equation eq = std::get<Equation>(parsed);
+            for (const auto& [name, replacement] : subs) {
+                eq.lhs = substitute(eq.lhs, name, replacement);
+                eq.rhs = substitute(eq.rhs, name, replacement);
+            }
+            const Equation out = simplify(eq);
+            return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{}}}",
+                               jstr(to_string(out, PrintStyle::Plain)),
+                               jstr(to_string(out, PrintStyle::LaTeX)));
+        }
+        Expr e = std::get<Expr>(parsed);
+        for (const auto& [name, replacement] : subs) {
+            e = substitute(e, name, replacement);
+        }
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(simplify(e)));
+    });
+}
+
+/// collect(expr, symbol): regroup as a polynomial in `variable`. An empty
+/// variable infers the single free symbol (an error when there are 0 or
+/// several, mirroring the CLI).
+std::string ms_collect(std::string input, std::string variable) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string var = trim(variable);
+        if (var.empty()) {
+            const std::set<std::string> syms = free_symbols(e);
+            if (syms.size() != 1) {
+                std::string list;
+                for (const auto& s : syms) {
+                    if (!list.empty()) list += ", ";
+                    list += s;
+                }
+                return err_json(
+                    syms.empty()
+                        ? "cannot infer the variable: the input has no free symbols"
+                        : "cannot infer the variable: candidates are " + list);
+            }
+            var = *syms.begin();
+        }
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(collect(e, var)));
+    });
+}
+
 std::string ms_derivative(std::string input, std::string var) {
     return guarded([&]() -> std::string {
         const Expr d = differentiate(parse_expression(input), var);
@@ -423,6 +492,8 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("expand", &ms_expand);
     emscripten::function("factor", &ms_factor);
     emscripten::function("latex", &ms_latex);
+    emscripten::function("subs", &ms_subs);
+    emscripten::function("collect", &ms_collect);
     emscripten::function("derivative", &ms_derivative);
     emscripten::function("integrate", &ms_integrate);
     emscripten::function("integrateDefinite", &ms_integrate_definite);

@@ -293,6 +293,90 @@ TEST_CASE("cli: eval without bindings evaluates constants") {
     CHECK(std::abs(std::strtod(r.output.c_str(), nullptr) - 7.38905609893065) < 1e-9);
 }
 
+TEST_CASE("cli: subs substitutes an expression and simplifies") {
+    const RunResult r = run_cli({"subs", "x^2 + y", "x=y+1"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(r.output == "(y + 1)^2 + y\n");
+}
+
+TEST_CASE("cli: subs applies multiple assignments left to right") {
+    // x -> y first turns x + y into 2y; y -> 2 then gives 4.
+    const RunResult r = run_cli({"subs", "x + y", "x=y", "y=2"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(r.output == "4\n");
+}
+
+TEST_CASE("cli: subs substitutes into both sides of an equation") {
+    const RunResult r = run_cli({"subs", "x^2 = y", "x=z+1"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(r.output == "(z + 1)^2 = y\n");
+}
+
+TEST_CASE("cli: subs usage errors exit 2") {
+    // Missing '=' in the assignment.
+    const RunResult malformed = run_cli({"subs", "x^2", "y+1"}, "2>&1 1>/dev/null");
+    INFO(malformed.output);
+    CHECK(malformed.exit_code == 2);
+    CHECK(contains(malformed.output, "malformed substitution 'y+1'"));
+
+    // No assignment at all.
+    const RunResult none = run_cli({"subs", "x^2"}, "2>&1 1>/dev/null");
+    INFO(none.output);
+    CHECK(none.exit_code == 2);
+    CHECK(contains(none.output, "needs at least one name=expression"));
+
+    // Constants cannot be substituted for (same doctrine as eval bindings).
+    const RunResult constant = run_cli({"subs", "pi*x", "pi=3"}, "2>&1 1>/dev/null");
+    INFO(constant.output);
+    CHECK(constant.exit_code == 2);
+    CHECK(contains(constant.output, "'pi' is a constant"));
+}
+
+TEST_CASE("cli: subs replacement parse error exits 1 with a caret") {
+    const RunResult r = run_cli({"subs", "x^2", "x=(y+"}, "2>&1 1>/dev/null");
+    INFO(r.output);
+    CHECK(r.exit_code == 1);
+    CHECK(contains(r.output, "error:"));
+    CHECK(contains(r.output, "(y+")); // diagnostic echoes the replacement text
+}
+
+TEST_CASE("cli: collect with explicit and inferred variable") {
+    const RunResult explicit_var = run_cli({"collect", "x*y + x*z + 1", "x"});
+    INFO(explicit_var.output);
+    CHECK(explicit_var.exit_code == 0);
+    CHECK(explicit_var.output == "x*(y + z) + 1\n");
+
+    const RunResult inferred = run_cli({"collect", "2*x + 3*x^2 + x + x^2"});
+    INFO(inferred.output);
+    CHECK(inferred.exit_code == 0);
+    CHECK(inferred.output == "4*x^2 + 3*x\n");
+}
+
+TEST_CASE("cli: collect ambiguous variable exits 2 and lists the symbols") {
+    const RunResult r = run_cli({"collect", "x*y + 1"}, "2>&1 1>/dev/null");
+    INFO(r.output);
+    CHECK(r.exit_code == 2);
+    CHECK(contains(r.output, "cannot infer the variable for collect"));
+    CHECK(contains(r.output, "x"));
+    CHECK(contains(r.output, "y"));
+}
+
+TEST_CASE("cli: REPL subs and collect commands") {
+    const RunResult r = run_repl("subs x^2 + y, x=y+1\n"
+                                 "collect x*y + x*z + 1, x\n"
+                                 "collect x*y + 1\n"
+                                 "quit\n");
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "(y + 1)^2 + y"));
+    CHECK(contains(r.output, "x*(y + z) + 1"));
+    // The ambiguity diagnostic keeps the session alive.
+    CHECK(contains(r.output, "cannot infer the variable for collect"));
+}
+
 TEST_CASE("cli: latex subcommand") {
     const RunResult r = run_cli({"latex", "sqrt(x)/2"});
     INFO(r.output);
@@ -311,7 +395,7 @@ TEST_CASE("cli: --version and --help") {
     const RunResult version = run_cli({"--version"});
     INFO(version.output);
     CHECK(version.exit_code == 0);
-    CHECK(contains(version.output, "0.3.0"));
+    CHECK(contains(version.output, "0.4.0"));
 
     const RunResult help = run_cli({"--help"});
     CHECK(help.exit_code == 0);

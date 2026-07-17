@@ -97,7 +97,7 @@ Interactive REPL (like `python` with no arguments):
 
 ```console
 $ mathsolver
-MathSolver 0.3.0 — type "help" for commands, "quit" to exit
+MathSolver 0.4.0 — type "help" for commands, "quit" to exit
 >>> 2x + 3x
 5*x
 >>> solve x^2 - 4 = 0, x
@@ -149,6 +149,10 @@ WASM binding directly.
 ## Features
 
 - **Parser** — LaTeX-style grammar with caret-underlined error diagnostics.
+  As of v0.4 the input is forgiving: unicode math symbols (`×`, `÷`, `√`,
+  `π`, `x²`, `sin(30°)`), scientific notation (`2e-3`), `|x|`
+  absolute-value bars, and helpful errors for word-like variables (`speed`
+  suggests writing `s*p*e*e*d` instead of silently multiplying letters).
 - **Simplifier** — exact rational arithmetic, like-term/factor collection,
   power and exp/ln rules, trig special values and identities; plus `expand`,
   `collect`, and best-effort `factor`.
@@ -180,7 +184,9 @@ WASM binding directly.
 - Formal cancellations such as `x/x → 1` assume nonzero denominators.
 - Numeric root search only covers its interval (default `[-100, 100]`,
   override with `--range`).
-- No scientific-notation literals (`2e3` parses as `2·e·3`).
+- Scientific-notation literals are exact and must fit 64-bit rationals
+  (`1e300` is a clean parse error); `2e` with no digits after it is still
+  `2·e` with Euler's number.
 
 ## Architecture
 
