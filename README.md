@@ -175,6 +175,20 @@ For development, `npm run dev` starts a hot-reloading dev server (re-run
 Svelte/TypeScript sources, and `node ../tools/wasm_smoke.mjs` exercises every
 WASM binding directly.
 
+### Develop in Docker (no local toolchain)
+
+To develop the website and WASM parts without installing Emscripten, CMake, or
+Node.js on your machine, use the containerized environment — Docker is the only
+prerequisite:
+
+```sh
+docker compose up dev      # builds WASM, installs deps, serves http://localhost:5173
+```
+
+The repo is bind-mounted, so edits hot-reload as usual. Open a shell in the same
+toolchain with `docker compose run --rm dev bash`. See [docs/DOCKER.md](docs/DOCKER.md)
+for the full workflow.
+
 ## Features
 
 - **Parser** — LaTeX-style grammar with caret-underlined error diagnostics.

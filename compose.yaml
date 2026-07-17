@@ -1,0 +1,36 @@
+# MathSolver web + WASM development environment.
+#
+#   docker compose up dev              # build WASM, install deps, serve the app
+#                                      # -> http://localhost:5173
+#   docker compose run --rm dev bash   # interactive shell, full toolchain
+#   docker compose run --rm dev \      # one-off command (e.g. production build)
+#       bash -lc "cd web && npm run build"
+#
+# See docs/DOCKER.md for the full workflow.
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    image: mathsolver-dev
+    init: true
+    # The entrypoint activates the toolchain and, on first run, compiles the
+    # WASM engine and installs web deps (idempotent). It then execs the command
+    # below (or whatever you pass to `docker compose run`).
+    entrypoint: ["bash", "docker/dev-entrypoint.sh"]
+    command: ["bash", "-lc", "cd web && exec npm run dev -- --host 0.0.0.0 --port 5173"]
+    working_dir: /workspace
+    ports:
+      - "5173:5173"
+    volumes:
+      - .:/workspace
+      # Keep container-built artifacts out of the host tree and off the host's
+      # architecture: node_modules (platform-specific) and the Emscripten build
+      # dir live in named volumes rather than the bind mount.
+      - web_node_modules:/workspace/web/node_modules
+      - wasm_build:/workspace/build-wasm
+
+volumes:
+  web_node_modules:
+  wasm_build:

@@ -1,0 +1,18 @@
+# The dev container bind-mounts the source at runtime, so the build context
+# only needs to be small and clean. Exclude build outputs, dependencies, and
+# VCS/editor cruft.
+.git
+build/
+build-*/
+cmake-build-*/
+.cache/
+compile_commands.json
+*.o
+*.a
+.DS_Store
+
+# Web app build outputs and dependencies (regenerated in the container).
+web/node_modules/
+web/dist/
+web/src/lib/wasm/mathsolver.js
+web/src/lib/wasm/mathsolver.wasm
