@@ -14,6 +14,7 @@ std::unique_ptr<Plugin> make_sys_plugin();    // plugins/sys/sys.cpp
 std::unique_ptr<Plugin> make_linalg_plugin(); // plugins/linalg/linalg.cpp
 std::unique_ptr<Plugin> make_pde_plugin();    // plugins/pde/pde.cpp
 std::unique_ptr<Plugin> make_ie_plugin();     // plugins/ie/ie.cpp
+std::unique_ptr<Plugin> make_hyb_plugin();    // plugins/hyb/hyb.cpp
 
 void register_builtin_plugins() {
     static bool done = false;
@@ -26,6 +27,7 @@ void register_builtin_plugins() {
     register_plugin(make_linalg_plugin());
     register_plugin(make_pde_plugin());
     register_plugin(make_ie_plugin());
+    register_plugin(make_hyb_plugin());
 }
 
 } // namespace mathsolver::plugins

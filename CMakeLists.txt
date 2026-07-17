@@ -80,6 +80,8 @@ add_library(mathsolver_plugins STATIC
     plugins/pde/pde_core.cpp
     plugins/ie/ie.cpp
     plugins/ie/ie_core.cpp
+    plugins/hyb/hyb.cpp
+    plugins/hyb/hyb_core.cpp
 )
 target_link_libraries(mathsolver_plugins PUBLIC mathsolver_core PRIVATE mathsolver_warnings)
 
