@@ -11,6 +11,7 @@
 // (Orfanidis' formulation). FIR design is windowed-sinc with the response
 // normalized to exactly unity at the band's reference frequency.
 
+#include <complex>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -22,6 +23,21 @@ namespace mathsolver::plugins::dsp {
 struct Biquad {
     double b0, b1, b2, a1, a2;
 };
+
+/// Zeros/poles/gain form: H = k * prod(x - z_i) / prod(x - p_i), in either
+/// the s- or z-domain depending on context. Conjugate symmetry is assumed.
+struct Zpk {
+    std::vector<std::complex<double>> z;
+    std::vector<std::complex<double>> p;
+    double k = 1.0;
+};
+
+/// Bilinear transform s -> z at sample rate fs (zeros at infinity map to -1).
+Zpk bilinear_zpk(const Zpk& analog, double fs);
+
+/// Group a conjugate-symmetric digital Zpk into biquad sections
+/// (nearest-zero pairing, overall gain folded into the first section).
+std::vector<Biquad> zpk_to_biquads(const Zpk& digital);
 
 enum class Family { Butterworth, Cheby1, Cheby2, Elliptic };
 enum class Kind { Lowpass, Highpass, Bandpass, Bandstop };

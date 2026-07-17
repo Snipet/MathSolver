@@ -712,6 +712,17 @@ Expr apply_pow_rules(const Expr& e) {
     if (xr == nullptr) {
         return e;
     }
+    // Integer powers of the imaginary unit cycle with period 4:
+    // i^0 = 1, i^1 = i, i^2 = -1, i^3 = -i.
+    if (is_constant(b, ConstantId::I) && xr->is_integer()) {
+        const long long m = ((xr->num() % 4) + 4) % 4;
+        switch (m) {
+            case 0: return make_num(1);
+            case 1: return b;
+            case 2: return make_num(-1);
+            default: return make_mul({make_num(-1), b});
+        }
+    }
     // Radical normal form for numeric bases (v0.4, §7): sqrt(8) -> 2*sqrt(2),
     // 1/sqrt(2) -> sqrt(2)/2, 2^(3/2) -> 2*sqrt(2).
     if (const Rational* br = as_number(b)) {

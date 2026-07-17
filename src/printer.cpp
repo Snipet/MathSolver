@@ -104,6 +104,9 @@ std::string render_constant(ConstantId id, PrintStyle style) {
     if (id == ConstantId::Pi) {
         return style == PrintStyle::LaTeX ? "\\pi" : "pi";
     }
+    if (id == ConstantId::I) {
+        return "i";
+    }
     return "e";
 }
 

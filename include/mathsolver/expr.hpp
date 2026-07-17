@@ -20,7 +20,7 @@ using Expr = std::shared_ptr<const ExprNode>;
 
 enum class Kind { Number, Symbol, Constant, Add, Mul, Pow, Function };
 
-enum class ConstantId { Pi, E };
+enum class ConstantId { Pi, E, I };
 
 enum class FunctionId { Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Ln, Abs };
 

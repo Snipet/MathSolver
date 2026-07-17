@@ -632,7 +632,7 @@ IsoStatus isolate(const Expr& side, const Expr& c, IsoState& st, const std::stri
 // ---------------------------------------------------------------------------
 
 struct PolyResult {
-    enum class Kind { Roots, NoReal, Fail };
+    enum class Kind { Roots, ComplexRoots, NoReal, Fail };
     Kind kind = Kind::Fail;
     std::vector<Expr> roots;             ///< exact roots (unverified candidates)
     std::vector<Rational> remainder;     ///< degree >= 3 leftover for the numeric fallback
@@ -665,10 +665,22 @@ PolyResult solve_quadratic(const Expr& a, const Expr& b, const Expr& c) {
         const Expr neg_b = make_neg(b);
         const Expr two_a = make_mul({make_num(2), a});
 
+        // Negative numeric discriminant: the conjugate pair
+        // (-b ± i*sqrt(-disc)) / (2a), exact.
+        const auto complex_pair = [&](const Expr& sqrt_abs_disc) {
+            const Expr imag = make_mul({sqrt_abs_disc, make_const(ConstantId::I)});
+            // expand() distributes the 1/(2a) so roots read a ± b*i.
+            pr.roots.push_back(
+                simplify(expand(make_div(make_sub(neg_b, imag), two_a))));
+            pr.roots.push_back(
+                simplify(expand(make_div(make_add({neg_b, imag}), two_a))));
+            pr.kind = PolyResult::Kind::ComplexRoots;
+        };
+
         std::optional<Expr> sqrt_disc;
         if (const Rational* d = as_number(disc)) {
             if (d->is_negative()) {
-                pr.kind = PolyResult::Kind::NoReal;
+                complex_pair(sqrt_of_rational(-*d));
                 return pr;
             }
             if (d->is_zero()) {
@@ -679,7 +691,7 @@ PolyResult solve_quadratic(const Expr& a, const Expr& b, const Expr& c) {
         } else if (free_symbols(disc).empty()) {
             const auto dv = try_eval(disc);
             if (dv && *dv < -1e-12) {
-                pr.kind = PolyResult::Kind::NoReal;
+                complex_pair(sqrt_expr(simplify(make_neg(disc))));
                 return pr;
             }
             if (!dv) {
@@ -816,7 +828,13 @@ PolyResult try_substitution(const std::vector<Expr>& coeffs, long long k,
         sub_coeffs.push_back(coeffs[i]);
     }
     PolyResult sub = solve_poly(sub_coeffs, symbol, depth + 1);
-    if (sub.kind == PolyResult::Kind::NoReal) {
+    if (sub.kind == PolyResult::Kind::NoReal ||
+        sub.kind == PolyResult::Kind::ComplexRoots) {
+        // Complex y-roots would need x^k = (complex) back-substitution, which
+        // the real-domain isolation cannot do; the real answer is still "no
+        // real solutions".
+        sub.kind = PolyResult::Kind::NoReal;
+        sub.roots.clear();
         sub.method = std::format("substitution (x^{}) + {}", k, sub.method);
         return sub;
     }
@@ -909,8 +927,15 @@ PolyResult solve_poly(const std::vector<Expr>& coeffs, std::string_view symbol, 
         if (tail.kind == PolyResult::Kind::Fail) {
             return PolyResult{};
         }
-        // A no-real-root quadratic remainder simply contributes nothing.
-        pr.roots.insert(pr.roots.end(), tail.roots.begin(), tail.roots.end());
+        if (tail.kind == PolyResult::Kind::ComplexRoots) {
+            // Real roots were peeled; report those and note the complex pair
+            // rather than mixing kinds in one result.
+            pr.warnings.push_back(
+                "the remaining quadratic factor has two non-real roots (solve it "
+                "alone to see them)");
+        } else {
+            pr.roots.insert(pr.roots.end(), tail.roots.begin(), tail.roots.end());
+        }
         used_quadratic = true;
     } else if (rem_degree == 1) {
         const PolyResult tail = solve_linear(make_num(rats[0]), make_num(rats[1]));
@@ -1292,6 +1317,30 @@ SolveResult solve(const Equation& eq, std::string_view symbol, const NumericOpti
         res.status = Status::NoRealSolution;
         res.method = std::move(pr.method);
         res.warnings = std::move(pr.warnings);
+        return res;
+    }
+    if (pr.kind == PolyResult::Kind::ComplexRoots) {
+        // Numeric verification cannot evaluate i; verify symbolically instead:
+        // substituting a root into f must simplify to exactly zero (the i^n
+        // rules reduce the residual).
+        res.status = Status::SolvedComplex;
+        res.method = std::move(pr.method);
+        res.warnings = std::move(pr.warnings);
+        for (Expr& r : pr.roots) {
+            try {
+                const Expr residual = simplify(expand(substitute(f, symbol, r)));
+                if (residual->kind() != Kind::Number ||
+                    !residual->number().is_zero()) {
+                    res.warnings.push_back(std::format(
+                        "{} = {} could not be verified symbolically", symbol,
+                        pretty(r)));
+                }
+            } catch (const Error&) {
+                res.warnings.push_back(std::format(
+                    "{} = {} could not be verified symbolically", symbol, pretty(r)));
+            }
+            res.solutions.push_back(Solution{std::move(r), true, ""});
+        }
         return res;
     }
     if (pr.kind == PolyResult::Kind::Roots) {

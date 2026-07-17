@@ -211,6 +211,34 @@ try {
   );
   check("dsp error card", pluginErr.includes("(0, fs/2)"), pluginErr);
 
+  // --- complex numbers (v0.6) and the sys plugin ----------------------------
+  const cplxOut = await run("solve x^2 + 2x + 5 = 0, x");
+  check(
+    "complex quadratic roots",
+    cplxOut.includes("complex roots") && cplxOut.includes("2*i - 1"),
+    cplxOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
+  const tfOut = await run("sys.tf s+1, s^2+3s+2");
+  check(
+    "sys.tf renders analysis",
+    tfOut.includes("stable") && tfOut.includes("Pole-zero map") &&
+      tfOut.includes("Bode magnitude") && tfOut.includes("Time response"),
+    tfOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const sysCharts = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => el.querySelectorAll("canvas").length,
+  );
+  check("sys.tf has 4 charts", sysCharts === 4, `canvases: ${sysCharts}`);
+
+  const odeOut = await run("sys.ode y'' + 3y' + 2y = u' + u");
+  check(
+    "sys.ode derives H(s)",
+    odeOut.includes("s^2 + 3 s + 2") && odeOut.includes("Derived from"),
+    odeOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
   // --- console UX overhaul: reference panel, autocomplete, cell actions ----
   await page.waitForFunction(
     () =>

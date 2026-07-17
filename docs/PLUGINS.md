@@ -131,6 +131,29 @@ responses of known systems).
 Extension points (same pattern): Parks–McClellan equiripple FIR,
 matched-z/impulse invariance, fixed-point coefficient quantization analysis.
 
+## The sys plugin
+
+Continuous-time LTI systems in the Laplace domain. Polynomial arguments go
+through the **CAS**: any polynomial spelling works (`(s+1)(s+2)` or
+`s^2 + 3s + 2`) because coefficients are extracted via repeated symbolic
+differentiation; roots come from a Durand–Kerner iteration, and time
+responses from an RK4 state-space simulation (controllable canonical form,
+substeps chosen from the fastest pole).
+
+| Command | Does |
+|---|---|
+| `sys.tf <num poly in s>, <den poly in s>` | Full analysis of a proper H(s): poles/zeros table (with ωₙ and damping), stability verdict, DC gain, pole-zero map (scatter, jω axis marked), Bode magnitude + phase, step + impulse response. |
+| `sys.ode <LTI ODE in y and u>` | Convert `y'' + 3y' + 2y = u' + u` (zero initial conditions; decimal coefficients, primes for derivatives, input on either side) to H(s), then the same analysis. |
+| `sys.c2d <num>, <den>, <fs Hz>` | Discretize via the bilinear transform into digital biquads — reusing the dsp plugin's public `Zpk`/`bilinear_zpk`/`zpk_to_biquads` machinery — with the digital-vs-analog magnitude overlay. |
+
+The pole-zero map uses the block contract's scatter extension: a series may
+set `"points": true` with `"shape": "x" | "o"`, and the chart draws markers
+instead of a connected line.
+
+Extension points: state-space input/output (`sys.ss`), feedback
+interconnection (`sys.feedback G, K`), root locus, Nyquist plots, delay
+margins.
+
 ## Scope and future work
 
 - Plugins currently surface in the **web console** (and are exercised by the

@@ -1,0 +1,397 @@
+// Continuous-time LTI numerics (sys_lti.hpp).
+
+#include "sys_lti.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <cmath>
+#include <format>
+
+#include "mathsolver/mathsolver.hpp"
+
+namespace mathsolver::plugins::sys {
+
+namespace {
+
+bool near_zero(double v) {
+    return std::abs(v) < 1e-12;
+}
+
+/// Trim exactly-zero high-order coefficients (keeping at least one entry).
+void trim_leading(std::vector<double>& c) {
+    while (c.size() > 1 && near_zero(c.back())) {
+        c.pop_back();
+    }
+}
+
+} // namespace
+
+std::vector<double> poly_from_expr(const std::string& text, int max_degree) {
+    Expr e;
+    try {
+        e = simplify(parse_expression(text));
+    } catch (const Error& err) {
+        throw SysError(std::format("cannot parse '{}': {}", text, err.what()));
+    }
+    for (const std::string& sym : free_symbols(e)) {
+        if (sym != "s") {
+            throw SysError(std::format(
+                "'{}' contains the symbol '{}' — polynomials must be in s with "
+                "numeric coefficients",
+                text, sym));
+        }
+    }
+    std::vector<double> coeffs;
+    Expr d = e;
+    double factorial = 1.0;
+    for (int k = 0; k <= max_degree; ++k) {
+        if (k > 0) {
+            factorial *= k;
+            try {
+                d = simplify(differentiate(d, "s"));
+            } catch (const Error& err) {
+                throw SysError(std::format("cannot differentiate '{}': {}", text,
+                                           err.what()));
+            }
+        }
+        if (d->kind() == Kind::Number && d->number().is_zero()) {
+            break;
+        }
+        double value = 0.0;
+        try {
+            value = evaluate(d, Bindings{{"s", 0.0}});
+        } catch (const Error&) {
+            throw SysError(std::format(
+                "'{}' is not a polynomial in s (degree <= {}) with numeric "
+                "coefficients",
+                text, max_degree));
+        }
+        coeffs.push_back(value / factorial);
+        // Termination check happens on the NEXT round via the derivative; a
+        // non-polynomial (sin, exp, 1/s) never reaches the zero expression.
+        if (k == max_degree) {
+            const Expr next = simplify(differentiate(d, "s"));
+            if (!(next->kind() == Kind::Number && next->number().is_zero())) {
+                throw SysError(std::format(
+                    "'{}' is not a polynomial in s of degree <= {}", text,
+                    max_degree));
+            }
+        }
+    }
+    if (coeffs.empty()) {
+        coeffs.push_back(0.0);
+    }
+    trim_leading(coeffs);
+    return coeffs;
+}
+
+RationalTF make_tf(const std::string& num_text, const std::string& den_text) {
+    RationalTF tf;
+    tf.num = poly_from_expr(num_text);
+    tf.den = poly_from_expr(den_text);
+    if (tf.den.size() == 1 && near_zero(tf.den[0])) {
+        throw SysError("the denominator is identically zero");
+    }
+    if (tf.num.size() > tf.den.size()) {
+        throw SysError(std::format(
+            "H(s) must be proper: numerator degree {} exceeds denominator degree {}",
+            tf.num.size() - 1, tf.den.size() - 1));
+    }
+    const double lead = tf.den.back();
+    for (double& c : tf.den) c /= lead;
+    for (double& c : tf.num) c /= lead;
+    return tf;
+}
+
+// --- ODE parsing ------------------------------------------------------------
+
+namespace {
+
+struct OdeTerm {
+    double coef = 1.0;
+    char var = 0; ///< 'y', 'u', or 0 for a bare constant
+    int order = 0;
+};
+
+/// Parse one side of the ODE into terms. Grammar per term:
+///   [sign] [decimal-coefficient] ['*'] ('y' | 'u') primes
+void parse_side(const std::string& side, bool negate_all,
+                std::vector<OdeTerm>& out) {
+    std::size_t i = 0;
+    const auto skip_ws = [&] {
+        while (i < side.size() && std::isspace(static_cast<unsigned char>(side[i]))) {
+            ++i;
+        }
+    };
+    skip_ws();
+    if (i >= side.size()) {
+        throw SysError("an ODE side is empty");
+    }
+    bool first = true;
+    while (i < side.size()) {
+        skip_ws();
+        double sign = negate_all ? -1.0 : 1.0;
+        if (side[i] == '+' || side[i] == '-') {
+            if (side[i] == '-') sign = -sign;
+            ++i;
+        } else if (!first) {
+            throw SysError(std::format("expected '+' or '-' before '{}'",
+                                       side.substr(i)));
+        }
+        first = false;
+        skip_ws();
+        OdeTerm term;
+        term.coef = sign;
+        // Optional decimal coefficient.
+        std::size_t num_start = i;
+        while (i < side.size() &&
+               (std::isdigit(static_cast<unsigned char>(side[i])) || side[i] == '.')) {
+            ++i;
+        }
+        if (i > num_start) {
+            term.coef *= std::stod(side.substr(num_start, i - num_start));
+        }
+        skip_ws();
+        if (i < side.size() && side[i] == '*') {
+            ++i;
+            skip_ws();
+        }
+        if (i < side.size() && (side[i] == 'y' || side[i] == 'u')) {
+            term.var = side[i];
+            ++i;
+            while (i < side.size() && side[i] == '\'') {
+                ++term.order;
+                ++i;
+            }
+        } else if (i == num_start) {
+            throw SysError(std::format(
+                "expected a y or u term at '{}'", side.substr(num_start)));
+        } else {
+            throw SysError(
+                "constant terms are not allowed — the ODE must be linear "
+                "time-invariant in y and u");
+        }
+        out.push_back(term);
+        skip_ws();
+    }
+}
+
+} // namespace
+
+RationalTF ode_to_tf(const std::string& equation) {
+    const std::size_t eq_pos = equation.find('=');
+    if (eq_pos == std::string::npos) {
+        throw SysError("an ODE needs '=', e.g. y'' + 3y' + 2y = u' + u");
+    }
+    std::vector<OdeTerm> terms;
+    parse_side(equation.substr(0, eq_pos), false, terms);
+    parse_side(equation.substr(eq_pos + 1), true, terms); // moved to the left
+
+    int deg_y = -1;
+    int deg_u = -1;
+    for (const OdeTerm& t : terms) {
+        if (t.var == 'y') deg_y = std::max(deg_y, t.order);
+        if (t.var == 'u') deg_u = std::max(deg_u, t.order);
+    }
+    if (deg_y < 0) {
+        throw SysError("the ODE has no y terms — nothing to solve for");
+    }
+    if (deg_u < 0) {
+        throw SysError("the ODE has no input u terms — H(s) needs an input");
+    }
+    if (deg_u > deg_y) {
+        throw SysError(std::format(
+            "improper system: the input derivative order {} exceeds the output "
+            "order {}",
+            deg_u, deg_y));
+    }
+
+    // Laplace with zero initial conditions: sum(a_k s^k) Y = sum(b_k s^k) U
+    // where y-terms keep their sign and u-terms flip (they were moved left).
+    RationalTF tf;
+    tf.den.assign(static_cast<std::size_t>(deg_y) + 1, 0.0);
+    tf.num.assign(static_cast<std::size_t>(deg_u) + 1, 0.0);
+    for (const OdeTerm& t : terms) {
+        if (t.var == 'y') {
+            tf.den[static_cast<std::size_t>(t.order)] += t.coef;
+        } else {
+            tf.num[static_cast<std::size_t>(t.order)] -= t.coef;
+        }
+    }
+    trim_leading(tf.den);
+    trim_leading(tf.num);
+    if (near_zero(tf.den.back())) {
+        throw SysError("the y terms cancel — the ODE has no dynamics");
+    }
+    if (tf.num.size() > tf.den.size()) {
+        throw SysError("improper system after cancellation");
+    }
+    const double lead = tf.den.back();
+    for (double& c : tf.den) c /= lead;
+    for (double& c : tf.num) c /= lead;
+    return tf;
+}
+
+// --- roots, evaluation, gain ------------------------------------------------
+
+std::vector<cd> poly_roots(const std::vector<double>& coeffs_in) {
+    std::vector<double> coeffs = coeffs_in;
+    trim_leading(coeffs);
+    const std::size_t n = coeffs.size() - 1;
+    if (n == 0) {
+        return {};
+    }
+    // Monic complex copy.
+    std::vector<cd> a(coeffs.begin(), coeffs.end());
+    for (cd& c : a) {
+        c /= coeffs.back();
+    }
+    // Durand-Kerner from spiral start points.
+    std::vector<cd> r(n);
+    const cd seed{0.4, 0.9};
+    r[0] = cd{1.0, 0.0};
+    for (std::size_t k = 0; k < n; ++k) {
+        r[k] = std::pow(seed, static_cast<double>(k + 1));
+    }
+    const auto eval_monic = [&](cd x) {
+        cd v{1.0, 0.0};
+        for (std::size_t k = n; k-- > 0;) {
+            v = v * x + a[k];
+        }
+        return v;
+    };
+    for (int iter = 0; iter < 500; ++iter) {
+        double moved = 0.0;
+        for (std::size_t k = 0; k < n; ++k) {
+            cd denom{1.0, 0.0};
+            for (std::size_t j = 0; j < n; ++j) {
+                if (j != k) {
+                    denom *= (r[k] - r[j]);
+                }
+            }
+            if (std::abs(denom) < 1e-300) {
+                denom = cd{1e-300, 0.0};
+            }
+            const cd delta = eval_monic(r[k]) / denom;
+            r[k] -= delta;
+            moved = std::max(moved, std::abs(delta));
+        }
+        if (moved < 1e-13) {
+            break;
+        }
+    }
+    // Snap conjugate symmetry: tiny imaginary parts become exactly real.
+    for (cd& root : r) {
+        if (std::abs(root.imag()) < 1e-8 * (1.0 + std::abs(root.real()))) {
+            root = cd{root.real(), 0.0};
+        }
+    }
+    return r;
+}
+
+cd tf_eval(const RationalTF& tf, cd s) {
+    const auto horner = [&](const std::vector<double>& c) {
+        cd v{0.0, 0.0};
+        for (std::size_t k = c.size(); k-- > 0;) {
+            v = v * s + c[k];
+        }
+        return v;
+    };
+    return horner(tf.num) / horner(tf.den);
+}
+
+double dc_gain(const RationalTF& tf) {
+    if (near_zero(tf.den.front())) {
+        return std::numeric_limits<double>::infinity();
+    }
+    return tf.num.front() / tf.den.front();
+}
+
+// --- time simulation --------------------------------------------------------
+
+TimeSim simulate(const RationalTF& tf, double horizon, int points) {
+    const std::size_t n = tf.den.size() - 1; // state dimension
+    TimeSim out;
+    if (n == 0) {
+        // Pure gain: step = k, impulse = 0 (plus k*delta).
+        out.biproper = true;
+        for (int i = 0; i < points; ++i) {
+            const double t = horizon * i / (points - 1);
+            out.t.push_back(t);
+            out.step.push_back(tf.num.front() / tf.den.front());
+            out.impulse.push_back(0.0);
+        }
+        return out;
+    }
+    // Controllable canonical form with monic denominator (den.back() == 1):
+    //   xdot_i = x_{i+1};  xdot_{n-1} = -sum(den[k] x_k) + u
+    //   y = sum((num[k] - num[n]*den[k]) x_k) + num[n]*u
+    std::vector<double> b(n + 1, 0.0);
+    for (std::size_t k = 0; k < tf.num.size(); ++k) {
+        b[k] = tf.num[k];
+    }
+    const double D = b[n];
+    out.biproper = !near_zero(D);
+    std::vector<double> c(n);
+    for (std::size_t k = 0; k < n; ++k) {
+        c[k] = b[k] - D * tf.den[k];
+    }
+
+    const auto deriv = [&](const std::vector<double>& x, double u,
+                           std::vector<double>& dx) {
+        for (std::size_t k = 0; k + 1 < n; ++k) {
+            dx[k] = x[k + 1];
+        }
+        double acc = u;
+        for (std::size_t k = 0; k < n; ++k) {
+            acc -= tf.den[k] * x[k];
+        }
+        dx[n - 1] = acc;
+    };
+
+    // RK4 with substeps for stiffness: keep dt*|fastest pole| modest.
+    double fastest = 1.0;
+    for (const cd& p : poly_roots(tf.den)) {
+        fastest = std::max(fastest, std::abs(p));
+    }
+    const double dt_out = horizon / (points - 1);
+    const int substeps = std::max(1, static_cast<int>(std::ceil(dt_out * fastest / 0.8)));
+    const double h = dt_out / substeps;
+
+    const auto rk4 = [&](std::vector<double>& x, double u) {
+        std::vector<double> k1(n), k2(n), k3(n), k4(n), tmp(n);
+        deriv(x, u, k1);
+        for (std::size_t j = 0; j < n; ++j) tmp[j] = x[j] + h / 2 * k1[j];
+        deriv(tmp, u, k2);
+        for (std::size_t j = 0; j < n; ++j) tmp[j] = x[j] + h / 2 * k2[j];
+        deriv(tmp, u, k3);
+        for (std::size_t j = 0; j < n; ++j) tmp[j] = x[j] + h * k3[j];
+        deriv(tmp, u, k4);
+        for (std::size_t j = 0; j < n; ++j) {
+            x[j] += h / 6 * (k1[j] + 2 * k2[j] + 2 * k3[j] + k4[j]);
+        }
+    };
+    const auto output = [&](const std::vector<double>& x, double u) {
+        double y = D * u;
+        for (std::size_t k = 0; k < n; ++k) {
+            y += c[k] * x[k];
+        }
+        return y;
+    };
+
+    std::vector<double> xs(n, 0.0); // step state
+    std::vector<double> xi(n, 0.0); // impulse state: x0 = B = e_n
+    xi[n - 1] = 1.0;
+    for (int i = 0; i < points; ++i) {
+        out.t.push_back(dt_out * i);
+        out.step.push_back(output(xs, 1.0));
+        out.impulse.push_back(output(xi, 0.0));
+        for (int s = 0; s < substeps; ++s) {
+            rk4(xs, 1.0);
+            rk4(xi, 0.0);
+        }
+    }
+    return out;
+}
+
+} // namespace mathsolver::plugins::sys

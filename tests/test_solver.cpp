@@ -11,6 +11,7 @@
 #include "mathsolver/evaluator.hpp"
 #include "mathsolver/expr.hpp"
 #include "mathsolver/parser.hpp"
+#include "mathsolver/printer.hpp"
 #include "mathsolver/simplify.hpp"
 #include "mathsolver/solver.hpp"
 
@@ -158,16 +159,53 @@ TEST_CASE("solve: x^2 = 2 gives exact +-sqrt(2)") {
     check_all_solutions_numerically(e, "x", res);
 }
 
-TEST_CASE("solve: x^2 + x + 1 = 0 has no real solutions") {
+TEST_CASE("solve: x^2 + x + 1 = 0 yields the complex conjugate pair") {
     const SolveResult res = solve(eq("x^2 + x + 1 = 0"), "x");
-    CHECK(res.status == Status::NoRealSolution);
-    CHECK(res.solutions.empty());
+    CHECK(res.status == Status::SolvedComplex);
+    REQUIRE(res.solutions.size() == 2);
+    expect_values(res, {"-1/2 - sqrt(3)/2*i", "-1/2 + sqrt(3)/2*i"});
+    // Symbolic verification succeeded: no "could not be verified" warnings.
+    for (const std::string& w : res.warnings) {
+        CHECK(w.find("could not be verified") == std::string::npos);
+    }
 }
 
-TEST_CASE("solve: x^2 = -1 has no real solutions") {
+TEST_CASE("solve: x^2 = -1 yields +-i") {
     const SolveResult res = solve(eq("x^2 = -1"), "x");
-    CHECK(res.status == Status::NoRealSolution);
-    CHECK(res.solutions.empty());
+    CHECK(res.status == Status::SolvedComplex);
+    REQUIRE(res.solutions.size() == 2);
+    expect_values(res, {"-i", "i"});
+}
+
+TEST_CASE("solve: x^2 = -4 yields +-2i") {
+    const SolveResult res = solve(eq("x^2 = -4"), "x");
+    CHECK(res.status == Status::SolvedComplex);
+    expect_values(res, {"-2*i", "2*i"});
+}
+
+TEST_CASE("solve: x^2 + 2x + 5 = 0 yields -1 +- 2i") {
+    const SolveResult res = solve(eq("x^2 + 2x + 5 = 0"), "x");
+    CHECK(res.status == Status::SolvedComplex);
+    expect_values(res, {"-1 - 2*i", "-1 + 2*i"});
+    for (const std::string& w : res.warnings) {
+        CHECK(w.find("could not be verified") == std::string::npos);
+    }
+}
+
+TEST_CASE("imaginary unit: parsing, printing, and power reduction") {
+    CHECK(to_string(simplify(parse_expression("i^2")), PrintStyle::Plain) == "-1");
+    CHECK(to_string(simplify(parse_expression("i^3")), PrintStyle::Plain) == "-i");
+    CHECK(to_string(simplify(parse_expression("i^4")), PrintStyle::Plain) == "1");
+    CHECK(to_string(simplify(parse_expression("i^(-1)")), PrintStyle::Plain) == "-i");
+    CHECK(to_string(simplify(parse_expression("i*i")), PrintStyle::Plain) == "-1");
+    CHECK(to_string(simplify(parse_expression("3i + 2i")), PrintStyle::Plain) ==
+          "5*i");
+    CHECK(to_string(simplify(expand(parse_expression("(2 + i)*(2 - i)"))),
+                    PrintStyle::Plain) == "5");
+    // i is a constant, not a free symbol.
+    CHECK(free_symbols(parse_expression("2 + 3i")).empty());
+    // Numeric evaluation of a complex expression reports a clean error.
+    CHECK_THROWS_AS(evaluate(parse_expression("2 + 3i")), Error);
 }
 
 TEST_CASE("solve: x^2 = 0 gives the single root 0") {

@@ -65,6 +65,8 @@ add_library(mathsolver_plugins STATIC
     plugins/register_builtin.cpp
     plugins/dsp/dsp.cpp
     plugins/dsp/dsp_design.cpp
+    plugins/sys/sys.cpp
+    plugins/sys/sys_lti.cpp
 )
 target_link_libraries(mathsolver_plugins PUBLIC mathsolver_core PRIVATE mathsolver_warnings)
 
