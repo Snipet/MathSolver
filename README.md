@@ -2,10 +2,11 @@
 
 A from-scratch computer-algebra system (CAS) in C++23: parse LaTeX-style math,
 simplify and transform expressions, differentiate and integrate symbolically,
-take Laplace transforms and their inverses, solve equations and linear ODE
-initial-value problems, expand partial fractions and Taylor series — exactly
-where possible, numerically otherwise. No dependencies beyond the standard
-library (Catch2 is fetched automatically for tests only).
+take limits, Laplace transforms and their inverses, solve equations, ODE
+initial-value problems, and recurrences, expand partial fractions and Taylor
+series, sum series in closed form, and do multivariate vector calculus —
+exactly where possible, numerically otherwise. No dependencies beyond the
+standard library (Catch2 is fetched automatically for tests only).
 
 ## Build
 
@@ -112,6 +113,21 @@ Y(s) = 1/(s^2 + 1)^2
 method: laplace transform + partial fractions
 ```
 
+Equations spelled `y' = f(t, y)` route to first-order methods instead —
+variable-coefficient linear (integrating factor), Bernoulli, and separable
+equations, with explicit inversion where `solve` can manage it and an
+honest implicit relation otherwise. Without an initial condition the
+general solution keeps a symbolic `C`:
+
+```console
+$ mathsolver dsolve "y' = -2t*y, y(0)=1"
+y(t) = e^(-t^2)
+method: integrating factor
+$ mathsolver dsolve "y' = t/y, y(0)=2"
+y(t) = sqrt(-2*(-t^2/2 - 2))
+method: separation of variables
+```
+
 Two supporting verbs round out the calculus toolkit. `apart` expands a
 rational function into partial fractions over the rationals (linear and
 irreducible-quadratic factors, repeated factors, improper inputs divided
@@ -127,6 +143,55 @@ $ mathsolver series "sin(x)" x 0 5
 x^5/120 - x^3/6 + x
 $ mathsolver series "ln(x)" x 1 3
 (x - 1)^3/3 - (x - 1)^2/2 + x - 1
+```
+
+Limits — exact where the structure allows (substitution guarded by
+defined-at-the-point checks, L'Hôpital on 0/0 quotients, rational degree
+analysis at infinity), with an honest numeric-extrapolation fallback that
+distinguishes signed divergence, two-sided disagreement, and "unable to
+determine":
+
+```console
+$ mathsolver limit "sin(x)/x" x 0
+limit = 1
+method: l'hopital
+$ mathsolver limit "(3x^2+1)/(x^2-5)" x inf
+limit = 3
+method: rational degree analysis
+$ mathsolver limit "1/x" x 0
+the limit does not exist
+warning: left limit: -inf
+warning: right limit: +inf
+```
+
+Multivariate and vector calculus — `grad`, `div`, `curl` (3-D vector and
+2-D scalar), `laplacian`, `jacobian`, and `hessian` operate on
+`;`-separated fields over an explicit variable list, and the web console's
+`vecfield Fx; Fy` renders a magnitude-colored quiver plot:
+
+```console
+$ mathsolver grad "x^2 + y^2" x y
+(2*x, 2*y)
+$ mathsolver curl "x*y; y*z; z*x" x y z
+(-y, -z, -x)
+$ mathsolver hessian "x^3 + x*y^2" x y
+[6*x, 2*y; 2*y, 2*x]
+```
+
+Discrete calculus — `sum` and `product` find exact closed forms
+(polynomial Faulhaber fits, geometric forms with numeric or symbolic
+ratios, infinite geometric series, and telescoping through partial
+fractions), and `rsolve` solves linear recurrences by characteristic
+roots — Fibonacci comes out as Binet's formula with `sqrt(5)` exact:
+
+```console
+$ mathsolver sum "k^2" k 1 n
+sum = n^3/3 + n^2/2 + n/6
+$ mathsolver sum "k*(1/2)^k" k 1 inf
+sum = 2
+$ mathsolver rsolve "a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1"
+a(n) = -sqrt(5)*((-sqrt(5) + 1)/2)^n/5 + sqrt(5)*((sqrt(5) + 1)/2)^n/5
+method: characteristic roots
 ```
 
 Systems of equations — separate the equations with `;` inside one argument
@@ -254,6 +319,10 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   dsp.fir lowpass, 101, 1000, 48000, kaiser, 10
   dsp.remez lowpass, 31, 1000, 1500, 8000 → optimal equiripple (Parks–McClellan)
   dsp.freqz 48000, 0.2,0.4,0.2,-0.5,0.3  → response of your own biquads
+  linalg.solve [2 1; 1 3], [3 5]         → LU solve with residual
+  linalg.eig [0 -1; 1 0]                 → eigenvalues incl. complex pairs
+  linalg.svd [1 2; 3 4; 5 6]             → singular values, rank, cond
+  linalg.det [a b; c d]                  → symbolic determinants (Bareiss)
   sys.tf s+1, s^2+3s+2                   → poles/zeros, margins, Bode, step
   sys.ode y'' + 3y' + 2y = u' + u        → ODE to transfer function
   sys.feedback 1, s(s+1)(s+2), 2         → closed loop under gain-K feedback

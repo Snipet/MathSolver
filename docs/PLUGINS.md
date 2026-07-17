@@ -150,6 +150,21 @@ substeps chosen from the fastest pole).
 | `sys.tfz <num>, <den>, <fs Hz>` | Analyze a **discrete** transfer function H(z) (positive powers of z): poles/zeros with \|z\|/angle, stability by \|pole\| < 1, pole-zero map with the **unit circle** (equal-aspect), magnitude/phase response, and step + impulse from the difference equation. |
 | `sys.c2d <num>, <den>, <fs Hz>` | Discretize via the bilinear transform into digital biquads — reusing the dsp plugin's public `Zpk`/`bilinear_zpk`/`zpk_to_biquads` machinery — with the digital-vs-analog magnitude overlay. |
 
+The **linalg** plugin does dense linear algebra. Matrices are written
+`[1 2; 3 4]` (rows by `;`, entries by spaces or commas); entries are full
+expressions, and a matrix with symbolic entries routes to exact machinery
+where supported:
+
+| Command | What it does |
+| --- | --- |
+| `linalg.solve [A], [b]` | LU with partial pivoting; reports the residual max\|Ax − b\|. |
+| `linalg.det [A]` | Numeric LU determinant, or **exact Bareiss** for symbolic entries (≤ 5×5): `linalg.det [a b; c d]` → `a*d - b*c`. |
+| `linalg.inv [A]` | Inverse with the 2-norm condition number. |
+| `linalg.eig [A]` | Eigenvalues by Hessenberg + shifted QR, including complex conjugate pairs (≤ 16×16), with spectral radius and a trace cross-check. |
+| `linalg.svd [A]` | One-sided Jacobi SVD: singular values, rank, cond, U and V tables. |
+| `linalg.rank [A]` | Numeric rank via the SVD tolerance. |
+| `linalg.lstsq [A], [b]` | Least squares via the SVD pseudoinverse, with the residual norm. |
+
 Every analysis additionally reports **classical stability margins** (gain
 margin at the −180° crossing, phase margin at the 0 dB crossing, refined by
 bisection on Im H(jω)), with the crossover frequencies marked as ωpc/ωgc
