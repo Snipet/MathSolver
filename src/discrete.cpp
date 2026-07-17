@@ -11,6 +11,7 @@
 
 #include "mathsolver/discrete.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <format>
@@ -180,9 +181,43 @@ SumResult unsolved(std::string why) {
     return r;
 }
 
+/// c / k with c free of the summation variable -> the scale and nullopt
+/// otherwise.
+std::optional<Expr> harmonic_scale(const Expr& term, const std::string& var) {
+    const Expr inv = make_pow(make_sym(var), make_num(-1));
+    if (structurally_equal(term, inv)) {
+        return make_num(1);
+    }
+    if (term->kind() == Kind::Mul && term->args().size() == 2) {
+        const Expr& a = term->args()[0];
+        const Expr& b = term->args()[1];
+        if (structurally_equal(b, inv) && !contains_symbol(a, var)) {
+            return a;
+        }
+        if (structurally_equal(a, inv) && !contains_symbol(b, var)) {
+            return b;
+        }
+    }
+    return std::nullopt;
+}
+
 /// Closed form S(n) = Σ_{k=lo}^{n} of one product term, or Unsolved.
 SumResult sum_term_closed(const Expr& term, const std::string& var,
                           long long lo) {
+    // Σ c/k from lo to n = c (H(n) - H(lo-1)): harmonic numbers are first-
+    // class, so the "sum" of the harmonic tail has an honest closed form.
+    if (lo >= 1) {
+        if (const auto c = harmonic_scale(term, var)) {
+            SumResult res;
+            res.status = SumResult::Status::Exact;
+            res.value = simplify(make_mul(
+                {*c, make_sub(make_fn(FunctionId::Harmonic, make_sym(var)),
+                              make_fn(FunctionId::Harmonic,
+                                      make_num(lo - 1)))}));
+            res.method = "harmonic numbers";
+            return res;
+        }
+    }
     Expr r, poly;
     split_geometric(term, var, r, poly);
     const auto pc = polynomial_coefficients(poly, var);
@@ -960,6 +995,241 @@ RsolveResult rsolve(std::string_view recurrence,
                           ? make_num(0)
                           : simplify(make_add(std::move(out_terms)));
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// Sequence recognition (discrete.hpp)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// Pretty rational coefficient for recurrence text: 1 -> "", -1 -> "-",
+/// 3/2 -> "(3/2)*".
+std::string coeff_text(const Rational& c) {
+    if (c == Rational(1)) {
+        return "";
+    }
+    if (c == Rational(-1)) {
+        return "-";
+    }
+    const std::string t = c.to_string();
+    return (c.den() == 1 ? t : "(" + t + ")") + "*";
+}
+
+/// Exact m x m Gaussian solve; nullopt when singular.
+std::optional<std::vector<Rational>> solve_rational(
+    std::vector<std::vector<Rational>> m, std::vector<Rational> y) {
+    const std::size_t n = m.size();
+    for (std::size_t col = 0; col < n; ++col) {
+        std::size_t p = col;
+        while (p < n && m[p][col].is_zero()) ++p;
+        if (p == n) {
+            return std::nullopt;
+        }
+        std::swap(m[p], m[col]);
+        std::swap(y[p], y[col]);
+        for (std::size_t i = 0; i < n; ++i) {
+            if (i == col || m[i][col].is_zero()) continue;
+            const Rational f = m[i][col] / m[col][col];
+            for (std::size_t j = col; j < n; ++j) {
+                m[i][j] = m[i][j] - f * m[col][j];
+            }
+            y[i] = y[i] - f * y[col];
+        }
+    }
+    std::vector<Rational> x(n, Rational(0));
+    for (std::size_t i = 0; i < n; ++i) {
+        x[i] = y[i] / m[i][i];
+    }
+    return x;
+}
+
+} // namespace
+
+SeqResult recognize_sequence(const std::vector<Rational>& a) {
+    const std::size_t n = a.size();
+    if (n < 4) {
+        throw Error("seq needs at least 4 terms to see a pattern");
+    }
+    SeqResult out;
+    const Expr nv = make_sym("n");
+
+    // 1. Geometric: every term nonzero with a constant ratio.
+    bool geometric = !a[0].is_zero();
+    Rational ratio(1);
+    if (geometric) {
+        ratio = a[1] / a[0];
+        for (std::size_t i = 1; geometric && i < n; ++i) {
+            geometric = !a[i].is_zero() &&
+                        (i + 1 == n || a[i + 1] / a[i] == ratio);
+        }
+    }
+    if (geometric && ratio != Rational(1)) {
+        out.kind = SeqResult::Kind::Geometric;
+        out.description =
+            std::format("geometric with ratio {}", ratio.to_string());
+        out.formula = simplify(make_mul(
+            {make_num(a[0]), make_pow(make_num(ratio), nv)}));
+        Rational t = a.back();
+        for (int i = 0; i < 3; ++i) {
+            t = t * ratio;
+            out.next.push_back(t);
+        }
+        return out;
+    }
+
+    // 2. Finite differences: vanishing at depth d (with at least two zero
+    // entries as evidence) means a degree d-1 polynomial; the closed form
+    // is Newton's forward formula over the top-left diagonal.
+    std::vector<std::vector<Rational>> table{a};
+    bool vanished = false;
+    while (table.back().size() >= 3) {
+        const std::vector<Rational>& prev = table.back();
+        std::vector<Rational> row;
+        for (std::size_t i = 0; i + 1 < prev.size(); ++i) {
+            row.push_back(prev[i + 1] - prev[i]);
+        }
+        const bool zero = std::all_of(row.begin(), row.end(),
+                                      [](const Rational& r) { return r.is_zero(); });
+        table.push_back(std::move(row));
+        if (zero) {
+            vanished = true;
+            break;
+        }
+    }
+    if (vanished) {
+        const int degree = static_cast<int>(table.size()) - 2;
+        std::vector<Expr> terms;
+        Rational fact(1);
+        for (int j = 0; j <= degree; ++j) {
+            if (j > 0) {
+                fact = fact * Rational(j);
+            }
+            const Rational lead = table[static_cast<std::size_t>(j)][0];
+            if (lead.is_zero()) {
+                continue;
+            }
+            // Δ^j a(0) / j! * n (n-1) ... (n-j+1)
+            std::vector<Expr> prod{make_num(lead / fact)};
+            for (int i = 0; i < j; ++i) {
+                prod.push_back(make_sub(nv, make_num(i)));
+            }
+            terms.push_back(make_mul(std::move(prod)));
+        }
+        out.formula = terms.empty()
+                          ? make_num(0)
+                          : simplify(expand(make_add(std::move(terms))));
+        if (degree <= 0) {
+            out.kind = SeqResult::Kind::Polynomial;
+            out.description = "constant";
+        } else if (degree == 1) {
+            out.kind = SeqResult::Kind::Arithmetic;
+            out.description = std::format("arithmetic with difference {}",
+                                          table[1][0].to_string());
+        } else {
+            out.kind = SeqResult::Kind::Polynomial;
+            out.description = std::format("polynomial of degree {}", degree);
+        }
+        for (int i = 0; i < 3; ++i) {
+            const long long m = static_cast<long long>(n) + i;
+            const double check = 0; (void)check;
+            const Expr v = simplify(substitute(out.formula, "n", make_num(m)));
+            out.next.push_back(v->number());
+        }
+        return out;
+    }
+
+    // 3. Linear recurrence of order 2..3: coefficients from an exact solve
+    // over the first windows, verified against every remaining term.
+    for (std::size_t m = 2; m <= 3; ++m) {
+        if (n < 2 * m + 1) {
+            continue;
+        }
+        std::vector<std::vector<Rational>> mat;
+        std::vector<Rational> rhs;
+        for (std::size_t i = 0; i < m; ++i) {
+            std::vector<Rational> row;
+            for (std::size_t j = 0; j < m; ++j) {
+                row.push_back(a[i + j]);
+            }
+            mat.push_back(std::move(row));
+            rhs.push_back(a[i + m]);
+        }
+        const auto c = solve_rational(std::move(mat), std::move(rhs));
+        if (!c) {
+            continue;
+        }
+        bool ok = true;
+        for (std::size_t i = m; ok && i + m < n; ++i) {
+            Rational acc(0);
+            for (std::size_t j = 0; j < m; ++j) {
+                acc = acc + (*c)[j] * a[i + j];
+            }
+            ok = acc == a[i + m];
+        }
+        const bool trivial = std::all_of(c->begin(), c->end(),
+                                         [](const Rational& r) { return r.is_zero(); });
+        if (!ok || trivial) {
+            continue;
+        }
+        out.kind = SeqResult::Kind::Recurrence;
+        std::string rhs_text;
+        for (std::size_t j = m; j-- > 0;) {
+            if ((*c)[j].is_zero()) {
+                continue;
+            }
+            std::string term =
+                coeff_text((*c)[j].is_negative() && !rhs_text.empty()
+                               ? -(*c)[j]
+                               : (*c)[j]) +
+                (j == 0 ? "a(n)" : std::format("a(n+{})", j));
+            if (rhs_text.empty()) {
+                rhs_text = term;
+            } else {
+                rhs_text += ((*c)[j].is_negative() ? " - " : " + ") + term;
+            }
+        }
+        out.recurrence = std::format("a(n+{}) = {}", m, rhs_text);
+        out.description =
+            std::format("linear recurrence of order {}", m);
+        if (m == 2 && (*c)[0] == Rational(1) && (*c)[1] == Rational(1)) {
+            out.description += a[0].is_zero() && a[1] == Rational(1)
+                                   ? " (Fibonacci)"
+                                   : " (Fibonacci-type)";
+        }
+        std::vector<Rational> ext(a);
+        for (int i = 0; i < 3; ++i) {
+            Rational acc(0);
+            for (std::size_t j = 0; j < m; ++j) {
+                acc = acc + (*c)[j] * ext[ext.size() - m + j];
+            }
+            ext.push_back(acc);
+            out.next.push_back(acc);
+        }
+        // Closed form through rsolve where its machinery reaches.
+        try {
+            std::vector<std::string> conds;
+            for (std::size_t i = 0; i < m; ++i) {
+                conds.push_back(
+                    std::format("a({}) = {}", i, a[i].to_string()));
+            }
+            const RsolveResult rr = rsolve(out.recurrence, conds);
+            out.formula = rr.solution;
+            out.warnings.insert(out.warnings.end(), rr.warnings.begin(),
+                                rr.warnings.end());
+        } catch (const Error&) {
+            out.warnings.push_back(
+                "no closed form found for the recurrence (complex or "
+                "unsupported characteristic roots)");
+        }
+        return out;
+    }
+
+    out.kind = SeqResult::Kind::Unknown;
+    out.description =
+        "no pattern found (tried geometric ratios, finite differences, and "
+        "linear recurrences up to order 3); more terms may help";
+    return out;
 }
 
 } // namespace mathsolver

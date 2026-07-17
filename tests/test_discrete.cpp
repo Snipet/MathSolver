@@ -12,6 +12,8 @@
 #include "mathsolver/errors.hpp"
 #include "mathsolver/evaluator.hpp"
 #include "mathsolver/parser.hpp"
+#include "mathsolver/printer.hpp"
+#include "mathsolver/simplify.hpp"
 
 using namespace mathsolver;
 using Catch::Matchers::ContainsSubstring;
@@ -255,4 +257,86 @@ TEST_CASE("rsolve: errors are specific") {
     // two conditions are one too many.
     CHECK_THROWS_WITH(rsolve("a(n+2) = a(n+1)", {"a(0)=1", "a(1)=1"}),
                       ContainsSubstring("order-1"));
+}
+
+TEST_CASE("integer functions: binomial and factorial fold through gamma") {
+    const auto S = [](std::string_view s) {
+        return to_string(simplify(parse_expression(s)), PrintStyle::Plain);
+    };
+    CHECK(S("binomial(5, 2)") == "10");
+    CHECK(S("binomial(10, 5)") == "252");
+    CHECK(S("binomial(7, 0)") == "1");
+    CHECK(S("factorial(5)") == "120");
+    CHECK(S("factorial(0)") == "1");
+    CHECK(S("fib(10)") == "55");
+    CHECK(S("fib(92)") == "7540113804746346429");
+    CHECK(S("fib(-6)") == "-8");
+    CHECK(S("fib(-7)") == "13");
+    CHECK(S("harmonic(1)") == "1");
+    CHECK(S("harmonic(4)") == "25/12");
+    CHECK(S("harmonic(0)") == "0");
+    // Past the exact 64-bit reach the symbolic form stays (numerics work).
+    CHECK(S("harmonic(100)") == "harmonic(100)");
+    CHECK(std::abs(evaluate(parse_expression("harmonic(100)"), Bindings{}) -
+                   5.187377517639621) < 1e-9);
+    CHECK(std::abs(evaluate(parse_expression("fib(30)"), Bindings{}) -
+                   832040.0) < 1e-3);
+}
+
+TEST_CASE("sum of 1/k produces harmonic numbers") {
+    const SumResult r = sum_finite(parse_expression("1/k"), "k",
+                                   parse_expression("1"), parse_expression("n"));
+    REQUIRE(r.status == SumResult::Status::Exact);
+    CHECK(to_string(r.value, PrintStyle::Plain) == "harmonic(n)");
+    CHECK(r.method == "harmonic numbers");
+
+    const SumResult s = sum_finite(parse_expression("3/k"), "k",
+                                   parse_expression("5"), parse_expression("n"));
+    REQUIRE(s.status == SumResult::Status::Exact);
+    CHECK(to_string(s.value, PrintStyle::Plain) == "3*(harmonic(n) - 25/12)");
+}
+
+TEST_CASE("seq: recognizes the classic sequence families") {
+    const auto terms = [](std::initializer_list<long long> xs) {
+        std::vector<Rational> v;
+        for (const long long x : xs) v.push_back(Rational(x));
+        return v;
+    };
+
+    const SeqResult fib = recognize_sequence(terms({0, 1, 1, 2, 3, 5, 8}));
+    CHECK(fib.kind == SeqResult::Kind::Recurrence);
+    CHECK(fib.recurrence == "a(n+2) = a(n+1) + a(n)");
+    CHECK_THAT(fib.description, Catch::Matchers::ContainsSubstring("Fibonacci"));
+    REQUIRE(fib.next.size() == 3);
+    CHECK(fib.next[0] == Rational(13));
+    CHECK(fib.next[2] == Rational(34));
+    REQUIRE(fib.formula);
+    CHECK_THAT(to_string(fib.formula, PrintStyle::Plain),
+               Catch::Matchers::ContainsSubstring("sqrt(5)"));
+
+    const SeqResult sq = recognize_sequence(terms({1, 4, 9, 16, 25}));
+    CHECK(sq.kind == SeqResult::Kind::Polynomial);
+    CHECK(to_string(sq.formula, PrintStyle::Plain) == "n^2 + 2*n + 1");
+    CHECK(sq.next[0] == Rational(36));
+
+    const SeqResult ar = recognize_sequence(terms({2, 5, 8, 11}));
+    CHECK(ar.kind == SeqResult::Kind::Arithmetic);
+    CHECK(to_string(ar.formula, PrintStyle::Plain) == "3*n + 2");
+
+    const SeqResult ge = recognize_sequence(terms({3, 6, 12, 24, 48}));
+    CHECK(ge.kind == SeqResult::Kind::Geometric);
+    CHECK(to_string(ge.formula, PrintStyle::Plain) == "3*2^n");
+    CHECK(ge.next[0] == Rational(96));
+
+    // Pell numbers: a(n+2) = 2 a(n+1) + a(n).
+    const SeqResult pell = recognize_sequence(terms({0, 1, 2, 5, 12, 29}));
+    CHECK(pell.kind == SeqResult::Kind::Recurrence);
+    CHECK(pell.recurrence == "a(n+2) = 2*a(n+1) + a(n)");
+    CHECK(pell.next[0] == Rational(70));
+
+    const SeqResult unknown =
+        recognize_sequence(terms({1, 1, 2, 5, 29, 866}));
+    CHECK(unknown.kind == SeqResult::Kind::Unknown);
+
+    CHECK_THROWS_AS(recognize_sequence(terms({1, 2, 3})), Error);
 }

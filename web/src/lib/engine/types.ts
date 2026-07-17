@@ -23,6 +23,17 @@ export type TransformResult =
   | ({ ok: true; notes?: string[] } & Rendered)
   | EngineError;
 
+export type SeqCallResult =
+  | ({
+      ok: true;
+      kind: "arithmetic" | "geometric" | "polynomial" | "recurrence" | "unknown";
+      description: string;
+      recurrence?: string;
+      next: string[];
+      warnings: string[];
+    } & Partial<Rendered>)
+  | EngineError;
+
 export type LimitCallResult =
   | ({
       ok: true;
@@ -204,6 +215,7 @@ export interface EngineApi {
     LimitCallResult,
   ];
   stirling: [[variable: string, terms: number], TransformResult];
+  seq: [[termsCsv: string], SeqCallResult];
   sum: [[term: string, variable: string, lo: string, hi: string], SumCallResult];
   product: [
     [term: string, variable: string, lo: string, hi: string],

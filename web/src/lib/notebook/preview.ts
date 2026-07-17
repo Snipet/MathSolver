@@ -147,6 +147,14 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
     case "rsolve":
       // The a(n+k) grammar is not an expression; no live preview.
       return NONE;
+    case "seq": {
+      if (!expr) return NONE;
+      return {
+        kind: "math",
+        latex: `${args.slice(0, 6).join(",\\; ")}${args.length > 6 ? ",\\; \\dots" : ",\\; \\dots"}`,
+        note: "sequence recognition",
+      };
+    }
     case "stirling": {
       const v = args[0] || "x";
       const terms = args[1] ?? "3";

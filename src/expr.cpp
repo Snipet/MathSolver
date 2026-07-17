@@ -32,6 +32,8 @@ std::string_view function_name(FunctionId id) {
         case FunctionId::Digamma: return "digamma";
         case FunctionId::Erf: return "erf";
         case FunctionId::Erfc: return "erfc";
+        case FunctionId::Fib: return "fib";
+        case FunctionId::Harmonic: return "harmonic";
         case FunctionId::Ln: return "ln";
         case FunctionId::Abs: return "abs";
     }
@@ -55,6 +57,8 @@ std::optional<FunctionId> function_from_name(std::string_view name) {
     if (name == "digamma" || name == "psi") return FunctionId::Digamma;
     if (name == "erf") return FunctionId::Erf;
     if (name == "erfc") return FunctionId::Erfc;
+    if (name == "fib" || name == "fibonacci") return FunctionId::Fib;
+    if (name == "harmonic") return FunctionId::Harmonic;
     if (name == "ln") return FunctionId::Ln;
     if (name == "abs") return FunctionId::Abs;
     return std::nullopt;

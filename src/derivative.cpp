@@ -72,6 +72,12 @@ Expr chain_factor(FunctionId id, const Expr& u) {
                          make_pow(make_const(ConstantId::Pi), make_num(Rational(-1, 2))),
                          make_pow(make_const(ConstantId::E),
                                   make_neg(make_pow(u, make_num(2))))});
+    case FunctionId::Fib:
+        throw Error("differentiate: fib is a discrete sequence, not a "
+                    "differentiable function");
+    case FunctionId::Harmonic:
+        throw Error("differentiate: the derivative of harmonic needs "
+                    "trigamma, which is not supported");
     case FunctionId::Ln:
         return make_pow(u, make_num(-1));
     case FunctionId::Abs:

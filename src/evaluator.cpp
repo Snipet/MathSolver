@@ -86,6 +86,23 @@ double eval_function(FunctionId id, double u) {
         case FunctionId::Digamma: return digamma_impl(u);
         case FunctionId::Erf: return std::erf(u);
         case FunctionId::Erfc: return std::erfc(u);
+        case FunctionId::Fib: {
+            if (u != std::floor(u)) {
+                throw EvalError(std::format(
+                    "fib is defined for integers (got {})", u));
+            }
+            // Binet, with the reflection F(-n) = (-1)^(n+1) F(n).
+            const double n = std::abs(u);
+            const double phi = (1.0 + std::sqrt(5.0)) / 2.0;
+            double f = (std::pow(phi, n) - std::pow(-phi, -n)) / std::sqrt(5.0);
+            if (u < 0.0 && std::fmod(n, 2.0) == 0.0) {
+                f = -f;
+            }
+            return f;
+        }
+        case FunctionId::Harmonic:
+            // H_x = digamma(x + 1) + euler_gamma, for any non-pole x.
+            return digamma_impl(u + 1.0) + 0.57721566490153286;
         case FunctionId::Asinh: return std::asinh(u);
         case FunctionId::Acosh:
             if (u < 1.0) {

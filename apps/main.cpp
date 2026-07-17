@@ -385,6 +385,39 @@ void run_stirling(const std::string& var_text, const std::string& terms_text,
                  var);
 }
 
+/// `seq`: recognize the pattern behind a list of exact terms.
+void run_seq(const std::vector<std::string>& term_texts, PrintStyle style) {
+    std::vector<Rational> terms;
+    for (const std::string& t : term_texts) {
+        const Expr e = simplify(parse_expression_diag(t));
+        if (e->kind() != Kind::Number) {
+            throw UsageError{std::format(
+                "seq terms must be exact numbers, got '{}'", t)};
+        }
+        terms.push_back(e->number());
+    }
+    const SeqResult r = recognize_sequence(terms);
+    std::println("pattern: {}", r.description);
+    if (r.formula) {
+        std::println("a(n) = {}   (n = 0, 1, 2, ...)",
+                     to_string(r.formula, style));
+    }
+    if (!r.recurrence.empty()) {
+        std::println("recurrence: {}", r.recurrence);
+    }
+    if (!r.next.empty()) {
+        std::string nx;
+        for (const Rational& v : r.next) {
+            if (!nx.empty()) nx += ", ";
+            nx += v.to_string();
+        }
+        std::println("next: {}", nx);
+    }
+    for (const std::string& w : r.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
 std::vector<std::string> split_top_level(const std::string& s, char delim);
 
 void print_sum_result(const SumResult& r, const char* noun, PrintStyle style) {
@@ -951,6 +984,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
                "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
                "  mathsolver stirling x [3]\n"
+               "  mathsolver seq      0 1 1 2 3 5 8\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
                "  mathsolver mlimit   \"x*y/(x^2+y^2)\" x 0 y 0\n"
                "  mathsolver sum      \"k^2\" k 1 n\n"
@@ -982,7 +1016,8 @@ bool is_known_subcommand(std::string_view s) {
            s == "apart" || s == "dsolve" || s == "series" || s == "grad" ||
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
-           s == "rsolve" || s == "mlimit" || s == "stirling";
+           s == "rsolve" || s == "mlimit" || s == "stirling" ||
+           s == "seq";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1127,6 +1162,8 @@ int run_one_shot(const std::vector<std::string>& args) {
             run_series(input, positionals.size() > 1 ? positionals[1] : "",
                        positionals.size() > 2 ? positionals[2] : "",
                        positionals.size() > 3 ? positionals[3] : "", style);
+        } else if (sub == "seq") {
+            run_seq(positionals, style);
         } else if (sub == "stirling") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
@@ -1209,6 +1246,7 @@ void print_repl_help() {
         "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
         "  stirling [<var>[, <terms>]]            ln Gamma asymptotics\n"
+        "  seq <a0>, <a1>, <a2>, <a3>[, ...]      recognize the pattern\n"
         "  limit <expression>, <variable>, <point>[, left|right]\n"
         "         (point accepts numbers, inf, -inf)\n"
         "  mlimit <expr>, <x>, <a>, <y>, <b>      2-D limit by path sampling\n"
@@ -1246,7 +1284,7 @@ bool is_repl_command(std::string_view word) {
            word == "curl" || word == "laplacian" || word == "jacobian" ||
            word == "hessian" || word == "limit" || word == "sum" ||
            word == "product" || word == "rsolve" || word == "mlimit" ||
-           word == "stirling";
+           word == "stirling" || word == "seq";
 }
 
 // ---------------------------------------------------------------------------
@@ -1750,6 +1788,15 @@ void repl_command(const std::string& command, const std::string& rest,
             PrintStyle::Plain);
         run_sum(args[0], args, command == "product", PrintStyle::Plain);
         warn_assigned_variable(parts[1], env);
+        return;
+    }
+    if (command == "seq") {
+        const std::vector<std::string> sparts = split_top_level_commas(rest);
+        if (sparts.size() < 4) {
+            throw UsageError{
+                "usage: seq <a0>, <a1>, <a2>, <a3>[, ...]   (at least 4 terms)"};
+        }
+        run_seq(sparts, PrintStyle::Plain);
         return;
     }
     if (command == "stirling") {

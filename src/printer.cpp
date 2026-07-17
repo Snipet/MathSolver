@@ -423,6 +423,8 @@ std::string render_function(const Expr& e, PrintStyle style) {
         case FunctionId::Atanh:
         case FunctionId::Erf:
         case FunctionId::Erfc:
+        case FunctionId::Fib:
+        case FunctionId::Harmonic:
             // No dedicated LaTeX commands; \operatorname keeps KaTeX happy.
             return "\\operatorname{" + std::string(function_name(e->function())) +
                    "}\\left(" + arg + "\\right)";

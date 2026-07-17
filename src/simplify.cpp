@@ -939,6 +939,43 @@ Expr apply_fn_rules(const Expr& e) {
         }
         case FunctionId::Digamma:
             return e;
+        case FunctionId::Fib: {
+            if (const Rational* n = as_number(u)) {
+                if (n->den() == 1 && n->num() >= -92 && n->num() <= 92) {
+                    const long long m = n->num() < 0 ? -n->num() : n->num();
+                    long long a = 0;
+                    long long b = 1; // F(0), F(1)
+                    for (long long k = 0; k < m; ++k) {
+                        const long long t = a + b;
+                        a = b;
+                        b = t;
+                    }
+                    // F(-m) = (-1)^(m+1) F(m).
+                    const long long f =
+                        n->num() < 0 && m % 2 == 0 ? -a : a;
+                    return make_num(f);
+                }
+            }
+            return e;
+        }
+        case FunctionId::Harmonic: {
+            if (const Rational* n = as_number(u)) {
+                if (n->den() == 1 && n->num() >= 0) {
+                    try {
+                        Rational acc(0);
+                        for (long long k = 1; k <= n->num(); ++k) {
+                            acc = acc + Rational(1, k);
+                        }
+                        return make_num(acc);
+                    } catch (const std::exception&) {
+                        // lcm(1..n) overflows 64 bits past H(46); the
+                        // symbolic form stays (evaluate uses digamma).
+                        return e;
+                    }
+                }
+            }
+            return e;
+        }
         case FunctionId::Erf: {
             if (is_number_value(u, Rational(0))) {
                 return make_num(0);

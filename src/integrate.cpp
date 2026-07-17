@@ -252,6 +252,8 @@ std::optional<Attempt> try_table(const Expr& e, const std::string& sym) {
             case FunctionId::Digamma:
             case FunctionId::Erf:
             case FunctionId::Erfc:
+            case FunctionId::Fib:
+            case FunctionId::Harmonic:
                 // No linear-argument table forms; later stages may still apply.
                 return std::nullopt;
         }

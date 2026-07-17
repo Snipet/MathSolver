@@ -70,7 +70,10 @@ struct KnownName {
     NameKind kind;
 };
 
-constexpr std::array<KnownName, 43> kKnownNames{{
+constexpr std::array<KnownName, 48> kKnownNames{{
+    {"factorial", NameKind::Function}, {"fibonacci", NameKind::Function},
+    {"binomial", NameKind::Function}, {"harmonic", NameKind::Function},
+    {"fib", NameKind::Function},
     {"digamma", NameKind::Function}, {"erfc", NameKind::Function},
     {"erf", NameKind::Function},     {"psi", NameKind::Greek},
     {"arcsinh", NameKind::Function}, {"arccosh", NameKind::Function},
@@ -881,6 +884,39 @@ private:
         Token fn = advance(); // Tok::Func
         std::string name = fn.text;
 
+        // binomial(n, k) is the one two-argument function; it rewrites at
+        // parse time to gamma(n+1) / (gamma(k+1) gamma(n-k+1)), so integer
+        // arguments fold exactly and symbolic ones stay meaningful.
+        if (name == "binomial") {
+            const Token& open = peek();
+            if (open.kind != Tok::LParen) {
+                throw ParseError("binomial needs two parenthesized arguments: "
+                                 "binomial(n, k)",
+                                 fn.begin, fn.end);
+            }
+            advance();
+            Expr n = parse_expr();
+            const Token& comma = peek();
+            if (comma.kind != Tok::Comma) {
+                throw ParseError("binomial needs two arguments: binomial(n, k)",
+                                 comma.begin, comma.end);
+            }
+            advance();
+            Expr k = parse_expr();
+            const Token& close = peek();
+            if (close.kind != Tok::RParen) {
+                throw ParseError("missing ')' after binomial(n, k)",
+                                 close.begin, close.end);
+            }
+            advance();
+            const Expr n1 = make_add({n, make_num(1)});
+            const Expr k1 = make_add({k, make_num(1)});
+            const Expr nk1 = make_add({n, make_neg(k), make_num(1)});
+            return make_div(make_fn(FunctionId::Gamma, n1),
+                            make_mul({make_fn(FunctionId::Gamma, k1),
+                                      make_fn(FunctionId::Gamma, nk1)}));
+        }
+
         // \sqrt[n]{x} root index.
         Expr index;
         if (name == "sqrt" && peek().kind == Tok::LBracket) {
@@ -967,6 +1003,11 @@ private:
         if (name == "csc") return make_pow(make_fn(FunctionId::Sin, std::move(arg)), make_num(-1));
         if (name == "cot") return make_pow(make_fn(FunctionId::Tan, std::move(arg)), make_num(-1));
         if (name == "exp") return make_exp(std::move(arg));
+        if (name == "factorial") {
+            // x! = gamma(x + 1); integer arguments fold exactly downstream.
+            return make_fn(FunctionId::Gamma,
+                           make_add({std::move(arg), make_num(1)}));
+        }
         if (name == "sqrt") {
             if (index) return make_pow(std::move(arg), make_div(make_num(1), std::move(index)));
             return make_sqrt(std::move(arg));

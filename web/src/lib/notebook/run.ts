@@ -59,6 +59,7 @@ const MATH_VERBS = new Set([
   "limit",
   "mlimit",
   "stirling",
+  "seq",
   "sum",
   "product",
   "rsolve",
@@ -347,6 +348,30 @@ async function runVerb(verb: string, rest: string): Promise<CellResult> {
         },
         computedFrom: null,
       };
+    }
+    case "seq": {
+      // seq <a0>, <a1>, <a2>, <a3>[, ...] — recognize the pattern.
+      if (args.length < 4)
+        return usage("usage: seq <a0>, <a1>, <a2>, <a3>[, ...] (at least 4 terms)");
+      const r = await call("seq", [args.join(",")]);
+      if (!r.ok) return err(args.join(", "), r);
+      const notes = [r.description];
+      if (r.recurrence) notes.push(`recurrence: ${r.recurrence}`);
+      if (r.next.length) notes.push(`next: ${r.next.join(", ")}`);
+      notes.push(...r.warnings);
+      if (r.plain && r.latex) {
+        return {
+          kind: "transform",
+          result: {
+            ok: true,
+            plain: `a(n) = ${r.plain}`,
+            latex: `a(n) = ${r.latex}`,
+            notes,
+          },
+          computedFrom: null,
+        };
+      }
+      return { kind: "message", tone: "info", lines: notes };
     }
     case "limit": {
       // limit <expr>, <var>, <point>[, left|right]

@@ -1251,3 +1251,20 @@ TEST_CASE("cli: stirling prints the classic series with accuracy notes") {
     CHECK(bad.exit_code == 2);
     CHECK(contains(bad.output, "variable name"));
 }
+
+TEST_CASE("cli: seq recognizes patterns and predicts terms") {
+    const RunResult fib = run_cli({"seq", "0", "1", "1", "2", "3", "5", "8"});
+    INFO(fib.output);
+    CHECK(fib.exit_code == 0);
+    CHECK(contains(fib.output, "Fibonacci"));
+    CHECK(contains(fib.output, "a(n+2) = a(n+1) + a(n)"));
+    CHECK(contains(fib.output, "next: 13, 21, 34"));
+    CHECK(contains(fib.output, "sqrt(5)"));
+
+    const RunResult sq = run_cli({"seq", "1", "4", "9", "16", "25"});
+    CHECK(contains(sq.output, "n^2 + 2*n + 1"));
+
+    const RunResult bad = run_cli({"seq", "1", "2", "x", "4"}, "2>&1 1>/dev/null");
+    CHECK(bad.exit_code == 2);
+    CHECK(contains(bad.output, "exact numbers"));
+}

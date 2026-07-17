@@ -608,6 +608,44 @@ std::string ms_stirling(std::string variable, int terms) {
     });
 }
 
+/// seq(termsCsv): recognize the pattern behind a list of exact terms.
+std::string ms_seq(std::string terms_csv) {
+    return guarded([&]() -> std::string {
+        std::vector<Rational> terms;
+        for (const std::string& t : split_csv(terms_csv)) {
+            const Expr e = simplify(parse_expression(t));
+            if (e->kind() != Kind::Number) {
+                return err_json(std::format(
+                    "seq terms must be exact numbers, got '{}'", t));
+            }
+            terms.push_back(e->number());
+        }
+        const SeqResult r = recognize_sequence(terms);
+        const char* kind =
+            r.kind == SeqResult::Kind::Arithmetic   ? "arithmetic"
+            : r.kind == SeqResult::Kind::Geometric  ? "geometric"
+            : r.kind == SeqResult::Kind::Polynomial ? "polynomial"
+            : r.kind == SeqResult::Kind::Recurrence ? "recurrence"
+                                                    : "unknown";
+        std::string out = std::format(
+            "{{\"ok\":true,\"kind\":{},\"description\":{}", jstr(kind),
+            jstr(r.description));
+        if (r.formula) {
+            out += "," + rendered_fields(r.formula);
+        }
+        if (!r.recurrence.empty()) {
+            out += std::format(",\"recurrence\":{}", jstr(r.recurrence));
+        }
+        std::vector<std::string> next;
+        for (const Rational& v : r.next) {
+            next.push_back(v.to_string());
+        }
+        out += std::format(",\"next\":{},\"warnings\":{}}}", jarr_str(next),
+                           jarr_str(r.warnings));
+        return out;
+    });
+}
+
 /// mlimit(expr, xVar, a, yVar, b): two-variable limit by path sampling.
 std::string ms_mlimit(std::string input, std::string xvar, std::string a,
                       std::string yvar, std::string b) {
@@ -964,6 +1002,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("limit", &ms_limit);
     emscripten::function("mlimit", &ms_mlimit);
     emscripten::function("stirling", &ms_stirling);
+    emscripten::function("seq", &ms_seq);
     emscripten::function("sum", &ms_sum);
     emscripten::function("product", &ms_product);
     emscripten::function("rsolve", &ms_rsolve);

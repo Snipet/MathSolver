@@ -110,6 +110,11 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         usage: "stirling [<var>[, <terms>]]",
         hint: "Stirling series for ln Γ with exact Bernoulli coefficients",
       },
+      {
+        insert: "seq",
+        usage: "seq <a0>, <a1>, <a2>, <a3>[, …]",
+        hint: "Recognize a sequence (arithmetic/geometric/polynomial/recurrence)",
+      },
     ],
   },
   {
