@@ -163,3 +163,51 @@ TEST_CASE("linalg plugin: commands and matrix parsing") {
     const std::string ragged = p.invoke("det", {"[1 2; 3]"});
     CHECK_THAT(ragged, ContainsSubstring("ragged"));
 }
+
+TEST_CASE("linalg: exact eigendecomposition of rational matrices") {
+    const Plugin& p = linalg_plugin();
+
+    // Symmetric [2 1; 1 2]: lambda = 1, 3 with eigenvectors (1, -1), (1, 1).
+    const std::string sym = p.invoke("eig", {"[2 1; 1 2]"});
+    CHECK_THAT(sym, ContainsSubstring("exact"));
+    CHECK_THAT(sym, ContainsSubstring("Characteristic polynomial"));
+    CHECK_THAT(sym, ContainsSubstring("\"3\""));
+    CHECK_THAT(sym, ContainsSubstring("\"1\""));
+    CHECK_THAT(sym, ContainsSubstring("(1, 1)"));
+    CHECK_THAT(sym, ContainsSubstring("(1, -1)"));
+
+    // Defective [1 1; 0 1]: single eigenvalue 1, one eigenvector (1, 0).
+    const std::string def = p.invoke("eig", {"[1 1; 0 1]"});
+    CHECK_THAT(def, ContainsSubstring("(1, 0)"));
+
+    // 3x3 projector-like: eigenvalue 0 with a 2-dim null space.
+    const std::string proj = p.invoke("eig", {"[1 1 1; 1 1 1; 1 1 1]"});
+    CHECK_THAT(proj, ContainsSubstring("\"3\""));
+    CHECK_THAT(proj, ContainsSubstring("\"0\""));
+
+    // Rotation [0 -1; 1 0]: exact complex pair with complex eigenvectors.
+    const std::string rot = p.invoke("eig", {"[0 -1; 1 0]"});
+    CHECK_THAT(rot, ContainsSubstring("exact"));
+    CHECK_THAT(rot, ContainsSubstring("conjugate"));
+
+    // Fibonacci [1 1; 1 0]: golden-ratio surd eigenvalues.
+    const std::string fib = p.invoke("eig", {"[1 1; 1 0]"});
+    CHECK_THAT(fib, ContainsSubstring("sqrt(5)"));
+}
+
+TEST_CASE("linalg: symbolic eigendecomposition") {
+    const Plugin& p = linalg_plugin();
+
+    // [a 1; 1 a]: lambda = a - 1, a + 1.
+    const std::string tri = p.invoke("eig", {"[a 1; 1 a]"});
+    CHECK_THAT(tri, ContainsSubstring("exact"));
+    CHECK_THAT(tri, ContainsSubstring("a - 1"));
+    CHECK_THAT(tri, ContainsSubstring("a + 1"));
+
+    // Numeric matrices past the exact reach still get the QR path.
+    const std::string big = p.invoke(
+        "eig", {"[6 -1 0 0 0; -1 5 -1 0 0; 0 -1 4 -1 0; 0 0 -1 3 -1; "
+                "0 0 0 -1 2]"});
+    CHECK_THAT(big, ContainsSubstring("\"ok\":true"));
+    CHECK_THAT(big, ContainsSubstring("Spectral radius"));
+}

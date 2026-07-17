@@ -15,6 +15,7 @@
 #include <cctype>
 #include <cmath>
 #include <format>
+#include <numeric>
 #include <optional>
 #include <string>
 #include <vector>
@@ -271,6 +272,189 @@ Expr symbolic_det(const ExprMatrix& m_in) {
     return simplify(det);
 }
 
+// --- exact eigendecomposition ----------------------------------------------
+//
+// det(A - lambda I) by the same Bareiss elimination, roots through the core
+// solve() (rational-root peeling, quadratic formula — exact surds and
+// complex pairs included), eigenvectors from an exact rational null space
+// (any size) or the 2x2 closed form (which also covers surd, complex, and
+// symbolic eigenvalues). "lambda" is safe as the polynomial variable: the
+// expression grammar only produces single-letter (optionally subscripted)
+// symbols, so no matrix entry can collide with it.
+
+/// Reduced null-space basis of a rational matrix, by exact Gauss-Jordan.
+std::vector<std::vector<Rational>> rational_null_space(
+    std::vector<std::vector<Rational>> b) {
+    const std::size_t n = b.size();
+    std::vector<std::size_t> pivot_cols;
+    std::vector<bool> is_pivot(n, false);
+    std::size_t row = 0;
+    for (std::size_t col = 0; col < n && row < n; ++col) {
+        std::size_t p = row;
+        while (p < n && b[p][col].is_zero()) ++p;
+        if (p == n) continue;
+        std::swap(b[p], b[row]);
+        const Rational piv = b[row][col];
+        for (std::size_t j = col; j < n; ++j) b[row][j] = b[row][j] / piv;
+        for (std::size_t i = 0; i < n; ++i) {
+            if (i == row || b[i][col].is_zero()) continue;
+            const Rational f = b[i][col];
+            for (std::size_t j = col; j < n; ++j) {
+                b[i][j] = b[i][j] - f * b[row][j];
+            }
+        }
+        is_pivot[col] = true;
+        pivot_cols.push_back(col);
+        ++row;
+    }
+    std::vector<std::vector<Rational>> basis;
+    for (std::size_t fc = 0; fc < n; ++fc) {
+        if (is_pivot[fc]) continue;
+        std::vector<Rational> v(n, Rational(0));
+        v[fc] = Rational(1);
+        for (std::size_t r = 0; r < pivot_cols.size(); ++r) {
+            v[pivot_cols[r]] = -b[r][fc];
+        }
+        basis.push_back(std::move(v));
+    }
+    return basis;
+}
+
+/// Pretty form: scale to coprime integers with a positive leading entry.
+std::string rational_vec_text(std::vector<Rational> v) {
+    try {
+        long long l = 1;
+        for (const Rational& r : v) {
+            l = std::lcm(l, r.den());
+        }
+        long long g = 0;
+        for (Rational& r : v) {
+            r = r * Rational(l);
+            g = std::gcd(g, r.num());
+        }
+        if (g > 1) {
+            for (Rational& r : v) {
+                r = r / Rational(g);
+            }
+        }
+        for (const Rational& r : v) {
+            if (r.is_zero()) continue;
+            if (r.num() < 0) {
+                for (Rational& s : v) {
+                    s = -s;
+                }
+            }
+            break;
+        }
+    } catch (const std::exception&) {
+        // Overflow while scaling: fall through with the raw rationals.
+    }
+    std::string out = "(";
+    for (std::size_t i = 0; i < v.size(); ++i) {
+        if (i > 0) out += ", ";
+        out += v[i].to_string();
+    }
+    return out + ")";
+}
+
+struct ExactEig {
+    Expr charpoly;
+    std::vector<Expr> values;                 ///< Distinct exact eigenvalues.
+    std::vector<std::string> vectors;         ///< Display text per eigenvalue.
+    bool complex = false;
+    std::string note;
+};
+
+/// Exact path for a square Expr matrix, n <= 4. nullopt when the
+/// characteristic polynomial doesn't factor through the exact machinery.
+std::optional<ExactEig> exact_eigen(const ExprMatrix& m) {
+    const std::size_t n = m.size();
+    const Expr lam = make_sym("lambda");
+    ExprMatrix shifted = m;
+    for (std::size_t i = 0; i < n; ++i) {
+        shifted[i][i] = simplify(make_sub(m[i][i], lam));
+    }
+    ExactEig out;
+    out.charpoly = symbolic_det(shifted);
+    const SolveResult r = solve(Equation{out.charpoly, make_num(0)}, "lambda");
+    if (r.status != SolveResult::Status::Solved &&
+        r.status != SolveResult::Status::SolvedComplex) {
+        return std::nullopt;
+    }
+    out.complex = r.status == SolveResult::Status::SolvedComplex;
+    for (const Solution& s : r.solutions) {
+        if (!s.exact) {
+            return std::nullopt;
+        }
+    }
+    // All entries rational? Then eigenvectors come from exact null spaces.
+    bool rational_matrix = true;
+    for (const auto& row : m) {
+        for (const Expr& e : row) {
+            rational_matrix &= e->kind() == Kind::Number;
+        }
+    }
+    for (const Solution& s : r.solutions) {
+        // The quadratic formula can leave an unexpanded discriminant
+        // (sqrt(4a^2 - 4(a^2 - 1))); expand folds it to its simplest surd.
+        const Expr v = simplify(expand(s.value));
+        std::string vec = "-";
+        if (rational_matrix && v->kind() == Kind::Number) {
+            std::vector<std::vector<Rational>> b(
+                n, std::vector<Rational>(n, Rational(0)));
+            for (std::size_t i = 0; i < n; ++i) {
+                for (std::size_t j = 0; j < n; ++j) {
+                    b[i][j] = m[i][j]->number();
+                    if (i == j) {
+                        b[i][j] = b[i][j] - v->number();
+                    }
+                }
+            }
+            const auto basis = rational_null_space(std::move(b));
+            if (!basis.empty()) {
+                vec = "";
+                for (std::size_t k = 0; k < basis.size(); ++k) {
+                    if (k > 0) vec += ", ";
+                    vec += rational_vec_text(basis[k]);
+                }
+            }
+        } else if (n == 2) {
+            // (b, lambda - a), or (lambda - d, c) when b = 0; a diagonal
+            // matrix gets the standard basis vector of its own row.
+            const Expr& ma = m[0][0];
+            const Expr& mb = m[0][1];
+            const Expr& mc = m[1][0];
+            const bool b_zero =
+                mb->kind() == Kind::Number && mb->number().is_zero();
+            const bool c_zero =
+                mc->kind() == Kind::Number && mc->number().is_zero();
+            if (!b_zero) {
+                vec = std::format(
+                    "({}, {})", to_string(mb, PrintStyle::Plain),
+                    to_string(simplify(make_sub(v, ma)), PrintStyle::Plain));
+            } else if (!c_zero) {
+                vec = std::format(
+                    "({}, {})",
+                    to_string(simplify(make_sub(v, m[1][1])),
+                              PrintStyle::Plain),
+                    to_string(mc, PrintStyle::Plain));
+            } else {
+                const Expr d0 = simplify(make_sub(v, ma));
+                vec = d0->kind() == Kind::Number && d0->number().is_zero()
+                          ? "(1, 0)"
+                          : "(0, 1)";
+            }
+        }
+        out.values.push_back(v);
+        out.vectors.push_back(vec);
+    }
+    if (!rational_matrix && n > 2) {
+        out.note = "eigenvectors are reported for rational eigenvalues and "
+                   "2x2 matrices";
+    }
+    return out;
+}
+
 // --- commands ---------------------------------------------------------------
 
 std::string cmd_det(const std::vector<std::string>& args) {
@@ -336,9 +520,56 @@ std::string cmd_eig(const std::vector<std::string>& args) {
     if (args.size() != 1) {
         return error_json("usage: linalg.eig [A]");
     }
-    const auto a = numeric_matrix(parse_matrix(args[0]));
+    const ExprMatrix em = parse_matrix(args[0]);
+    if (em.size() != em.front().size()) {
+        return error_json("eig: the matrix must be square");
+    }
+    const auto a = numeric_matrix(em);
+
+    // Exact path first (n <= 4): Bareiss characteristic polynomial + exact
+    // roots + exact eigenvectors. Falls back to numeric QR when the
+    // polynomial doesn't factor through the exact machinery.
+    if (em.size() <= 4) {
+        std::optional<ExactEig> exact;
+        try {
+            exact = exact_eigen(em);
+        } catch (const std::exception&) {
+            exact = std::nullopt; // e.g. rational overflow — numeric fallback
+        }
+        if (exact) {
+            std::string rows = "[";
+            for (std::size_t i = 0; i < exact->values.size(); ++i) {
+                if (i > 0) rows += ",";
+                rows += std::format(
+                    "[{},{},{}]", i + 1,
+                    jstr(to_string(exact->values[i], PrintStyle::Plain)),
+                    jstr(exact->vectors[i]));
+            }
+            rows += "]";
+            std::vector<std::pair<std::string, std::string>> kv{
+                {"Characteristic polynomial",
+                 to_string(exact->charpoly, PrintStyle::Plain)},
+                {"Method", "exact: Bareiss det(A - lambda I) + symbolic roots"}};
+            if (exact->complex) {
+                kv.emplace_back("Spectrum", "complex conjugate pair(s)");
+            }
+            if (!exact->note.empty()) {
+                kv.emplace_back("Note", exact->note);
+            }
+            return envelope(
+                std::format("eigendecomposition ({0}x{0}, exact)", em.size()),
+                {std::format(
+                     "{{\"type\":\"table\",\"title\":\"Eigenpairs\","
+                     "\"columns\":[\"#\",\"lambda\",\"eigenvector(s)\"],"
+                     "\"rows\":{}}}",
+                     rows),
+                 kv_block(kv)});
+        }
+    }
     if (!a) {
-        return error_json("linalg.eig needs numeric entries");
+        return error_json(
+            "eig: this symbolic matrix needs a characteristic polynomial the "
+            "exact solver can factor (numeric matrices always work)");
     }
     const auto eig = la::eigenvalues(*a);
     std::string rows = "[";
