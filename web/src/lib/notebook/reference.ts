@@ -83,6 +83,46 @@ export const BUILTIN_GROUPS: RefGroup[] = [
     ],
   },
   {
+    title: "Vector calculus",
+    items: [
+      {
+        insert: "grad",
+        usage: "grad <f>, <var>[, <var> …]",
+        hint: "Gradient ∇f",
+      },
+      {
+        insert: "div",
+        usage: "div <F1; F2; …>, <var> …",
+        hint: "Divergence ∇·F (';'-separated field)",
+      },
+      {
+        insert: "curl",
+        usage: "curl <F1; F2[; F3]>, <var> …",
+        hint: "Curl ∇×F (3-D) or scalar curl (2-D)",
+      },
+      {
+        insert: "laplacian",
+        usage: "laplacian <f>, <var> …",
+        hint: "Laplacian ∇²f",
+      },
+      {
+        insert: "jacobian",
+        usage: "jacobian <F1; F2; …>, <var> …",
+        hint: "Jacobian matrix ∂F_i/∂x_j",
+      },
+      {
+        insert: "hessian",
+        usage: "hessian <f>, <var> …",
+        hint: "Hessian matrix ∂²f/∂x_i∂x_j",
+      },
+      {
+        insert: "vecfield",
+        usage: "vecfield <Fx>; <Fy>[, <xlo>, <xhi>, <ylo>, <yhi>]",
+        hint: "Quiver plot of a planar vector field",
+      },
+    ],
+  },
+  {
     title: "Solve & evaluate",
     items: [
       {

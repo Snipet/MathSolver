@@ -16,6 +16,7 @@
 #include "mathsolver/rational.hpp"
 #include "mathsolver/series.hpp"
 #include "mathsolver/simplify.hpp"
+#include "mathsolver/vector_calculus.hpp"
 #include "mathsolver/solver.hpp"
 #include "mathsolver/transform.hpp"
 

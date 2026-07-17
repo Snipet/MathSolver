@@ -21,6 +21,17 @@ export type AnalyzeResult =
 
 export type TransformResult = ({ ok: true } & Rendered) | EngineError;
 
+export type FieldResult =
+  | {
+      ok: true;
+      n: number;
+      x: number[];
+      y: number[];
+      u: (number | null)[];
+      v: (number | null)[];
+    }
+  | EngineError;
+
 export type DsolveResult =
   | ({
       ok: true;
@@ -154,6 +165,21 @@ export interface EngineApi {
   series: [
     [input: string, variable: string, center: string, order: number],
     TransformResult,
+  ];
+  vectorOp: [[op: string, fieldSemi: string, varsCsv: string], TransformResult];
+  sampleField: [
+    [
+      fx: string,
+      fy: string,
+      xVar: string,
+      yVar: string,
+      xlo: number,
+      xhi: number,
+      ylo: number,
+      yhi: number,
+      n: number,
+    ],
+    FieldResult,
   ];
   derivative: [[input: string, variable: string], TransformResult];
   laplace: [[input: string, timeVar: string], TransformResult];

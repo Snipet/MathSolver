@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <limits>
 #include <format>
 #include <optional>
 #include <set>
@@ -333,6 +334,116 @@ std::string ms_apart(std::string input, std::string variable) {
     });
 }
 
+/// Split on ';' (vector-field component separator), trimming blanks.
+std::vector<std::string> split_semi(std::string_view s) {
+    std::vector<std::string> out;
+    std::size_t start = 0;
+    for (std::size_t i = 0; i <= s.size(); ++i) {
+        if (i == s.size() || s[i] == ';') {
+            const std::string item = trim(s.substr(start, i - start));
+            if (!item.empty()) out.push_back(item);
+            start = i + 1;
+        }
+    }
+    return out;
+}
+
+/// vectorOp(op, fieldSemi, varsCsv): grad/div/curl/laplacian/jacobian/hessian.
+/// `fieldSemi` is a ';'-separated field (a single expression for the scalar
+/// operators); `varsCsv` is the comma-separated variable list. Returns the
+/// result rendered plain and LaTeX.
+std::string ms_vector_op(std::string op, std::string field_semi,
+                         std::string vars_csv) {
+    return guarded([&]() -> std::string {
+        const std::vector<std::string> vars = split_csv(vars_csv);
+        ExprVec field;
+        for (const std::string& c : split_semi(field_semi)) {
+            field.push_back(parse_expression(c));
+        }
+        if (field.empty()) {
+            return err_json("no field expression given");
+        }
+        const Expr scalar = field.front();
+        auto render_vec = [](const ExprVec& v) {
+            return std::format("\"plain\":{},\"latex\":{}",
+                               jstr(vec_to_string(v, PrintStyle::Plain)),
+                               jstr(vec_to_string(v, PrintStyle::LaTeX)));
+        };
+        auto render_mat = [](const ExprMat& m) {
+            return std::format("\"plain\":{},\"latex\":{}",
+                               jstr(mat_to_string(m, PrintStyle::Plain)),
+                               jstr(mat_to_string(m, PrintStyle::LaTeX)));
+        };
+        std::string fields;
+        if (op == "grad") {
+            fields = render_vec(gradient(scalar, vars));
+        } else if (op == "div") {
+            fields = rendered_fields(divergence(field, vars));
+        } else if (op == "curl") {
+            if (field.size() == 2 && vars.size() == 2) {
+                fields = rendered_fields(curl2d(field, vars));
+            } else {
+                fields = render_vec(curl(field, vars));
+            }
+        } else if (op == "laplacian") {
+            fields = rendered_fields(laplacian(scalar, vars));
+        } else if (op == "jacobian") {
+            fields = render_mat(jacobian(field, vars));
+        } else if (op == "hessian") {
+            fields = render_mat(hessian(scalar, vars));
+        } else {
+            return err_json("unknown vector operator '" + op + "'");
+        }
+        return std::format("{{\"ok\":true,{}}}", fields);
+    });
+}
+
+/// sampleField(fx, fy, xVar, yVar, xlo, xhi, ylo, yhi, n): evaluate a planar
+/// vector field on an n×n grid for a quiver plot. Returns flat x/y position
+/// arrays and u/v component arrays (null where a sample is non-finite).
+std::string ms_sample_field(std::string fx, std::string fy, std::string xvar,
+                            std::string yvar, double xlo, double xhi, double ylo,
+                            double yhi, int n) {
+    return guarded([&]() -> std::string {
+        if (n < 2 || n > 40) {
+            return err_json("grid size must be in [2, 40]");
+        }
+        const Expr u = parse_expression(fx);
+        const Expr v = parse_expression(fy);
+        const std::string xv = trim(xvar).empty() ? "x" : trim(xvar);
+        const std::string yv = trim(yvar).empty() ? "y" : trim(yvar);
+        std::vector<double> xs, ys, us, vs;
+        for (int j = 0; j < n; ++j) {
+            for (int i = 0; i < n; ++i) {
+                const double x = xlo + (xhi - xlo) * i / (n - 1);
+                const double y = ylo + (yhi - ylo) * j / (n - 1);
+                double uu = std::numeric_limits<double>::quiet_NaN();
+                double vv = std::numeric_limits<double>::quiet_NaN();
+                try {
+                    uu = evaluate(u, Bindings{{xv, x}, {yv, y}});
+                    vv = evaluate(v, Bindings{{xv, x}, {yv, y}});
+                } catch (const Error&) {
+                }
+                xs.push_back(x);
+                ys.push_back(y);
+                us.push_back(uu);
+                vs.push_back(vv);
+            }
+        }
+        auto arr = [](const std::vector<double>& a) {
+            std::string out = "[";
+            for (std::size_t i = 0; i < a.size(); ++i) {
+                if (i > 0) out += ",";
+                out += jnum(a[i]);
+            }
+            return out + "]";
+        };
+        return std::format(
+            "{{\"ok\":true,\"n\":{},\"x\":{},\"y\":{},\"u\":{},\"v\":{}}}", n,
+            arr(xs), arr(ys), arr(us), arr(vs));
+    });
+}
+
 /// series(expr, variable, center, order): Taylor expansion. Empty variable
 /// infers the single free symbol; empty center means 0.
 std::string ms_series(std::string input, std::string variable,
@@ -648,6 +759,8 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("apart", &ms_apart);
     emscripten::function("dsolve", &ms_dsolve);
     emscripten::function("series", &ms_series);
+    emscripten::function("vectorOp", &ms_vector_op);
+    emscripten::function("sampleField", &ms_sample_field);
     emscripten::function("laplace", &ms_laplace);
     emscripten::function("ilaplace", &ms_ilaplace);
     emscripten::function("integrate", &ms_integrate);

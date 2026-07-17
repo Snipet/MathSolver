@@ -155,6 +155,20 @@ try {
     "series verb expands",
     (await run("series sin(x), x, 0, 5")).includes("x^5/120"),
   );
+  check(
+    "grad verb",
+    (await run("grad x^2 + y^2, x, y")).includes("(2*x, 2*y)"),
+  );
+  check(
+    "curl verb",
+    (await run("curl -y; x; 0, x, y, z")).includes("(0, 0, 2)"),
+  );
+  const vfOut = await run("vecfield -y; x");
+  const vfCanvas = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => el.querySelectorAll("svg").length,
+  );
+  check("vecfield renders an svg quiver", vfCanvas >= 1, `svgs: ${vfCanvas}`);
 
   const solveOut = await run("solve x^2 = 4, x");
   check("solve equation", solveOut.includes("x = -2; x = 2"), solveOut.replace(/\n/g, " ").slice(0, 60));

@@ -129,6 +129,26 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
     case "dsolve":
       // The ODE prime grammar (y'' …) is not an expression; no live preview.
       return NONE;
+    case "grad":
+    case "div":
+    case "curl":
+    case "laplacian":
+    case "jacobian":
+    case "hessian":
+    case "vecfield": {
+      // Preview the first field component (';'-separated fields aren't a
+      // single expression); the note names the operator.
+      const first = (expr.split(";")[0] ?? "").trim();
+      if (!first) return NONE;
+      const f = await fragment(first);
+      if (!("latex" in f)) return NONE;
+      const vars = args.slice(1).join(", ");
+      return {
+        kind: "math",
+        latex: f.latex,
+        note: vars ? `${verb} · vars ${vars}` : verb,
+      };
+    }
     case "series": {
       if (!expr) return NONE;
       const f = await fragment(expr);

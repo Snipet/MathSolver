@@ -2,6 +2,7 @@
   import type { Outcome } from "../outcome";
   import ResultTransform from "./ResultTransform.svelte";
   import ResultDsolve from "./ResultDsolve.svelte";
+  import VectorFieldChart from "./VectorFieldChart.svelte";
   import ResultSolve from "./ResultSolve.svelte";
   import ResultSystem from "./ResultSystem.svelte";
   import ResultIntegral from "./ResultIntegral.svelte";
@@ -20,7 +21,8 @@
       outcome.kind !== "error" &&
       outcome.kind !== "assignment" &&
       outcome.kind !== "plugin" &&
-      outcome.kind !== "chart"
+      outcome.kind !== "chart" &&
+      outcome.kind !== "vecfield"
       ? (outcome.computedFrom ?? null)
       : null,
   );
@@ -59,6 +61,8 @@
             ylabel={outcome.ylabel}
           />
         </div>
+      {:else if outcome.kind === "vecfield"}
+        <VectorFieldChart fx={outcome.fx} fy={outcome.fy} result={outcome.result} />
       {:else if outcome.kind === "assignment"}
         <div class="assignment">
           <Katex latex={outcome.latex} display />

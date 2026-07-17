@@ -49,6 +49,13 @@ const MATH_VERBS = new Set([
   "ilaplace",
   "dsolve",
   "series",
+  "grad",
+  "div",
+  "curl",
+  "laplacian",
+  "jacobian",
+  "hessian",
+  "vecfield",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -178,6 +185,9 @@ function helpMessage(): NotebookMessage {
       "dsolve <ode>[, y(0)=v, y'(0)=v, …]  solve an IVP, e.g.",
       "       dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0",
       "series <expr>[, <var>[, <center>[, <order>]]]   Taylor expansion",
+      "grad <f>, <vars…>    div/curl <F1;F2;…>, <vars…>    laplacian <f>, <vars…>",
+      "jacobian <F1;F2;…>, <vars…>    hessian <f>, <vars…>",
+      "vecfield <Fx>; <Fy>[, <xlo>, <xhi>, <ylo>, <yhi>]   quiver plot",
       "plot <expr>[, <lo>, <hi>]           chart an expression",
       "<name> := <value>      bind a variable (applies to later lines)",
       "<plugin>.<command> …   call a plugin (run plugins for the catalog),",
@@ -307,6 +317,59 @@ async function runVerb(verb: string, rest: string): Promise<CellResult> {
       const r = await call("series", [env.text, v, args[2] ?? "", order]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "grad":
+    case "div":
+    case "curl":
+    case "laplacian":
+    case "jacobian":
+    case "hessian": {
+      if (args.length < 2)
+        return usage(
+          `usage: ${verb} <field>, <var>[, <var> …]  (a vector field is ` +
+            `';'-separated, e.g. "x*y; y*z; z*x")`,
+        );
+      const vars = args.slice(1);
+      // Resolve session variables into each field component (vars excluded).
+      const comps = args[0].split(";").map((c) => c.trim());
+      const resolved: string[] = [];
+      for (const c of comps) {
+        resolved.push((await applyEnv(c, vars, "expr")).text);
+      }
+      const r = await call("vectorOp", [verb, resolved.join(";"), vars.join(",")]);
+      if (!r.ok) return err(args[0], r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "vecfield": {
+      // vecfield Fx; Fy [, xlo, xhi, ylo, yhi] — quiver plot over x,y.
+      const comps = args[0].split(";").map((c) => c.trim());
+      if (comps.length !== 2)
+        return usage(
+          'usage: vecfield <Fx>; <Fy>[, <xlo>, <xhi>, <ylo>, <yhi>]  (two ' +
+            "components over x and y)",
+        );
+      const b = args
+        .slice(1)
+        .map((s) => Number.parseFloat(s));
+      const [xlo, xhi, ylo, yhi] =
+        b.length === 4 && b.every((n) => !Number.isNaN(n))
+          ? b
+          : [-2, 2, -2, 2];
+      const fx = (await applyEnv(comps[0], ["x", "y"], "expr")).text;
+      const fy = (await applyEnv(comps[1], ["x", "y"], "expr")).text;
+      const r = await call("sampleField", [
+        fx,
+        fy,
+        "x",
+        "y",
+        xlo,
+        xhi,
+        ylo,
+        yhi,
+        13,
+      ]);
+      if (!r.ok) return err(args[0], r);
+      return { kind: "vecfield", fx: comps[0], fy: comps[1], result: r };
     }
     case "laplace": {
       // Time variable defaults to t (not inferred): L{f(t)} = F(s).

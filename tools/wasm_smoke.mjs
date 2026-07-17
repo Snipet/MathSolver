@@ -87,6 +87,13 @@ check("sys feedback", ms.pluginCall("sys", "feedback", "1,s + 1,3"), (r) => r.ok
 check("sys rlocus", ms.pluginCall("sys", "rlocus", "1,s^3 + 3s^2 + 2s,100"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.series.some((s) => s.label.startsWith("locus"))) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Verdict" && v.includes("unstable near K"))), "locus + critical gain");
 check("sys tfz", ms.pluginCall("sys", "tfz", "z,z^2 - 0.5z + 0.06,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.equal === true && b.series.some((s) => s.label === "unit circle")) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("inside |z| = 1"))), "z-plane analysis");
 check("sys tfz unstable", ms.pluginCall("sys", "tfz", "1,z - 1.2,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("outside |z| = 1"))), "unstable z pole");
+// vector calculus (vector_calculus.hpp)
+check("vector grad", ms.vectorOp("grad", "x^2 + y^2", "x,y"), (r) => r.ok && r.plain === "(2*x, 2*y)", "(2x, 2y)");
+check("vector div", ms.vectorOp("div", "x*y; y*z; z*x", "x,y,z"), (r) => r.ok && r.plain === "x + y + z", "x+y+z");
+check("vector curl3", ms.vectorOp("curl", "-y; x; 0", "x,y,z"), (r) => r.ok && r.plain === "(0, 0, 2)", "(0,0,2)");
+check("vector curl2", ms.vectorOp("curl", "-y; x", "x,y"), (r) => r.ok && r.plain === "2", "scalar curl 2");
+check("vector hessian", ms.vectorOp("hessian", "x^3 + x*y^2", "x,y"), (r) => r.ok && r.plain === "[6*x, 2*y; 2*y, 2*x]", "hessian matrix");
+check("vector field sample", ms.sampleField("-y", "x", "x", "y", -1, 1, -1, 1, 3), (r) => r.ok && r.x.length === 9 && r.u[0] === 1 && r.v[0] === -1, "rotational field grid");
 // partial fractions (apart.hpp)
 check("apart linear", ms.apart("(3x+2)/((x+1)(x+2))", "x"), (r) => r.ok && r.plain.includes("4/(x + 2)") && r.plain.includes("-1/(x + 1)"), "-1/(x+1) + 4/(x+2)");
 check("apart improper", ms.apart("x^2/(x^2-1)", "x"), (r) => r.ok && r.plain.startsWith("1 "), "polynomial part 1 leads");

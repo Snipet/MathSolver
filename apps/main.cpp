@@ -347,6 +347,45 @@ void run_series(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(series(e, var, center, order), style));
 }
 
+std::vector<std::string> split_top_level(const std::string& s, char delim);
+
+/// Vector-calculus verbs (grad/div/curl/laplacian/jacobian/hessian). The
+/// first positional is the scalar field or a ';'-separated vector field; the
+/// remaining positionals are the variables (in order). Scalar operators
+/// print a vector/matrix, div/curl2d/laplacian print a scalar.
+void run_vector(const std::string& sub, const std::vector<std::string>& positionals,
+                PrintStyle style) {
+    if (positionals.size() < 2) {
+        throw UsageError{std::format(
+            "usage: mathsolver {} \"<field>\" <var> [<var> ...]   (a vector "
+            "field is ';'-separated, e.g. \"x*y; y*z; z*x\")",
+            sub)};
+    }
+    std::vector<std::string> vars(positionals.begin() + 1, positionals.end());
+    ExprVec field;
+    for (const std::string& comp : split_top_level(positionals[0], ';')) {
+        field.push_back(parse_expression_diag(comp));
+    }
+    const Expr scalar = field.front();
+    if (sub == "grad") {
+        std::println("{}", vec_to_string(gradient(scalar, vars), style));
+    } else if (sub == "div") {
+        std::println("{}", to_string(divergence(field, vars), style));
+    } else if (sub == "curl") {
+        if (field.size() == 2 && vars.size() == 2) {
+            std::println("{}", to_string(curl2d(field, vars), style));
+        } else {
+            std::println("{}", vec_to_string(curl(field, vars), style));
+        }
+    } else if (sub == "laplacian") {
+        std::println("{}", to_string(laplacian(scalar, vars), style));
+    } else if (sub == "jacobian") {
+        std::println("{}", mat_to_string(jacobian(field, vars), style));
+    } else if (sub == "hessian") {
+        std::println("{}", mat_to_string(hessian(scalar, vars), style));
+    }
+}
+
 /// `integrate` (DESIGN.md §8b): indefinite prints `F(x) + C`, definite
 /// (--from/--to, both or neither) prints `value = ...` / `value ≈ ...`;
 /// Unsolved prints `unable to integrate` and still exits 0 — it is an answer.
@@ -699,6 +738,8 @@ void print_usage(std::FILE* out) {
                "  mathsolver ilaplace \"1/(s^2 + 2s + 5)\" [s]\n"
                "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
                "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
+               "  mathsolver grad     \"x^2 + y^2\" x y\n"
+               "  mathsolver curl     \"x*y; y*z; z*x\" x y z\n"
                "  mathsolver eval     \"x^2 + y\" x=3 y=0.5\n"
                "  mathsolver latex    \"sqrt(x)/2\"\n"
                "  mathsolver --help | --version\n"
@@ -721,7 +762,9 @@ bool is_known_subcommand(std::string_view s) {
     return s == "simplify" || s == "expand" || s == "factor" || s == "solve" ||
            s == "diff" || s == "integrate" || s == "eval" || s == "latex" ||
            s == "subs" || s == "collect" || s == "laplace" || s == "ilaplace" ||
-           s == "apart" || s == "dsolve" || s == "series";
+           s == "apart" || s == "dsolve" || s == "series" || s == "grad" ||
+           s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
+           s == "hessian";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -833,6 +876,9 @@ int run_one_shot(const std::vector<std::string>& args) {
             } else {
                 run_integrate(input, var, from_text, to_text, style);
             }
+        } else if (sub == "grad" || sub == "div" || sub == "curl" ||
+                   sub == "laplacian" || sub == "jacobian" || sub == "hessian") {
+            run_vector(sub, positionals, style);
         } else if (sub == "series") {
             if (positionals.size() > 4) {
                 throw UsageError{std::format(
@@ -915,6 +961,8 @@ void print_repl_help() {
         "  dsolve <ode>[, y(0)=v, y'(0)=v, ...]   solve an IVP, e.g.\n"
         "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
+        "  grad <f>, <vars...>       div/curl <F1;F2;..>, <vars...>\n"
+        "  laplacian <f>, <vars...>  jacobian <F1;..>, <vars...>  hessian <f>, <vars...>\n"
         "  simplify <expression>      expand <expression>\n"
         "  factor <expression>        latex <expression>\n"
         "  debug <expression>         (s-expression dump)\n"
@@ -939,7 +987,9 @@ bool is_repl_command(std::string_view word) {
            word == "eval" || word == "latex" || word == "debug" ||
            word == "subs" || word == "collect" || word == "laplace" ||
            word == "ilaplace" || word == "apart" || word == "dsolve" ||
-           word == "series";
+           word == "series" || word == "grad" || word == "div" ||
+           word == "curl" || word == "laplacian" || word == "jacobian" ||
+           word == "hessian";
 }
 
 // ---------------------------------------------------------------------------
@@ -1396,6 +1446,31 @@ void repl_bare_equation(const Equation& eq, const Environment& env) {
 
 void repl_command(const std::string& command, const std::string& rest,
                   const Environment& env) {
+    if (command == "grad" || command == "div" || command == "curl" ||
+        command == "laplacian" || command == "jacobian" || command == "hessian") {
+        // Field/scalar + variable list; resolve the session environment into
+        // each field component and each variable is excluded from resolution.
+        const std::vector<std::string> parts = split_top_level_commas(rest);
+        if (parts.size() < 2) {
+            throw UsageError{std::format(
+                "usage: {} <field>, <var>[, <var> ...]   (a vector field is "
+                "';'-separated, e.g. \"x*y; y*z; z*x\")",
+                command)};
+        }
+        std::set<std::string> excluded(parts.begin() + 1, parts.end());
+        std::vector<std::string> positionals;
+        std::string resolved_field;
+        for (const std::string& comp : split_top_level(parts[0], ';')) {
+            if (!resolved_field.empty()) resolved_field += ";";
+            resolved_field += to_string(
+                resolve_expr(parse_expression_diag(comp), env, excluded),
+                PrintStyle::Plain);
+        }
+        positionals.push_back(resolved_field);
+        positionals.insert(positionals.end(), parts.begin() + 1, parts.end());
+        run_vector(command, positionals, PrintStyle::Plain);
+        return;
+    }
     if (command == "dsolve") {
         // The ODE grammar (primes, y(0)=...) is handled by dsolve itself;
         // the session environment does not apply to ODE text.

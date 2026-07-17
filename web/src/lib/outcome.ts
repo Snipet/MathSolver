@@ -2,6 +2,7 @@
 import type {
   TransformResult,
   DsolveResult,
+  FieldResult,
   SolveResult,
   SystemResult,
   IntegrateResult,
@@ -40,5 +41,6 @@ export type Outcome =
       xlabel: string;
       ylabel: string;
     }
+  | { kind: "vecfield"; fx: string; fy: string; result: Ok<FieldResult> }
   | { kind: "assignment"; name: string; plain: string; latex: string }
   | { kind: "error"; message: string; input: string; begin?: number; end?: number };
