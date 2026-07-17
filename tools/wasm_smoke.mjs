@@ -99,6 +99,20 @@ check("stirling classic series", ms.stirling("x", 3), (r) => r.ok && r.plain.inc
 check("stirling default var", ms.stirling("", 2), (r) => r.ok && r.plain.includes("ln(x)"), "defaults to x");
 check("stirling non-symbol", ms.stirling("x+1", 3), (r) => !r.ok, "non-symbol rejected");
 check("stirling terms range", ms.stirling("x", 9), (r) => !r.ok && r.error.includes("[0, 8]"), "term cap enforced");
+// elementary + special + integer functions
+check("asinh round trip", ms.simplify("sinh(asinh(x)) + acosh(1)"), (r) => r.ok && r.plain === "x", "inverse hyperbolics");
+check("gamma exact values", ms.simplify("gamma(5) + gamma(1/2)"), (r) => r.ok && r.plain === "sqrt(pi) + 24", "24 + sqrt(pi)");
+check("gamma stays greek when bare", ms.simplify("gamma*2"), (r) => r.ok && r.plain === "2*gamma", "symbol preserved");
+check("erf derivative", ms.derivative("erf(x)", "x"), (r) => r.ok && r.plain.includes("e^(-x^2)"), "2e^(-x^2)/sqrt(pi)");
+check("gaussian integral", ms.integrate("e^(-x^2)", "x"), (r) => r.ok && r.plain.includes("erf"), "erf antiderivative");
+check("binomial folds", ms.simplify("binomial(10, 5)"), (r) => r.ok && r.plain === "252", "= 252");
+check("fib and harmonic fold", ms.simplify("fib(10) + harmonic(4)"), (r) => r.ok && r.plain === "685/12", "55 + 25/12");
+check("harmonic sum", ms.sum("1/k", "k", "1", "n"), (r) => r.ok && r.status === "exact" && r.plain === "harmonic(n)", "sum 1/k = harmonic(n)");
+check("seq fibonacci", ms.seq("0, 1, 1, 2, 3, 5, 8"), (r) => r.ok && r.kind === "recurrence" && r.description.includes("Fibonacci") && r.recurrence === "a(n+2) = a(n+1) + a(n)" && r.next[0] === "13" && r.plain.includes("sqrt(5)"), "Binet + next terms");
+check("seq polynomial", ms.seq("1, 4, 9, 16, 25"), (r) => r.ok && r.kind === "polynomial" && r.plain === "n^2 + 2*n + 1", "squares");
+check("seq geometric", ms.seq("3, 6, 12, 24, 48"), (r) => r.ok && r.kind === "geometric" && r.next[0] === "96", "ratio 2");
+check("seq unknown is honest", ms.seq("1, 1, 2, 5, 29, 866"), (r) => r.ok && r.kind === "unknown", "no false pattern");
+check("seq error", ms.seq("1, 2, x, 4"), (r) => !r.ok && r.error.includes("exact numbers"), "non-number rejected");
 // sys.dde (delay differential equations)
 check("sys dde", ms.pluginCall("sys", "dde", "-x_d,1,1,20"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.title === "Delay response") && r.blocks.some((b) => b.type === "kv" && b.items.some(([k]) => k === "Delay tau")), "oscillatory delay decay");
 check("sys dde error", ms.pluginCall("sys", "dde", "-x_d + y,1,1,20"), (r) => !r.ok && r.error.includes("found 'y'"), "stray symbol rejected");

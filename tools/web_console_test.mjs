@@ -210,6 +210,24 @@ try {
     "structured trisolve renders",
     (await run("linalg.trisolve [-1], [2 2], [-1], [1 1]")).includes("Thomas"),
   );
+  check(
+    "gamma folds exactly in console",
+    (await run("simplify gamma(5) + gamma(1/2)")).includes("24"),
+  );
+  check(
+    "gaussian integral gives erf",
+    (await run("integrate e^(-x^2), x")).includes("erf"),
+  );
+  check(
+    "binomial folds through gamma",
+    (await run("binomial(10, 5)")).includes("252"),
+  );
+  const seqOut = await run("seq 0, 1, 1, 2, 3, 5, 8");
+  check(
+    "seq recognizes Fibonacci",
+    seqOut.includes("Fibonacci") && seqOut.includes("13, 21, 34"),
+    seqOut.replace(/\n/g, " ").slice(0, 80),
+  );
   const stirOut = await run("stirling x, 3");
   check(
     "stirling series with notes",

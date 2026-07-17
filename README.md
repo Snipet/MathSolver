@@ -45,6 +45,37 @@ method: numeric (Newton/bisection)
 warning: numeric search covered [-100, 100]; roots outside this interval are not reported
 ```
 
+The function library covers the elementary functions (trig and their
+inverses, hyperbolics and their inverses `asinh`/`acosh`/`atanh`,
+`exp`/`ln`/`log` with bases, `sec`/`csc`/`cot`), the special functions
+`gamma`, `digamma` (`psi`), `erf`, `erfc` — with exact values where closed
+forms exist and high-precision numerics elsewhere — and the integer
+functions `binomial`, `factorial`, `fib`, `harmonic`:
+
+```console
+$ mathsolver simplify "gamma(7/2)"
+15*sqrt(pi)/8
+$ mathsolver diff "erf(x)" x
+2*e^(-x^2)/sqrt(pi)
+$ mathsolver integrate "e^(-x^2)" x
+sqrt(pi)*erf(x)/2 + C
+$ mathsolver simplify "binomial(10, 5) + fib(10) + harmonic(4)"
+3709/12
+$ mathsolver sum "1/k" k 1 n
+sum = harmonic(n)
+$ mathsolver seq 0 1 1 2 3 5 8
+pattern: linear recurrence of order 2 (Fibonacci)
+a(n) = -sqrt(5)*((-sqrt(5) + 1)/2)^n/5 + sqrt(5)*((sqrt(5) + 1)/2)^n/5   (n = 0, 1, 2, ...)
+recurrence: a(n+2) = a(n+1) + a(n)
+next: 13, 21, 34
+```
+
+`seq` recognizes the pattern behind a list of terms — geometric ratios,
+vanishing finite differences (arithmetic and polynomial sequences get
+closed forms by Newton's forward formula), and linear recurrences of order
+2–3 found by an exact solve and verified against every remaining term,
+with the closed form recovered through `rsolve`.
+
 Integration — rule-based symbolic antiderivatives (`+ C` is printed for
 you), and definite integrals that use the fundamental theorem of calculus
 when an antiderivative is found and verified, falling back to adaptive
