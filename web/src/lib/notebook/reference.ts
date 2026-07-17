@@ -105,6 +105,11 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         usage: "rsolve <recurrence>[, a(0)=v, …]",
         hint: "Solve a linear recurrence (e.g. Fibonacci → Binet)",
       },
+      {
+        insert: "stirling",
+        usage: "stirling [<var>[, <terms>]]",
+        hint: "Stirling series for ln Γ with exact Bernoulli coefficients",
+      },
     ],
   },
   {

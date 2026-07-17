@@ -147,6 +147,15 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
     case "rsolve":
       // The a(n+k) grammar is not an expression; no live preview.
       return NONE;
+    case "stirling": {
+      const v = args[0] || "x";
+      const terms = args[1] ?? "3";
+      return {
+        kind: "math",
+        latex: `\\ln \\Gamma(${v})`,
+        note: `Stirling series, ${terms} correction terms`,
+      };
+    }
     case "mlimit": {
       if (!expr) return NONE;
       const f = await fragment(expr);

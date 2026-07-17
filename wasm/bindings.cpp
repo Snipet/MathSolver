@@ -588,6 +588,26 @@ std::string ms_series(std::string input, std::string variable,
     });
 }
 
+/// stirling(variable, terms): the Stirling asymptotic series for
+/// ln Gamma(variable) with exact Bernoulli coefficients; the lgamma
+/// accuracy check rides along as warnings.
+std::string ms_stirling(std::string variable, int terms) {
+    return guarded([&]() -> std::string {
+        std::string var = trim(variable);
+        if (var.empty()) {
+            var = "x";
+        }
+        const Expr ve = parse_expression(var);
+        if (ve->kind() != Kind::Symbol) {
+            return err_json("stirling: the variable must be a symbol name");
+        }
+        const StirlingResult r =
+            stirling_series(to_string(ve, PrintStyle::Plain), terms);
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}",
+                           rendered_fields(r.series), jarr_str(r.checks));
+    });
+}
+
 /// mlimit(expr, xVar, a, yVar, b): two-variable limit by path sampling.
 std::string ms_mlimit(std::string input, std::string xvar, std::string a,
                       std::string yvar, std::string b) {
@@ -943,6 +963,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("vectorOp", &ms_vector_op);
     emscripten::function("limit", &ms_limit);
     emscripten::function("mlimit", &ms_mlimit);
+    emscripten::function("stirling", &ms_stirling);
     emscripten::function("sum", &ms_sum);
     emscripten::function("product", &ms_product);
     emscripten::function("rsolve", &ms_rsolve);

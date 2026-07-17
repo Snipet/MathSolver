@@ -10,6 +10,7 @@
 #include "mathsolver/errors.hpp"
 #include "mathsolver/evaluator.hpp"
 #include "mathsolver/parser.hpp"
+#include "mathsolver/printer.hpp"
 #include "mathsolver/series.hpp"
 
 using namespace mathsolver;
@@ -111,4 +112,47 @@ TEST_CASE("series at infinity: polynomials pass through, e^x errors") {
     CHECK(evaluate(p, Bindings{{"x", 7.0}}) == 70.0);
     CHECK_THROWS_WITH(series_at_infinity(P("e^x"), "x", 3),
                       ContainsSubstring("no expansion"));
+}
+
+TEST_CASE("bernoulli numbers are the classic exact rationals") {
+    const auto b = bernoulli_numbers(12);
+    CHECK(b[0] == Rational(1));
+    CHECK(b[1] == Rational(-1, 2));
+    CHECK(b[2] == Rational(1, 6));
+    CHECK(b[3] == Rational(0));
+    CHECK(b[4] == Rational(-1, 30));
+    CHECK(b[6] == Rational(1, 42));
+    CHECK(b[8] == Rational(-1, 30));
+    CHECK(b[10] == Rational(5, 66));
+    CHECK(b[12] == Rational(-691, 2730));
+    CHECK_THROWS_AS(bernoulli_numbers(21), Error);
+}
+
+TEST_CASE("stirling series carries the classic correction terms") {
+    const StirlingResult r = stirling_series("x", 3);
+    const std::string plain = to_string(r.series, PrintStyle::Plain);
+    CHECK_THAT(plain, ContainsSubstring("1/(12*x)"));
+    CHECK_THAT(plain, ContainsSubstring("1/(360*x^3)"));
+    CHECK_THAT(plain, ContainsSubstring("1/(1260*x^5)"));
+    CHECK_THAT(plain, ContainsSubstring("ln(2*pi)/2"));
+    // Accuracy: at x = 10 the 3-term truncation is good to ~1e-10.
+    const double approx = evaluate(r.series, Bindings{{"x", 10.0}});
+    CHECK(std::abs(approx - std::lgamma(10.0)) < 1e-9);
+    // ln 9! through ln Gamma(10).
+    CHECK(std::abs(approx - std::log(362880.0)) < 1e-9);
+    CHECK(r.checks.size() == 3);
+    CHECK_THROWS_AS(stirling_series("x", 9), Error);
+    CHECK_THROWS_AS(stirling_series("x", -1), Error);
+}
+
+TEST_CASE("stirling truncations improve then stall (asymptotic, not convergent)") {
+    // At fixed x = 5, more terms help until the optimal index, and the
+    // 0-term (pure leading) truncation is clearly worse than 3 terms.
+    const double exact = std::lgamma(5.0);
+    const double e0 = std::abs(
+        evaluate(stirling_series("x", 0).series, Bindings{{"x", 5.0}}) - exact);
+    const double e3 = std::abs(
+        evaluate(stirling_series("x", 3).series, Bindings{{"x", 5.0}}) - exact);
+    CHECK(e0 > 1e-3);
+    CHECK(e3 < 1e-7);
 }

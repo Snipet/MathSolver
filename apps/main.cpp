@@ -351,6 +351,40 @@ void run_series(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(series(e, var, center, order), style));
 }
 
+/// `stirling`: the Stirling asymptotic series for ln Gamma(var) with exact
+/// Bernoulli coefficients; the lgamma accuracy check prints as notes.
+void run_stirling(const std::string& var_text, const std::string& terms_text,
+                  PrintStyle style) {
+    std::string var = "x";
+    if (!var_text.empty()) {
+        const Expr ve = parse_expression_diag(var_text);
+        if (ve->kind() != Kind::Symbol) {
+            throw UsageError{std::format(
+                "stirling: the first argument must be a variable name, got "
+                "'{}'",
+                var_text)};
+        }
+        var = to_string(ve, PrintStyle::Plain);
+    }
+    int terms = 3;
+    if (!terms_text.empty()) {
+        const auto n = parse_double(terms_text);
+        if (!n || *n != std::floor(*n)) {
+            throw UsageError{std::format(
+                "stirling terms must be an integer, got '{}'", terms_text)};
+        }
+        terms = static_cast<int>(*n);
+    }
+    const StirlingResult r = stirling_series(var, terms);
+    std::println("ln Gamma({}) ~ {}", var, to_string(r.series, style));
+    for (const std::string& c : r.checks) {
+        std::println("note: {}", c);
+    }
+    std::println("note: ln n! = ln Gamma(n + 1); the full series diverges "
+                 "for fixed {} — truncation, not convergence",
+                 var);
+}
+
 std::vector<std::string> split_top_level(const std::string& s, char delim);
 
 void print_sum_result(const SumResult& r, const char* noun, PrintStyle style) {
@@ -916,6 +950,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver ilaplace \"1/(s^2 + 2s + 5)\" [s]\n"
                "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
                "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
+               "  mathsolver stirling x [3]\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
                "  mathsolver mlimit   \"x*y/(x^2+y^2)\" x 0 y 0\n"
                "  mathsolver sum      \"k^2\" k 1 n\n"
@@ -947,7 +982,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "apart" || s == "dsolve" || s == "series" || s == "grad" ||
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
-           s == "rsolve" || s == "mlimit";
+           s == "rsolve" || s == "mlimit" || s == "stirling";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1092,6 +1127,15 @@ int run_one_shot(const std::vector<std::string>& args) {
             run_series(input, positionals.size() > 1 ? positionals[1] : "",
                        positionals.size() > 2 ? positionals[2] : "",
                        positionals.size() > 3 ? positionals[3] : "", style);
+        } else if (sub == "stirling") {
+            if (positionals.size() > 2) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver stirling "
+                    "<var> [terms])",
+                    positionals[2])};
+            }
+            run_stirling(input, positionals.size() > 1 ? positionals[1] : "",
+                         style);
         } else if (sub == "dsolve") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -1164,6 +1208,7 @@ void print_repl_help() {
         "  dsolve <ode>[, y(0)=v, y'(0)=v, ...]   solve an IVP, e.g.\n"
         "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
+        "  stirling [<var>[, <terms>]]            ln Gamma asymptotics\n"
         "  limit <expression>, <variable>, <point>[, left|right]\n"
         "         (point accepts numbers, inf, -inf)\n"
         "  mlimit <expr>, <x>, <a>, <y>, <b>      2-D limit by path sampling\n"
@@ -1200,7 +1245,8 @@ bool is_repl_command(std::string_view word) {
            word == "series" || word == "grad" || word == "div" ||
            word == "curl" || word == "laplacian" || word == "jacobian" ||
            word == "hessian" || word == "limit" || word == "sum" ||
-           word == "product" || word == "rsolve" || word == "mlimit";
+           word == "product" || word == "rsolve" || word == "mlimit" ||
+           word == "stirling";
 }
 
 // ---------------------------------------------------------------------------
@@ -1704,6 +1750,16 @@ void repl_command(const std::string& command, const std::string& rest,
             PrintStyle::Plain);
         run_sum(args[0], args, command == "product", PrintStyle::Plain);
         warn_assigned_variable(parts[1], env);
+        return;
+    }
+    if (command == "stirling") {
+        // No expression input: just an optional variable name and term count.
+        const std::vector<std::string> sparts = split_top_level_commas(rest);
+        if (sparts.size() > 2) {
+            throw UsageError{"usage: stirling [<variable>[, <terms>]]"};
+        }
+        run_stirling(sparts.empty() ? "" : sparts[0],
+                     sparts.size() > 1 ? sparts[1] : "", PrintStyle::Plain);
         return;
     }
     if (command == "dsolve") {

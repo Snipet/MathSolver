@@ -58,6 +58,7 @@ const MATH_VERBS = new Set([
   "vecfield",
   "limit",
   "mlimit",
+  "stirling",
   "sum",
   "product",
   "rsolve",
@@ -327,6 +328,25 @@ async function runVerb(verb: string, rest: string): Promise<CellResult> {
       const r = await call("series", [env.text, v, args[2] ?? "", order]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "stirling": {
+      // stirling [<var>[, <terms>]] — no expression argument.
+      if (args.length > 2) return usage("usage: stirling [<var>[, <terms>]]");
+      const v = args[0] || "x";
+      const terms = args[1] ? Number.parseInt(args[1], 10) : 3;
+      if (Number.isNaN(terms))
+        return usage(`stirling terms must be an integer, got '${args[1]}'`);
+      const r = await call("stirling", [v, terms]);
+      if (!r.ok) return err(v, r);
+      return {
+        kind: "transform",
+        result: {
+          ...r,
+          plain: `ln Gamma(${v}) ~ ${r.plain}`,
+          latex: `\\ln \\Gamma(${v}) \\sim ${r.latex}`,
+        },
+        computedFrom: null,
+      };
     }
     case "limit": {
       // limit <expr>, <var>, <point>[, left|right]

@@ -3,6 +3,7 @@
 
 #include "mathsolver/series.hpp"
 
+#include <cmath>
 #include <format>
 #include <string>
 #include <vector>
@@ -10,6 +11,7 @@
 #include "mathsolver/apart.hpp"
 #include "mathsolver/derivative.hpp"
 #include "mathsolver/errors.hpp"
+#include "mathsolver/evaluator.hpp"
 #include "mathsolver/printer.hpp"
 #include "mathsolver/simplify.hpp"
 
@@ -199,6 +201,65 @@ Expr series_at_infinity(const Expr& f, std::string_view var, int order) {
         return simplify(out.front());
     }
     return simplify(make_add(std::move(out)));
+}
+
+// --- Stirling / gamma asymptotics ------------------------------------------
+
+std::vector<Rational> bernoulli_numbers(int m) {
+    if (m < 0 || m > 20) {
+        throw Error("bernoulli: the index must be in [0, 20]");
+    }
+    // B_n = -1/(n+1) * sum_{j<n} C(n+1, j) B_j, from
+    // sum_{j=0}^{n} C(n+1, j) B_j = 0 (n >= 1), B_0 = 1.
+    std::vector<Rational> b{Rational(1)};
+    for (int n = 1; n <= m; ++n) {
+        // Binomials C(n+1, j) by the multiplicative recurrence, exact.
+        Rational acc(0);
+        Rational binom(1); // C(n+1, 0)
+        for (int j = 0; j < n; ++j) {
+            acc = acc + binom * b[static_cast<std::size_t>(j)];
+            binom = binom * Rational(n + 1 - j) / Rational(j + 1);
+        }
+        b.push_back(-acc / Rational(n + 1));
+    }
+    return b;
+}
+
+StirlingResult stirling_series(std::string_view var, int terms) {
+    if (terms < 0 || terms > 8) {
+        throw Error("stirling: the number of correction terms must be in "
+                    "[0, 8]");
+    }
+    const std::string v(var);
+    const Expr x = make_sym(v);
+    // (x - 1/2) ln x - x + ln(2 pi)/2.
+    std::vector<Expr> parts;
+    parts.push_back(make_mul(
+        {make_sub(x, make_num(Rational(1, 2))), make_fn(FunctionId::Ln, x)}));
+    parts.push_back(make_neg(x));
+    parts.push_back(make_div(
+        make_fn(FunctionId::Ln,
+                make_mul({make_num(2), make_const(ConstantId::Pi)})),
+        make_num(2)));
+    const std::vector<Rational> b = bernoulli_numbers(2 * terms);
+    for (int k = 1; k <= terms; ++k) {
+        // B_2k / (2k (2k-1)) * x^(1-2k), coefficient folded exactly.
+        const Rational coeff = b[static_cast<std::size_t>(2 * k)] /
+                               Rational(2LL * k * (2LL * k - 1));
+        parts.push_back(make_mul(
+            {make_num(coeff), make_pow(x, make_num(1 - 2 * k))}));
+    }
+    StirlingResult out;
+    out.series = simplify(make_add(std::move(parts)));
+    for (const double sample : {5.0, 10.0, 20.0}) {
+        const double approx = evaluate(out.series, Bindings{{v, sample}});
+        const double exact = std::lgamma(sample);
+        out.checks.push_back(std::format(
+            "ln Gamma({:g}): Stirling {:.12g} vs exact {:.12g} "
+            "(|error| = {:.3g})",
+            sample, approx, exact, std::abs(approx - exact)));
+    }
+    return out;
 }
 
 } // namespace mathsolver

@@ -200,6 +200,22 @@ try {
     mlOut.includes("does not exist") && mlOut.includes("diagonal"),
     mlOut.replace(/\n/g, " ").slice(0, 80),
   );
+  const eigOut = await run("linalg.eig [2 1; 1 2]");
+  check(
+    "exact eigendecomposition renders",
+    eigOut.includes("Characteristic polynomial") && eigOut.includes("(1, 1)"),
+    eigOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "structured trisolve renders",
+    (await run("linalg.trisolve [-1], [2 2], [-1], [1 1]")).includes("Thomas"),
+  );
+  const stirOut = await run("stirling x, 3");
+  check(
+    "stirling series with notes",
+    stirOut.includes("Gamma") && stirOut.includes("ln Gamma(10)"),
+    stirOut.replace(/\n/g, " ").slice(0, 80),
+  );
   const ieOut = await run("ie.fredholm x*t, x, 1, 0, 1");
   check(
     "ie.fredholm renders the solution",

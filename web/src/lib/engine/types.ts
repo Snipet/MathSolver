@@ -19,7 +19,9 @@ export type AnalyzeResult =
   | { ok: true; kind: "system"; symbols: string[] }
   | EngineError;
 
-export type TransformResult = ({ ok: true } & Rendered) | EngineError;
+export type TransformResult =
+  | ({ ok: true; notes?: string[] } & Rendered)
+  | EngineError;
 
 export type LimitCallResult =
   | ({
@@ -201,6 +203,7 @@ export interface EngineApi {
     [input: string, xVar: string, a: string, yVar: string, b: string],
     LimitCallResult,
   ];
+  stirling: [[variable: string, terms: number], TransformResult];
   sum: [[term: string, variable: string, lo: string, hi: string], SumCallResult];
   product: [
     [term: string, variable: string, lo: string, hi: string],

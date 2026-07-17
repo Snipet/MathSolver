@@ -1230,3 +1230,17 @@ TEST_CASE("cli: '--' ends option parsing so '--x' can be passed as input") {
     CHECK(rejected.exit_code == 2);
     CHECK(contains(rejected.output, "unknown option"));
 }
+
+TEST_CASE("cli: stirling prints the classic series with accuracy notes") {
+    const RunResult r = run_cli({"stirling", "x", "3"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "1/(12*x)"));
+    CHECK(contains(r.output, "1/(360*x^3)"));
+    CHECK(contains(r.output, "1/(1260*x^5)"));
+    CHECK(contains(r.output, "ln Gamma(10)"));
+
+    const RunResult bad = run_cli({"stirling", "x+1"}, "2>&1 1>/dev/null");
+    CHECK(bad.exit_code == 2);
+    CHECK(contains(bad.output, "variable name"));
+}

@@ -93,6 +93,11 @@ check("series at inf error", ms.series("e^x", "x", "inf", 3), (r) => !r.ok && r.
 check("mlimit dne", ms.mlimit("x*y/(x^2 + y^2)", "x", "0", "y", "0"), (r) => r.ok && r.status === "doesNotExist" && r.warnings.length === 2, "witness paths reported");
 check("mlimit parabola trap", ms.mlimit("x*y^2/(x^2 + y^4)", "x", "0", "y", "0"), (r) => r.ok && r.status === "doesNotExist", "x = y^2 path caught");
 check("mlimit agree", ms.mlimit("x + 2*y", "x", "1", "y", "2"), (r) => r.ok && r.status === "exact" && r.plain === "5", "continuous point");
+// stirling / gamma asymptotics
+check("stirling classic series", ms.stirling("x", 3), (r) => r.ok && r.plain.includes("1/(12*x)") && r.plain.includes("1/(360*x^3)") && r.plain.includes("1/(1260*x^5)") && r.notes.length === 3, "exact Bernoulli coefficients + lgamma checks");
+check("stirling default var", ms.stirling("", 2), (r) => r.ok && r.plain.includes("ln(x)"), "defaults to x");
+check("stirling non-symbol", ms.stirling("x+1", 3), (r) => !r.ok, "non-symbol rejected");
+check("stirling terms range", ms.stirling("x", 9), (r) => !r.ok && r.error.includes("[0, 8]"), "term cap enforced");
 // sys.dde (delay differential equations)
 check("sys dde", ms.pluginCall("sys", "dde", "-x_d,1,1,20"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.title === "Delay response") && r.blocks.some((b) => b.type === "kv" && b.items.some(([k]) => k === "Delay tau")), "oscillatory delay decay");
 check("sys dde error", ms.pluginCall("sys", "dde", "-x_d + y,1,1,20"), (r) => !r.ok && r.error.includes("found 'y'"), "stray symbol rejected");

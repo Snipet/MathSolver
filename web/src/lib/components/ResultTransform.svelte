@@ -8,6 +8,13 @@
 </script>
 
 <Katex latex={result.latex} display />
+{#if result.notes?.length}
+  <ul class="notes">
+    {#each result.notes as note (note)}
+      <li>{note}</li>
+    {/each}
+  </ul>
+{/if}
 <div class="sources">
   <CopyField label="Plain" text={result.plain} />
   <CopyField label="LaTeX" text={result.latex} />
@@ -18,5 +25,14 @@
     margin-top: 0.75rem;
     display: grid;
     gap: 0.4rem;
+  }
+  .notes {
+    margin: 0.5rem 0 0;
+    padding-left: 1.1rem;
+    font-size: 0.82rem;
+    color: var(--muted, #7a7a85);
+  }
+  .notes li {
+    margin: 0.15rem 0;
   }
 </style>
