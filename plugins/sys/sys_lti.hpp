@@ -53,6 +53,22 @@ RationalTF ode_to_tf(const std::string& equation);
 /// high-order coefficients that are exactly zero are trimmed first.
 std::vector<cd> poly_roots(const std::vector<double>& coeffs);
 
+// --- delay differential equations -------------------------------------------
+
+struct DdeResult {
+    std::vector<double> t;  ///< From -tau (history) through T.
+    std::vector<double> x;
+    int steps = 0;
+};
+
+/// Solve  x'(t) = f(t, x(t), x(t - tau))  for t in [0, T] by the method of
+/// steps: RK4 on a uniform grid with the delayed value read from the stored
+/// solution (linear interpolation) or from the history phi(t) for t <= 0.
+/// `rhs_text` uses the symbols t, x, xd (the delayed value); `history_text`
+/// uses t. Throws SysError on bad arguments or evaluation failure.
+DdeResult solve_dde(const std::string& rhs_text, double tau,
+                    const std::string& history_text, double horizon);
+
 /// H evaluated at a complex point.
 cd tf_eval(const RationalTF& tf, cd s);
 

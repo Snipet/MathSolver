@@ -758,13 +758,58 @@ std::string cmd_c2d(const std::vector<std::string>& args) {
     }
 }
 
+/// sys.dde <rhs in t, x, xd>, <tau>, <phi(t)>, <T> — method-of-steps
+/// simulation of x'(t) = f(t, x, x(t - tau)) with history phi.
+std::string cmd_dde(const std::vector<std::string>& args) {
+    if (args.size() != 4) {
+        return error_json(
+            "usage: sys.dde <x' = f(t, x, x_d)>, <tau>, <phi(t)>, <T>   "
+            "(x_d is x(t - tau); e.g. sys.dde -x_d, 1, 1, 20)");
+    }
+    double tau = 0.0;
+    double horizon = 0.0;
+    try {
+        std::size_t pos = 0;
+        tau = std::stod(args[1], &pos);
+        if (pos != args[1].size()) throw std::invalid_argument("tau");
+        pos = 0;
+        horizon = std::stod(args[3], &pos);
+        if (pos != args[3].size()) throw std::invalid_argument("T");
+    } catch (const std::exception&) {
+        return error_json("tau and T must be numbers");
+    }
+    try {
+        const sys::DdeResult r = sys::solve_dde(args[0], tau, args[2], horizon);
+        const std::string kv = std::format(
+            "{{\"type\":\"kv\",\"items\":[[\"Equation\",{}],"
+            "[\"Delay tau\",{}],[\"History phi(t)\",{}],[\"Steps\",\"{}\"],"
+            "[\"x(T)\",{}]]}}",
+            jstr("x'(t) = " + args[0] + "  with x_d = x(t - tau)"),
+            jstr(std::format("{:.6g}", tau)), jstr(args[2]), r.steps,
+            jstr(std::format("{:.6g}", r.x.back())));
+        const std::string chart = std::format(
+            "{{\"type\":\"series\",\"title\":\"Delay response\","
+            "\"xlabel\":\"t\",\"ylabel\":\"x(t)\",\"x\":{},"
+            "\"series\":[{{\"label\":\"x(t)\",\"ys\":{}}}],"
+            "\"vlines\":[{{\"x\":0,\"label\":\"t = 0\"}}]}}",
+            jnum_array(r.t), jnum_array(r.x));
+        return std::format(
+            "{{\"ok\":true,\"title\":{},\"blocks\":[{},{}]}}",
+            jstr(std::format("DDE x' = {} (tau = {:.4g})", args[0], tau)), kv,
+            chart);
+    } catch (const sys::SysError& e) {
+        return error_json(e.what());
+    }
+}
+
 class SysPlugin final : public Plugin {
   public:
     std::string_view name() const override { return "sys"; }
-    std::string_view version() const override { return "0.3.0"; }
+    std::string_view version() const override { return "0.4.0"; }
     std::string_view summary() const override {
         return "LTI systems: transfer functions (s and z), ODE -> H(s), "
-               "feedback, margins, root locus, discretization";
+               "feedback, margins, root locus, discretization, delay "
+               "equations";
     }
     std::vector<CommandInfo> commands() const override {
         return {
@@ -780,6 +825,10 @@ class SysPlugin final : public Plugin {
              "sys.tfz <num poly in z>, <den poly in z>, <fs Hz>"},
             {"c2d", "Discretize H(s) to digital biquads (bilinear)",
              "sys.c2d <num poly in s>, <den poly in s>, <fs Hz>"},
+            {"dde", "Delay differential equation x' = f(t, x, x(t - tau)) by "
+                    "the method of steps",
+             "sys.dde <f(t, x, x_d)>, <tau>, <phi(t)>, <T>   e.g. "
+             "sys.dde -x_d, 1, 1, 20"},
         };
     }
     std::string invoke(std::string_view command,
@@ -791,6 +840,7 @@ class SysPlugin final : public Plugin {
             if (command == "rlocus") return cmd_rlocus(args);
             if (command == "tfz") return cmd_tfz(args);
             if (command == "c2d") return cmd_c2d(args);
+            if (command == "dde") return cmd_dde(args);
             return error_json(std::format("sys has no command '{}'", command));
         } catch (const std::exception& e) {
             return error_json(std::format("sys internal error: {}", e.what()));

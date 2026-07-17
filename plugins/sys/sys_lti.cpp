@@ -595,4 +595,104 @@ cd tfz_eval(const RationalTF& tf, double f, double fs) {
     return tf_eval(tf, z);
 }
 
+// --- delay differential equations -------------------------------------------
+
+DdeResult solve_dde(const std::string& rhs_text, double tau,
+                    const std::string& history_text, double horizon) {
+    if (!(tau > 0.0)) {
+        throw SysError("the delay tau must be positive");
+    }
+    if (!(horizon > 0.0)) {
+        throw SysError("the horizon T must be positive");
+    }
+    Expr rhs;
+    Expr history;
+    try {
+        rhs = simplify(parse_expression(rhs_text));
+        history = simplify(parse_expression(history_text));
+    } catch (const Error& e) {
+        throw SysError(std::format("cannot read the DDE: {}", e.what()));
+    }
+    for (const std::string& s : free_symbols(rhs)) {
+        if (s != "t" && s != "x" && s != "x_d") {
+            throw SysError(std::format(
+                "the right side may use t, x, and x_d only (found '{}')", s));
+        }
+    }
+    for (const std::string& s : free_symbols(history)) {
+        if (s != "t") {
+            throw SysError(std::format(
+                "the history phi may use t only (found '{}')", s));
+        }
+    }
+
+    // Uniform grid: at least 8 points per delay, at most 20000 steps total.
+    double h = std::min(tau / 8.0, horizon / 400.0);
+    int steps = static_cast<int>(std::ceil(horizon / h));
+    if (steps > 20000) {
+        steps = 20000;
+    }
+    h = horizon / steps;
+
+    const auto phi = [&](double t) {
+        return evaluate(history, Bindings{{"t", t}});
+    };
+    DdeResult out;
+    // Stored solution samples x_i at t_i = i h, i = 0..steps.
+    std::vector<double> xs(static_cast<std::size_t>(steps) + 1);
+    try {
+        xs[0] = phi(0.0);
+        const auto delayed = [&](double t, int front) -> double {
+            const double tq = t - tau;
+            if (tq <= 0.0) {
+                return phi(tq);
+            }
+            const double pos = tq / h;
+            int i0 = static_cast<int>(std::floor(pos));
+            if (i0 >= front) {
+                i0 = front - 1; // clamp to known samples (tau >= 8h)
+            }
+            const int i1 = std::min(i0 + 1, front - 1);
+            const double frac = std::clamp(pos - i0, 0.0, 1.0);
+            return xs[static_cast<std::size_t>(i0)] * (1.0 - frac) +
+                   xs[static_cast<std::size_t>(i1)] * frac;
+        };
+        const auto f = [&](double t, double x, int front) {
+            return evaluate(
+                rhs, Bindings{{"t", t}, {"x", x}, {"x_d", delayed(t, front)}});
+        };
+        for (int i = 0; i < steps; ++i) {
+            const double t = i * h;
+            const double x = xs[static_cast<std::size_t>(i)];
+            // Classic RK4; the delayed argument is frozen per stage time.
+            const double k1 = f(t, x, i + 1);
+            const double k2 = f(t + h / 2, x + h / 2 * k1, i + 1);
+            const double k3 = f(t + h / 2, x + h / 2 * k2, i + 1);
+            const double k4 = f(t + h, x + h * k3, i + 1);
+            const double next = x + h / 6 * (k1 + 2 * k2 + 2 * k3 + k4);
+            if (!std::isfinite(next)) {
+                throw SysError(std::format(
+                    "the solution blew up near t = {:.4g}", t + h));
+            }
+            xs[static_cast<std::size_t>(i) + 1] = next;
+        }
+    } catch (const Error& e) {
+        throw SysError(std::format("evaluation failed: {}", e.what()));
+    }
+
+    // Output: history segment on [-tau, 0] (sampled) then the solution.
+    const int hist_pts = 40;
+    for (int i = 0; i <= hist_pts; ++i) {
+        const double t = -tau + tau * i / hist_pts;
+        out.t.push_back(t);
+        out.x.push_back(phi(t));
+    }
+    for (int i = 1; i <= steps; ++i) {
+        out.t.push_back(i * h);
+        out.x.push_back(xs[static_cast<std::size_t>(i)]);
+    }
+    out.steps = steps;
+    return out;
+}
+
 } // namespace mathsolver::plugins::sys

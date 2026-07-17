@@ -390,3 +390,55 @@ TEST_CASE("sys: command errors are reported, not thrown") {
                ContainsSubstring("positive number"));
     CHECK_THAT(p.invoke("nope", {}), ContainsSubstring("no command 'nope'"));
 }
+
+// ---------------------------------------------------------------------------
+// Delay differential equations (method of steps)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("sys: dde matches the exactly-known x' = -x(t-1) solution") {
+    // With phi = 1: x(t) = 1 - t on [0,1], so x(1) = 0; integrating the
+    // next step gives x(2) = -1/2.
+    const sys::DdeResult r = sys::solve_dde("-x_d", 1.0, "1", 4.0);
+    REQUIRE(r.steps > 0);
+    const auto at = [&](double t) {
+        // Locate the closest sample.
+        double best = 1e300;
+        double val = 0.0;
+        for (std::size_t i = 0; i < r.t.size(); ++i) {
+            if (std::abs(r.t[i] - t) < best) {
+                best = std::abs(r.t[i] - t);
+                val = r.x[i];
+            }
+        }
+        return val;
+    };
+    CHECK(std::abs(at(0.5) - 0.5) < 1e-6);   // 1 - t
+    CHECK(std::abs(at(1.0) - 0.0) < 1e-6);
+    CHECK(std::abs(at(2.0) + 0.5) < 1e-5);   // -1/2
+    // History segment is included and equals phi.
+    CHECK(std::abs(r.x.front() - 1.0) < 1e-12);
+    CHECK(r.t.front() < 0.0);
+}
+
+TEST_CASE("sys: dde with state feedback and specific errors") {
+    // x' = -x (no delay dependence): plain exponential decay.
+    const sys::DdeResult r = sys::solve_dde("-x", 0.5, "1", 3.0);
+    double x3 = r.x.back();
+    CHECK(std::abs(x3 - std::exp(-3.0)) < 1e-6);
+
+    CHECK_THROWS_WITH(sys::solve_dde("-x_d + y", 1.0, "1", 5.0),
+                      ContainsSubstring("found 'y'"));
+    CHECK_THROWS_AS(sys::solve_dde("-x_d", -1.0, "1", 5.0), sys::SysError);
+    CHECK_THROWS_WITH(sys::solve_dde("-x_d", 1.0, "x", 5.0),
+                      ContainsSubstring("t only"));
+}
+
+TEST_CASE("sys: dde command envelope") {
+    const std::string out =
+        sys_plugin().invoke("dde", {"-x_d", "1", "1", "20"});
+    CHECK_THAT(out, ContainsSubstring("\"ok\":true"));
+    CHECK_THAT(out, ContainsSubstring("Delay response"));
+    CHECK_THAT(out, ContainsSubstring("Delay tau"));
+    CHECK_THAT(sys_plugin().invoke("dde", {"-x_d", "abc", "1", "20"}),
+               ContainsSubstring("must be numbers"));
+}
