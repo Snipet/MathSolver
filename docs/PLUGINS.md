@@ -162,6 +162,7 @@ integrator (exact where its rules reach, numeric otherwise):
 | --- | --- |
 | `pde.heat <L>, <alpha>, <f(x)>[, <T>]` | u_t = α u_xx with u(x,0) = f(x): b_n table, mode-1 time constant, and temperature profiles at t = 0, T/16, T/4, T. |
 | `pde.wave <L>, <c>, <f(x)>[, <g(x)>[, <T>]]` | u_tt = c² u_xx with displacement f and optional velocity g: displacement profiles across the fundamental period 2L/c. |
+| `pde.simulate <L>, <alpha>, <f(u)>, <u0(x)>, <T>[, <steps>]` | **Nonlinear** reaction–diffusion u_t = α u_xx + f(u) by the method of lines: central differences + Crank–Nicolson with a full Newton solve per step whose Jacobian uses the **exact symbolic f′(u)** (every update is one tridiagonal Thomas solve). Stalled steps retry at half the step size; finite-time blow-up (f = u², large data) stops the run with an honest note. Fisher–KPP: `pde.simulate 10, 1, u*(1-u), 0.5*sin(pi*x/10), 8`. |
 
 The **ie** plugin solves second-kind integral equations with symbolic
 kernels K(x, t) and forcing f(x), evaluated pointwise by the CAS. Every
@@ -186,6 +187,18 @@ and solution blow-ups stop with a note instead of nonsense:
 | Command | What it does |
 | --- | --- |
 | `hyb.sim <x'>; <v'>, <guard>, <reset x>; <reset v>, <x0>, <v0>, <T>` | Event-driven simulation: events table (times, impact/rebound states), trajectory chart with event markers. Bouncing ball: `hyb.sim v; -9.81, x, x; -0.8*v, 1, 0, 3`. On a horizon past the accumulation (`T = 5`), the Zeno note reports the estimated accumulation time ≈ 9√(2/g) ≈ 4.06. |
+
+The **fem** plugin does 1-D finite elements for the Sturm–Liouville
+operator −(p(x)u′)′ + q(x)u with symbolic coefficients, P1 or P2 Lagrange
+elements, and 3-point Gauss quadrature. Every solve runs at n, 2n, and 4n
+elements and reports the **observed convergence order** log₂(e_n/e_2n) —
+measured off-node, since P1 nodal values superconverge — so each result
+carries evidence that the method converges at its textbook rate:
+
+| Command | What it does |
+| --- | --- |
+| `fem.bvp <p(x)>, <q(x)>, <f(x)>, <a>, <b>, <u=v\|u'=v>, <u=v\|u'=v>[, <p1\|p2>[, <elements>]]` | Two-point boundary-value problem with a Dirichlet value (`u=v`) or natural flux (`u'=v`, meaning p u′ = v) at each end. The singular pure-Neumann case is reported, not divided by. |
+| `fem.modes <p(x)>, <q(x)>, <w(x)>, <a>, <b>[, <count>[, <p1\|p2>[, <elements>]]]` | Smallest eigenpairs of −(p u′)′ + q u = λ w u with u = 0 at both ends: stiffness and mass assembly, then inverse iteration with M-orthogonal deflation (K factored once). The string on [0, π] returns λₙ = n². |
 
 The **linalg** plugin does dense linear algebra. Matrices are written
 `[1 2; 3 4]` (rows by `;`, entries by spaces or commas); entries are full

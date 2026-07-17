@@ -399,6 +399,11 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   linalg.circulant [2 1 1], [4 4 4]      → structured: DFT diagonalization
   pde.heat 1, 1, x*(1-x)                 → heat equation: Fourier series + profiles
   pde.wave 1, 2, sin(pi*x)               → wave equation: standing-wave evolution
+  pde.simulate 10, 1, u*(1-u), 0.5*sin(pi*x/10), 8 → nonlinear reaction–diffusion
+                                           (method of lines, exact-Jacobian Newton)
+  fem.bvp 1, 0, pi^2*sin(pi*x), 0, 1, u=0, u=0 → 1-D finite elements with the
+                                           observed convergence order reported
+  fem.modes 1, 0, 1, 0, pi               → Sturm–Liouville eigenmodes (λ = n²)
   ie.fredholm x*t, x, 1, 0, 1            → integral equation by Nyström quadrature
   ie.volterra x - t, x, -1, 0, 3         → Volterra equation by marching (u = sin x)
   hyb.sim v; -9.81, x, x; -0.8*v, 1, 0, 3 → bouncing ball: events, resets, Zeno

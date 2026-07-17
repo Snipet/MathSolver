@@ -132,6 +132,18 @@ check("hyb catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name =
 check("hyb bouncing ball", ms.pluginCall("hyb", "sim", "v; -9.81,x,x; -0.8*v,1,0,2"), (r) => r.ok && r.blocks.some((b) => b.type === "table" && b.title.startsWith("Events") && Math.abs(parseFloat(b.rows[0][1]) - Math.sqrt(2 / 9.81)) < 1e-5) && r.blocks.some((b) => b.type === "series" && Array.isArray(b.vlines)), "first bounce at sqrt(2/g)");
 check("hyb zeno", ms.pluginCall("hyb", "sim", "v; -9.81,x,x; -0.8*v,1,0,5"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Zeno" && v.includes("accumulation"))), "Zeno note surfaces");
 check("hyb error", ms.pluginCall("hyb", "sim", "q; -9.81,x,x; -0.8*v,1,0,2"), (r) => !r.ok && r.error.includes("found 'q'"), "stray symbol rejected");
+// fem plugin
+check("fem catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name === "fem" && p.commands.length === 2), "fem listed");
+check("fem bvp sine", ms.pluginCall("fem", "bvp", "1,0,pi^2*sin(pi*x),0,1,u=0,u=0"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Observed convergence order" && parseFloat(v) > 1.6)) && r.blocks.some((b) => b.type === "series" && Math.abs(Math.max(...b.series[0].ys) - 1) < 1e-3), "order ~2 + peak ~1");
+check("fem bvp flux", ms.pluginCall("fem", "bvp", "1,0,0,0,1,u=1,u'=2"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && Math.abs(b.series[0].ys[120] - 3) < 1e-9), "u(1) = 3 for u = 1 + 2x");
+check("fem modes string", ms.pluginCall("fem", "modes", "1,0,1,0,pi,3"), (r) => r.ok && r.blocks.some((b) => b.type === "table" && Math.abs(parseFloat(b.rows[0][1]) - 1) < 5e-3 && Math.abs(parseFloat(b.rows[2][1]) - 9) < 1e-1), "lambda = 1, 4, 9");
+check("fem singular error", ms.pluginCall("fem", "bvp", "1,0,1,0,1,u'=0,u'=0"), (r) => !r.ok && r.error.includes("singular"), "pure Neumann reported");
+check("fem symbol error", ms.pluginCall("fem", "bvp", "y,0,1,0,1,u=0,u=0"), (r) => !r.ok && r.error.includes("found 'y'"), "stray symbol rejected");
+// pde.simulate
+check("pde simulate fisher", ms.pluginCall("pde", "simulate", "10,1,u*(1-u),0.5*sin(pi*x/10),8"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.title === "Concentration profiles" && b.series.length === 5 && Math.max(...b.series[4].ys) > 0.9 && Math.max(...b.series[4].ys) < 1.001), "growth toward u = 1");
+check("pde simulate newton kv", ms.pluginCall("pde", "simulate", "1,1,2u,sin(pi*x),0.2"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k]) => k === "Newton iterations")), "newton stats reported");
+check("pde simulate blow-up", ms.pluginCall("pde", "simulate", "1,1,u^2,50*sin(pi*x),1"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stopped early" && v.includes("stopped"))), "blow-up note surfaces");
+check("pde simulate error", ms.pluginCall("pde", "simulate", "1,1,u+y,sin(pi*x),1"), (r) => !r.ok && r.error.includes("found 'y'"), "stray symbol rejected");
 // linalg plugin
 check("linalg catalog", ms.plugins(), (r) => r.ok && r.plugins.some((p) => p.name === "linalg" && p.commands.length === 10), "linalg listed with 10 commands");
 check("linalg solve", ms.pluginCall("linalg", "solve", "[2 1; 1 3],[3 5]"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "x" && v === "(0.8, 1.4)")), "x = (0.8, 1.4)");

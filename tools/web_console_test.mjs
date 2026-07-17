@@ -234,6 +234,23 @@ try {
     stirOut.includes("Gamma") && stirOut.includes("ln Gamma(10)"),
     stirOut.replace(/\n/g, " ").slice(0, 80),
   );
+  const femOut = await run("fem.bvp 1, 0, pi^2*sin(pi*x), 0, 1, u=0, u=0");
+  check(
+    "fem.bvp renders with convergence order",
+    femOut.includes("Observed convergence order") &&
+      femOut.includes("Solution u(x)"),
+    femOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "fem.modes renders eigenvalues",
+    (await run("fem.modes 1, 0, 1, 0, pi")).includes("Eigenvalues"),
+  );
+  const simOut = await run("pde.simulate 10, 1, u*(1-u), 0.5*sin(pi*x/10), 8");
+  check(
+    "pde.simulate renders profiles",
+    simOut.includes("reaction") && simOut.includes("Concentration profiles"),
+    simOut.replace(/\n/g, " ").slice(0, 80),
+  );
   const ieOut = await run("ie.fredholm x*t, x, 1, 0, 1");
   check(
     "ie.fredholm renders the solution",
