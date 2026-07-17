@@ -18,6 +18,9 @@
   );
 </script>
 
+{#if result.status === "complex"}
+  <p class="banner muted-banner">No real solutions — complex roots:</p>
+{/if}
 {#if result.status === "noRealSolution"}
   <p class="banner muted-banner">No real solutions</p>
 {:else if result.status === "allReals"}

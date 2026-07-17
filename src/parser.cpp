@@ -63,14 +63,14 @@ bool is_alnum(char c) { return is_letter(c) || is_digit(c); }
 // Known names for identifier-run segmentation (DESIGN.md §4).
 // ---------------------------------------------------------------------------
 
-enum class NameKind { Function, Greek, Pi, Euler };
+enum class NameKind { Function, Greek, Pi, Euler, Imaginary };
 
 struct KnownName {
     std::string_view name;
     NameKind kind;
 };
 
-constexpr std::array<KnownName, 32> kKnownNames{{
+constexpr std::array<KnownName, 33> kKnownNames{{
     {"arcsin", NameKind::Function}, {"arccos", NameKind::Function},
     {"arctan", NameKind::Function}, {"asin", NameKind::Function},
     {"acos", NameKind::Function},   {"atan", NameKind::Function},
@@ -87,6 +87,7 @@ constexpr std::array<KnownName, 32> kKnownNames{{
     {"omega", NameKind::Greek},     {"beta", NameKind::Greek},
     {"phi", NameKind::Greek},       {"mu", NameKind::Greek},
     {"pi", NameKind::Pi},           {"e", NameKind::Euler},
+    {"i", NameKind::Imaginary},
 }};
 
 const KnownName* longest_known_prefix(std::string_view run) {
@@ -303,6 +304,9 @@ private:
                 case NameKind::Greek: push_symbol(std::string(k->name), begin, pos_); break;
                 case NameKind::Pi: push_constant(ConstantId::Pi, begin, pos_); break;
                 case NameKind::Euler: push_constant(ConstantId::E, begin, pos_); break;
+                case NameKind::Imaginary:
+                    push_constant(ConstantId::I, begin, pos_);
+                    break;
                 }
             } else {
                 push_symbol(std::string(1, src_[pos_]), pos_, pos_ + 1);

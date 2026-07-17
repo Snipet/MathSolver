@@ -70,6 +70,15 @@ check("plugin vlines", ms.pluginCall("dsp", "butter", "bandpass,3,500,2000,48000
 check("plugin ellip", ms.pluginCall("dsp", "ellip", "lowpass,5,1,60,1000,48000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Gain at cutoff" && v.startsWith("-1.00"))), "-1 dB at passband edge");
 check("plugin fir", ms.pluginCall("dsp", "fir", "lowpass,101,1000,48000,kaiser,10"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Group delay" && v.includes("50 samples"))) && r.blocks.some((b) => b.type === "table" && b.rows.length === 101), "linear phase + 101 taps");
 check("plugin time response", ms.pluginCall("dsp", "butter", "lowpass,4,1000,48000"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.title === "Time response" && b.series.length === 2), "impulse + step series");
+// complex numbers (v0.6): i in the core, complex quadratic roots
+check("complex solve", ms.solve("x^2 = -1", "x", 0, 0, false), (r) => r.ok && r.status === "complex" && r.solutions.map((s) => s.plain).sort().join(",") === "-i,i", "roots -i, i");
+check("complex conjugate pair", ms.solve("x^2 + 2*x + 5 = 0", "x", 0, 0, false), (r) => r.ok && r.status === "complex" && r.solutions.some((s) => s.plain === "2*i - 1"), "2*i - 1 (canonical order)");
+check("i simplifies", ms.simplify("i^2"), (r) => r.ok && r.plain === "-1", "i^2 = -1");
+// sys plugin: transfer functions, ODE -> H(s), discretization
+check("sys tf", ms.pluginCall("sys", "tf", "s+1,s^2+3s+2"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v === "stable")) && r.blocks.some((b) => b.type === "series" && b.series.some((s) => s.points === true)), "stable + pzmap points");
+check("sys ode", ms.pluginCall("sys", "ode", "y'' + 3y' + 2y = u' + u"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "H(s)" && v.includes("s^2 + 3 s + 2"))), "ODE -> H(s)");
+check("sys c2d", ms.pluginCall("sys", "c2d", "1,s+1,100"), (r) => r.ok && r.blocks.some((b) => b.type === "table" && b.title.includes("Digital biquad")), "bilinear biquads");
+check("sys error", ms.pluginCall("sys", "tf", "sin(s),s+1"), (r) => !r.ok && r.error.includes("polynomial"), "non-polynomial rejected");
 
 function b_series_ok(r) {
   const s = r.blocks.find((b) => b.type === "series");

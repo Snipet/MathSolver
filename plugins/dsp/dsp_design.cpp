@@ -20,12 +20,6 @@ namespace {
 
 using cd = std::complex<double>;
 
-struct Zpk {
-    std::vector<cd> z;
-    std::vector<cd> p;
-    double k = 1.0;
-};
-
 cd prod_neg(const std::vector<cd>& v) {
     cd out{1.0, 0.0};
     for (const cd& x : v) {
@@ -388,6 +382,14 @@ double prewarp(double f, double fs) {
 }
 
 } // namespace
+
+Zpk bilinear_zpk(const Zpk& analog, double fs) {
+    return bilinear(analog, fs);
+}
+
+std::vector<Biquad> zpk_to_biquads(const Zpk& digital) {
+    return zpk_to_sos(digital);
+}
 
 std::vector<Biquad> design_iir(const DesignSpec& spec) {
     if (spec.order < 1) {

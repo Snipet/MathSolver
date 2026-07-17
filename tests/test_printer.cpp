@@ -228,7 +228,9 @@ TEST_CASE("printer: latex letter boundaries do not merge into known names", "[pr
     Expr e = make_mul({make_sym("l"), make_sym("n")});
     CHECK(latex(e) == "l n");
     check_round_trip(e);
-    Expr pi_ish = make_mul({make_sym("i"), make_sym("p")});
+    // "i" is the imaginary unit as of v0.6 — the letter-boundary concern
+    // stands: "i p" must re-lex as i (the constant) times p, never "ip".
+    Expr pi_ish = make_mul({make_const(ConstantId::I), make_sym("p")});
     check_round_trip(pi_ish);
 }
 

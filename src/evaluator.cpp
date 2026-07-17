@@ -129,6 +129,11 @@ double evaluate(const Expr& e, const Bindings& bindings) {
             return check_finite(it->second);
         }
         case Kind::Constant:
+            if (e->constant() == ConstantId::I) {
+                throw Error(
+                    "'i' is the imaginary unit; complex expressions cannot be "
+                    "evaluated numerically");
+            }
             return e->constant() == ConstantId::Pi ? std::numbers::pi : std::numbers::e;
         case Kind::Add: {
             double sum = 0.0;

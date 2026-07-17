@@ -18,9 +18,11 @@ struct Solution {
 
 struct SolveResult {
     enum class Status {
-        Solved,          ///< Exact solutions found.
+        Solved,          ///< Exact real solutions found.
+        SolvedComplex,   ///< No real solutions; exact complex roots reported
+                         ///< (polynomial paths with a negative discriminant).
         NumericOnly,     ///< Only numeric approximations found.
-        NoRealSolution,  ///< Provably no real solution (e.g. x^2 = -1).
+        NoRealSolution,  ///< Provably no real solution (e.g. sin(x) = 2).
         AllReals,        ///< Identity: every value of the symbol works.
         Unsolved         ///< Could not solve; see warnings.
     };

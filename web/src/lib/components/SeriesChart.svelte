@@ -7,6 +7,9 @@
   interface Series {
     label: string;
     ys: (number | null)[];
+    /** Draw markers instead of a connected line (e.g. pole-zero maps). */
+    points?: boolean;
+    shape?: "x" | "o";
   }
 
   interface VLine {
@@ -97,7 +100,7 @@
     const w = width;
     const xs = x;
     const all = series;
-    if (!c || w < 80 || xs.length < 2) return;
+    if (!c || w < 80 || xs.length < 1) return;
 
     const dpr = window.devicePixelRatio || 1;
     c.width = Math.floor(w * dpr);
@@ -113,11 +116,24 @@
       col.startsWith("var(") ? accent : col,
     );
 
-    // x mapping (optionally log).
+    // x mapping (optionally log). Scatter data may be unsorted, so the range
+    // is min/max over all samples, padded when degenerate.
     const usableLog = logx && xs.every((v) => v > 0);
     const tx = (v: number) => (usableLog ? Math.log10(v) : v);
-    const x0 = tx(xs[0]);
-    const x1 = tx(xs[xs.length - 1]);
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    for (const v of xs) {
+      const t = tx(v);
+      if (Number.isFinite(t)) {
+        x0 = Math.min(x0, t);
+        x1 = Math.max(x1, t);
+      }
+    }
+    if (!Number.isFinite(x0)) return;
+    if (x1 - x0 < 1e-12) {
+      x0 -= 1;
+      x1 += 1;
+    }
     const plotW = w - PAD.l - PAD.r;
     const plotH = HEIGHT - PAD.t - PAD.b;
     const px = (v: number) => PAD.l + ((tx(v) - x0) / (x1 - x0)) * plotW;
@@ -185,12 +201,8 @@
         ctx.fillText(fmtTick(v), xx, HEIGHT - PAD.b + 6);
       }
     } else {
-      const xstep = niceStep(xs[xs.length - 1] - xs[0], 7);
-      for (
-        let v = Math.ceil(xs[0] / xstep) * xstep;
-        v <= xs[xs.length - 1];
-        v += xstep
-      ) {
+      const xstep = niceStep(x1 - x0, 7);
+      for (let v = Math.ceil(x0 / xstep) * xstep; v <= x1; v += xstep) {
         const xx = px(v);
         ctx.beginPath();
         ctx.moveTo(xx, PAD.t);
@@ -236,10 +248,30 @@
       ctx.restore();
     }
 
-    // series lines.
+    // series: connected lines, or scattered markers for points series.
     all.forEach((s, si) => {
       ctx.strokeStyle = palette[si % palette.length];
       ctx.lineWidth = 1.8;
+      if (s.points) {
+        const r = 5;
+        for (let i = 0; i < xs.length && i < s.ys.length; i++) {
+          const yv = s.ys[i];
+          if (yv === null || !Number.isFinite(yv)) continue;
+          const xx = px(xs[i]);
+          const yy = Math.max(PAD.t, Math.min(HEIGHT - PAD.b, py(yv)));
+          ctx.beginPath();
+          if (s.shape === "o") {
+            ctx.arc(xx, yy, r, 0, 2 * Math.PI);
+          } else {
+            ctx.moveTo(xx - r, yy - r);
+            ctx.lineTo(xx + r, yy + r);
+            ctx.moveTo(xx - r, yy + r);
+            ctx.lineTo(xx + r, yy - r);
+          }
+          ctx.stroke();
+        }
+        return;
+      }
       ctx.beginPath();
       let pen = false;
       for (let i = 0; i < xs.length && i < s.ys.length; i++) {

@@ -434,6 +434,12 @@ void print_solve_result(const SolveResult& res, const std::string& var,
             std::println("{}", line);
         }
         break;
+    case SolveResult::Status::SolvedComplex:
+        std::println("no real solutions; complex roots:");
+        for (const Solution& s : res.solutions) {
+            std::println("{} = {}", var, to_string(s.value, style));
+        }
+        break;
     case SolveResult::Status::NoRealSolution:
         std::println("no real solutions");
         break;

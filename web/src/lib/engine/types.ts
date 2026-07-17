@@ -46,7 +46,13 @@ export interface Solution extends Rendered {
 export type SolveResult =
   | {
       ok: true;
-      status: "solved" | "numeric" | "noRealSolution" | "allReals" | "unsolved";
+      status:
+        | "solved"
+        | "complex"
+        | "numeric"
+        | "noRealSolution"
+        | "allReals"
+        | "unsolved";
       method: string;
       warnings: string[];
       solutions: Solution[];
@@ -102,7 +108,14 @@ export type PluginBlock =
       ylabel?: string;
       logx?: boolean;
       x: number[];
-      series: { label: string; ys: (number | null)[] }[];
+      series: {
+        label: string;
+        ys: (number | null)[];
+        /** Draw markers instead of a connected line (e.g. pole-zero maps). */
+        points?: boolean;
+        /** Marker shape when points is set. */
+        shape?: "x" | "o";
+      }[];
       /** Vertical marker lines (e.g. filter cutoffs). */
       vlines?: { x: number; label: string }[];
     }

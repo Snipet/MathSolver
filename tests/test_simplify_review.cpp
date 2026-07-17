@@ -157,8 +157,9 @@ TEST_CASE("expand perf: (x+y)^20 completes, is correct") {
 
 TEST_CASE("expand perf: (a+..+j)^7 has exactly 11440 terms, completes fast") {
     // NB: the `e` here parses as Euler's constant, not a free symbol -- still
-    // 10 distinct atoms, so the monomial count is unchanged.
-    const Expr in = parse("(a+b+c+d+e+f+g+h+i+j)^7");
+    // 10 distinct atoms, so the monomial count is unchanged. (`i` is the
+    // imaginary unit as of v0.6, so `k` stands in for it.)
+    const Expr in = parse("(a+b+c+d+e+f+g+h+k+j)^7");
     const auto t0 = std::chrono::steady_clock::now();
     const Expr out = expand(in);
     const auto elapsed = std::chrono::steady_clock::now() - t0;
@@ -166,7 +167,7 @@ TEST_CASE("expand perf: (a+..+j)^7 has exactly 11440 terms, completes fast") {
     CHECK(out->args().size() == 11440); // C(16, 9)
     // Value preservation vs the unexpanded form.
     const Bindings b{{"a", 1.5}, {"b", 0.5}, {"c", 2.0}, {"d", 1.0}, {"f", 0.25},
-                     {"g", 3.0}, {"h", 0.75}, {"i", 1.25}, {"j", 2.5}};
+                     {"g", 3.0}, {"h", 0.75}, {"k", 1.25}, {"j", 2.5}};
     CHECK_THAT(evaluate(out, b), WithinRel(evaluate(in, b), 1e-9));
     CHECK(std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() < 30);
 }

@@ -188,6 +188,9 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   dsp.ellip lowpass, 5, 1, 60, 1000, 48000
   dsp.fir lowpass, 101, 1000, 48000, kaiser, 10
   dsp.freqz 48000, 0.2,0.4,0.2,-0.5,0.3  → response of your own biquads
+  sys.tf s+1, s^2+3s+2                   → poles/zeros, Bode, step/impulse
+  sys.ode y'' + 3y' + 2y = u' + u        → ODE to transfer function
+  sys.c2d 1, s+1, 100                    → discretize H(s) to digital biquads
   plugins                                → catalog of compiled-in plugins
   ```
 
@@ -255,10 +258,13 @@ for the full workflow.
 
 ## Limitations (by design, v0.1)
 
-- Real domain only — no complex results (`x^2 = -1` reports "no real
-  solutions").
+- Mostly real domain. As of v0.6 the imaginary unit `i` is part of the
+  grammar (`i^2` simplifies to `-1`) and polynomial solving returns complex
+  conjugate pairs (`x^2 + 2x + 5 = 0` → `x = -1 ± 2i`), but general
+  symbolic complex algebra (complex function evaluation, `abs`/`arg` of
+  complex values, numeric evaluation containing `i`) is not supported.
 - Variables are single letters (optionally subscripted: `x_1`) or greek
-  names; `e` always means Euler's number.
+  names; `e` always means Euler's number and `i` the imaginary unit.
 - Exact arithmetic is 64-bit rational, overflow-checked (throws rather than
   silently wrapping).
 - Formal cancellations such as `x/x → 1` assume nonzero denominators.

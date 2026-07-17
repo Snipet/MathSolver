@@ -354,6 +354,7 @@ std::string ms_integrate_definite(std::string input, std::string var, std::strin
 std::string solve_status_name(SolveResult::Status s) {
     switch (s) {
         case SolveResult::Status::Solved: return "solved";
+        case SolveResult::Status::SolvedComplex: return "complex";
         case SolveResult::Status::NumericOnly: return "numeric";
         case SolveResult::Status::NoRealSolution: return "noRealSolution";
         case SolveResult::Status::AllReals: return "allReals";
