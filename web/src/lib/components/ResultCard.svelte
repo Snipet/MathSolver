@@ -10,7 +10,8 @@
   import SpanHighlight from "./SpanHighlight.svelte";
   import Katex from "./Katex.svelte";
 
-  let { outcome }: { outcome: Outcome | null } = $props();
+  let { outcome, flat = false }: { outcome: Outcome | null; flat?: boolean } =
+    $props();
 
   const computedFrom = $derived(
     outcome &&
@@ -24,7 +25,7 @@
 
 <section class="result-region" aria-live="polite" aria-label="Result">
   {#if outcome}
-    <div class="card" class:error-card={outcome.kind === "error"}>
+    <div class="card" class:error-card={outcome.kind === "error"} class:flat>
       {#if outcome.kind === "transform"}
         <ResultTransform result={outcome.result} />
       {:else if outcome.kind === "solve"}
@@ -79,6 +80,19 @@
   .error-card {
     border-color: color-mix(in srgb, var(--error) 50%, var(--border));
     background: color-mix(in srgb, var(--error) 6%, var(--bg-panel));
+  }
+  /* Console cells render flat: no box, results sit directly on the page. */
+  .card.flat {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0;
+  }
+  .card.flat.error-card {
+    border-left: 3px solid var(--error);
+    background: color-mix(in srgb, var(--error) 5%, transparent);
+    border-radius: 0 calc(var(--radius) / 2) calc(var(--radius) / 2) 0;
+    padding: 0.5rem 0.75rem;
   }
   .error-msg {
     margin: 0;

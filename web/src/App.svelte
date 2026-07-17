@@ -31,6 +31,7 @@
   import Katex from "./lib/components/Katex.svelte";
   import SpanHighlight from "./lib/components/SpanHighlight.svelte";
   import Notebook from "./lib/components/Notebook.svelte";
+  import CommandReference from "./lib/components/CommandReference.svelte";
 
   // --- engine readiness ------------------------------------------------------
   let ready = $state(false);
@@ -664,7 +665,7 @@
   </label>
 {/snippet}
 
-<div class="app">
+<div class="app" class:console-mode={mode === "console"}>
   <header class="site-header">
     <div class="header-inner">
       <span class="wordmark">MathSolver</span>
@@ -932,18 +933,24 @@
       {/if}
     </main>
 
-    <aside class="sidebar" aria-label="Session variables and computation history">
+    <aside class="sidebar" aria-label="Session variables and reference">
       <VariablesPanel />
-      <History onrestore={restore} />
+      {#if mode === "console"}
+        <CommandReference />
+      {:else}
+        <History onrestore={restore} />
+      {/if}
     </aside>
   </div>
 
-  <footer class="site-footer">
-    <p>
-      All computation runs locally in your browser via WebAssembly — nothing is
-      sent to a server.{#if version}&nbsp;MathSolver engine v{version}.{/if}
-    </p>
-  </footer>
+  {#if mode !== "console"}
+    <footer class="site-footer">
+      <p>
+        All computation runs locally in your browser via WebAssembly — nothing
+        is sent to a server.{#if version}&nbsp;MathSolver engine v{version}.{/if}
+      </p>
+    </footer>
+  {/if}
 </div>
 
 <style>
@@ -1072,6 +1079,36 @@
     flex-direction: column;
     gap: 0.85rem;
     padding-top: 1rem;
+  }
+
+  /* Console mode: the console owns the viewport — the page never scrolls,
+     the cell area does. Wider column, sidebar scrolls independently. */
+  .app.console-mode {
+    height: 100dvh;
+    overflow: hidden;
+  }
+  .app.console-mode .layout {
+    min-height: 0;
+    max-width: 1400px;
+    padding-top: 0;
+    padding-bottom: 0.9rem;
+  }
+  .app.console-mode .column {
+    max-width: none;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  @media (min-width: 1100px) {
+    .app.console-mode .layout {
+      grid-template-columns: minmax(0, 1fr) 300px;
+    }
+    .app.console-mode .sidebar {
+      overflow-y: auto;
+      min-height: 0;
+      padding-top: 0.9rem;
+      scrollbar-width: thin;
+    }
   }
 
   .loading-note {
