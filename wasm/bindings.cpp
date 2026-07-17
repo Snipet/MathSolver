@@ -576,10 +576,42 @@ std::string ms_series(std::string input, std::string variable,
             }
             var = *syms.begin();
         }
-        const Expr c = trim(center).empty() ? make_num(0)
-                                            : parse_expression(trim(center));
+        const std::string ct = trim(center);
+        if (ct == "inf" || ct == "oo") {
+            return std::format(
+                "{{\"ok\":true,{}}}",
+                rendered_fields(series_at_infinity(e, var, order)));
+        }
+        const Expr c = ct.empty() ? make_num(0) : parse_expression(ct);
         return std::format("{{\"ok\":true,{}}}",
                            rendered_fields(series(e, var, c, order)));
+    });
+}
+
+/// mlimit(expr, xVar, a, yVar, b): two-variable limit by path sampling.
+std::string ms_mlimit(std::string input, std::string xvar, std::string a,
+                      std::string yvar, std::string b) {
+    return guarded([&]() -> std::string {
+        const LimitResult r =
+            limit_multi(parse_expression(input), trim(xvar),
+                        parse_expression(a), trim(yvar), parse_expression(b));
+        const char* status =
+            r.status == LimitResult::Status::Exact          ? "exact"
+            : r.status == LimitResult::Status::Numeric      ? "numeric"
+            : r.status == LimitResult::Status::Diverges     ? "diverges"
+            : r.status == LimitResult::Status::DoesNotExist ? "doesNotExist"
+                                                            : "unsolved";
+        std::string out = std::format("{{\"ok\":true,\"status\":{},\"sign\":{}",
+                                      jstr(status), r.sign);
+        if (r.status == LimitResult::Status::Exact) {
+            out += "," + rendered_fields(r.value);
+        } else if (r.status == LimitResult::Status::Numeric) {
+            out += std::format(",\"approx\":{}",
+                               jnum(evaluate(r.value, Bindings{})));
+        }
+        out += std::format(",\"method\":{},\"warnings\":{}}}", jstr(r.method),
+                           jarr_str(r.warnings));
+        return out;
     });
 }
 
@@ -910,6 +942,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("series", &ms_series);
     emscripten::function("vectorOp", &ms_vector_op);
     emscripten::function("limit", &ms_limit);
+    emscripten::function("mlimit", &ms_mlimit);
     emscripten::function("sum", &ms_sum);
     emscripten::function("product", &ms_product);
     emscripten::function("rsolve", &ms_rsolve);

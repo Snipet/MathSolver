@@ -190,6 +190,16 @@ try {
     pdeOut.includes("heat equation") && pdeOut.includes("Temperature profiles"),
     pdeOut.replace(/\n/g, " ").slice(0, 80),
   );
+  check(
+    "series at infinity",
+    (await run("series (x+1)/(x-1), x, inf, 3")).includes("2/x"),
+  );
+  const mlOut = await run("mlimit x*y/(x^2+y^2), x, 0, y, 0");
+  check(
+    "mlimit reports nonexistence with witnesses",
+    mlOut.includes("does not exist") && mlOut.includes("diagonal"),
+    mlOut.replace(/\n/g, " ").slice(0, 80),
+  );
   const dsysOut = await run("dsolve x' = y; y' = -x, x(0)=1, y(0)=0");
   check(
     "dsolve system in console",

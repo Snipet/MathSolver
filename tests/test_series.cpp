@@ -73,3 +73,42 @@ TEST_CASE("series: errors") {
     CHECK_THROWS_WITH(series(P("e^x"), "x", P("x + 1"), 3),
                       ContainsSubstring("must not depend"));
 }
+
+// ---------------------------------------------------------------------------
+// Asymptotic expansions at infinity
+// ---------------------------------------------------------------------------
+
+TEST_CASE("series at infinity: rational functions") {
+    // (x+1)/(x-1) = 1 + 2/x + 2/x^2 + ... — compare numerically at large x.
+    const Expr s = series_at_infinity(P("(x+1)/(x-1)"), "x", 4);
+    for (const double x : {50.0, 200.0}) {
+        const double want = (x + 1) / (x - 1);
+        CHECK(std::abs(evaluate(s, Bindings{{"x", x}}) - want) <
+              1e-8 * std::abs(want));
+    }
+    // Improper: the polynomial part is exact.
+    const Expr q = series_at_infinity(P("x^3/(x-1)"), "x", 2);
+    for (const double x : {60.0, 150.0}) {
+        const double want = x * x * x / (x - 1);
+        CHECK(std::abs(evaluate(q, Bindings{{"x", x}}) - want) <
+              1e-6 * std::abs(want));
+    }
+}
+
+TEST_CASE("series at infinity: transcendental reductions") {
+    // ln(1 + 1/x) = 1/x - 1/(2x^2) + 1/(3x^3) - ...
+    const Expr l = series_at_infinity(P("ln(1 + 1/x)"), "x", 3);
+    CHECK(std::abs(evaluate(l, Bindings{{"x", 40.0}}) -
+                   std::log(1.0 + 1.0 / 40.0)) < 2e-7);
+    // e^(1/x) = 1 + 1/x + 1/(2x^2) + ...
+    const Expr e = series_at_infinity(P("e^(1/x)"), "x", 4);
+    CHECK(std::abs(evaluate(e, Bindings{{"x", 25.0}}) -
+                   std::exp(1.0 / 25.0)) < 1e-8);
+}
+
+TEST_CASE("series at infinity: polynomials pass through, e^x errors") {
+    const Expr p = series_at_infinity(P("x^2 + 3x"), "x", 2);
+    CHECK(evaluate(p, Bindings{{"x", 7.0}}) == 70.0);
+    CHECK_THROWS_WITH(series_at_infinity(P("e^x"), "x", 3),
+                      ContainsSubstring("no expansion"));
+}

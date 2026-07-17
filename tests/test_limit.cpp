@@ -2,6 +2,7 @@
 // one-sided disagreement.
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/matchers/catch_matchers_string.hpp>
 
 #include <cmath>
 #include <string>
@@ -12,6 +13,7 @@
 #include "mathsolver/parser.hpp"
 
 using namespace mathsolver;
+using Catch::Matchers::ContainsSubstring;
 
 namespace {
 
@@ -177,4 +179,46 @@ TEST_CASE("limit review: undefined substitution values are rejected") {
 TEST_CASE("limit: errors") {
     CHECK_THROWS_AS(limit(P("x"), "", P("0"), 0), Error);
     CHECK_THROWS_AS(limit(P("x"), "x", P("x + 1"), 0), Error);
+}
+
+// ---------------------------------------------------------------------------
+// Multivariate limits (path sampling)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("mlimit: path disagreement proves nonexistence") {
+    // xy/(x^2+y^2): 0 along the axes, 1/2 along y = x.
+    const LimitResult r =
+        limit_multi(P("x*y/(x^2 + y^2)"), "x", P("0"), "y", P("0"));
+    CHECK(r.status == LimitResult::Status::DoesNotExist);
+    REQUIRE(r.warnings.size() == 2);
+    // (x^2 - y^2)/(x^2 + y^2): +1 and -1 along the two axes.
+    CHECK(limit_multi(P("(x^2 - y^2)/(x^2 + y^2)"), "x", P("0"), "y", P("0"))
+              .status == LimitResult::Status::DoesNotExist);
+}
+
+TEST_CASE("mlimit: the parabolic path catches xy^2/(x^2+y^4)") {
+    // Every straight line gives 0, but x = y^2 gives 1/2 — the classic.
+    const LimitResult r =
+        limit_multi(P("x*y^2/(x^2 + y^4)"), "x", P("0"), "y", P("0"));
+    CHECK(r.status == LimitResult::Status::DoesNotExist);
+}
+
+TEST_CASE("mlimit: agreement returns the value with a caveat") {
+    const LimitResult r =
+        limit_multi(P("x^2*y/(x^2 + y^2)"), "x", P("0"), "y", P("0"));
+    REQUIRE((r.status == LimitResult::Status::Exact ||
+             r.status == LimitResult::Status::Numeric));
+    CHECK(std::abs(evaluate(r.value, Bindings{})) < 1e-9);
+    CHECK(!r.warnings.empty()); // the not-a-proof caveat
+    // Continuous point: exact.
+    const LimitResult c =
+        limit_multi(P("x + 2*y"), "x", P("1"), "y", P("2"));
+    REQUIRE(c.status == LimitResult::Status::Exact);
+    CHECK(evaluate(c.value, Bindings{}) == 5.0);
+}
+
+TEST_CASE("mlimit: errors") {
+    CHECK_THROWS_AS(limit_multi(P("x"), "x", P("0"), "x", P("0")), Error);
+    CHECK_THROWS_WITH(limit_multi(P("x*t"), "x", P("0"), "y", P("0")),
+                      ContainsSubstring("path parameter"));
 }

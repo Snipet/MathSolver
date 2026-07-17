@@ -147,6 +147,19 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
     case "rsolve":
       // The a(n+k) grammar is not an expression; no live preview.
       return NONE;
+    case "mlimit": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      const x = args[1] ?? "x";
+      const y = args[3] ?? "y";
+      const a = args[2] ?? "?";
+      const b = args[4] ?? "?";
+      return {
+        kind: "math",
+        latex: `\\lim_{(${x},${y}) \\to (${a},${b})} ${f.latex}`,
+      };
+    }
     case "limit": {
       if (!expr) return NONE;
       const f = await fragment(expr);

@@ -36,4 +36,12 @@ LimitResult limit(const Expr& f, std::string_view var, const Expr& point,
 LimitResult limit_at_infinity(const Expr& f, std::string_view var,
                               bool positive);
 
+/// Two-variable limit of f as (xvar, yvar) -> (a, b), sampled along eight
+/// rays and two parabolic paths through the 1-D machinery. Disagreement
+/// between any two paths proves DoesNotExist (with both witnesses in the
+/// warnings); agreement returns the common value with an explicit
+/// "path sampling is evidence, not proof" caveat.
+LimitResult limit_multi(const Expr& f, std::string_view xvar, const Expr& a,
+                        std::string_view yvar, const Expr& b);
+
 } // namespace mathsolver

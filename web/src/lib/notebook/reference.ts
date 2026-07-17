@@ -86,6 +86,11 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         hint: "Limit at a point or ±inf (exact where possible)",
       },
       {
+        insert: "mlimit",
+        usage: "mlimit <expr>, <x>, <a>, <y>, <b>",
+        hint: "Two-variable limit by path sampling (rays + parabolas)",
+      },
+      {
         insert: "sum",
         usage: "sum <term>, <var>, <lo>, <hi>",
         hint: "Closed-form summation (hi may be a symbol or inf)",

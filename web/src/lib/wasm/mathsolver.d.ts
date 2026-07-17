@@ -15,6 +15,7 @@ export interface MathSolverModule {
   series(input: string, variable: string, center: string, order: number): string;
   vectorOp(op: string, fieldSemi: string, varsCsv: string): string;
   limit(input: string, variable: string, point: string, direction: string): string;
+  mlimit(input: string, xVar: string, a: string, yVar: string, b: string): string;
   sum(term: string, variable: string, lo: string, hi: string): string;
   product(term: string, variable: string, lo: string, hi: string): string;
   rsolve(recurrence: string, conditionsCsv: string): string;

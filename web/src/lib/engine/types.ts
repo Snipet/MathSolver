@@ -197,6 +197,10 @@ export interface EngineApi {
     [input: string, variable: string, point: string, direction: string],
     LimitCallResult,
   ];
+  mlimit: [
+    [input: string, xVar: string, a: string, yVar: string, b: string],
+    LimitCallResult,
+  ];
   sum: [[term: string, variable: string, lo: string, hi: string], SumCallResult];
   product: [
     [term: string, variable: string, lo: string, hi: string],

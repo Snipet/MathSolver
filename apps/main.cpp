@@ -333,8 +333,6 @@ void run_series(const std::string& input, const std::string& explicit_var,
                 PrintStyle style) {
     const Expr e = parse_expression_diag(input);
     const std::string var = choose_variable(explicit_var, free_symbols(e), "series");
-    const Expr center =
-        center_text.empty() ? make_num(0) : parse_expression_diag(center_text);
     int order = 6;
     if (!order_text.empty()) {
         const auto n = parse_double(order_text);
@@ -344,6 +342,12 @@ void run_series(const std::string& input, const std::string& explicit_var,
         }
         order = static_cast<int>(*n);
     }
+    if (center_text == "inf" || center_text == "oo") {
+        std::println("{}", to_string(series_at_infinity(e, var, order), style));
+        return;
+    }
+    const Expr center =
+        center_text.empty() ? make_num(0) : parse_expression_diag(center_text);
     std::println("{}", to_string(series(e, var, center, order), style));
 }
 
@@ -430,6 +434,44 @@ void run_limit(const std::string& input, const std::string& var,
     } else {
         r = limit(e, var, parse_expression_diag(point_text), dir);
     }
+    switch (r.status) {
+        case LimitResult::Status::Exact:
+            std::println("limit = {}", to_string(r.value, style));
+            break;
+        case LimitResult::Status::Numeric:
+            std::println("limit ≈ {:.10g}", evaluate(r.value, Bindings{}));
+            break;
+        case LimitResult::Status::Diverges:
+            std::println("limit = {}", r.sign > 0   ? "+inf"
+                                       : r.sign < 0 ? "-inf"
+                                                    : "inf (unsigned)");
+            break;
+        case LimitResult::Status::DoesNotExist:
+            std::println("the limit does not exist");
+            break;
+        case LimitResult::Status::Unsolved:
+            std::println("unable to determine the limit");
+            break;
+    }
+    if (!r.method.empty()) {
+        std::println("method: {}", r.method);
+    }
+    for (const std::string& w : r.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
+/// `mlimit <f> <x> <a> <y> <b>`: two-variable limit by path sampling.
+void run_mlimit(const std::string& input, const std::vector<std::string>& args,
+                PrintStyle style) {
+    if (args.size() != 5) {
+        throw UsageError{
+            "usage: mlimit <expression>, <x var>, <a>, <y var>, <b>"};
+    }
+    const Expr e = parse_expression_diag(input);
+    const LimitResult r =
+        limit_multi(e, args[1], parse_expression_diag(args[2]), args[3],
+                    parse_expression_diag(args[4]));
     switch (r.status) {
         case LimitResult::Status::Exact:
             std::println("limit = {}", to_string(r.value, style));
@@ -875,6 +917,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
                "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
+               "  mathsolver mlimit   \"x*y/(x^2+y^2)\" x 0 y 0\n"
                "  mathsolver sum      \"k^2\" k 1 n\n"
                "  mathsolver rsolve   \"a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1\"\n"
                "  mathsolver grad     \"x^2 + y^2\" x y\n"
@@ -904,7 +947,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "apart" || s == "dsolve" || s == "series" || s == "grad" ||
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
-           s == "rsolve";
+           s == "rsolve" || s == "mlimit";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1027,6 +1070,8 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_limit(input, positionals[1], positionals[2],
                       positionals.size() > 3 ? positionals[3] : "", style);
+        } else if (sub == "mlimit") {
+            run_mlimit(input, positionals, style);
         } else if (sub == "sum" || sub == "product") {
             run_sum(input, positionals, sub == "product", style);
         } else if (sub == "rsolve") {
@@ -1121,6 +1166,7 @@ void print_repl_help() {
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
         "  limit <expression>, <variable>, <point>[, left|right]\n"
         "         (point accepts numbers, inf, -inf)\n"
+        "  mlimit <expr>, <x>, <a>, <y>, <b>      2-D limit by path sampling\n"
         "  sum <term>, <var>, <lo>, <hi>          closed forms (hi may be inf)\n"
         "  product <term>, <var>, <lo>, <hi>\n"
         "  rsolve <recurrence>[, a(0)=v, ...]     e.g.\n"
@@ -1154,7 +1200,7 @@ bool is_repl_command(std::string_view word) {
            word == "series" || word == "grad" || word == "div" ||
            word == "curl" || word == "laplacian" || word == "jacobian" ||
            word == "hessian" || word == "limit" || word == "sum" ||
-           word == "product" || word == "rsolve";
+           word == "product" || word == "rsolve" || word == "mlimit";
 }
 
 // ---------------------------------------------------------------------------
@@ -1746,6 +1792,18 @@ void repl_command(const std::string& command, const std::string& rest,
         }
         run_integrate(resolved, var, from_text, to_text, PrintStyle::Plain);
         warn_assigned_variable(var, env);
+    } else if (command == "mlimit") {
+        const std::vector<std::string> parts2 = split_top_level_commas(rest);
+        if (parts2.size() != 5) {
+            throw UsageError{
+                "usage: mlimit <expression>, <x var>, <a>, <y var>, <b>"};
+        }
+        std::set<std::string> excluded{parts2[1], parts2[3]};
+        std::vector<std::string> args = parts2;
+        args[0] = to_string(
+            resolve_expr(parse_expression_diag(parts2[0]), env, excluded),
+            PrintStyle::Plain);
+        run_mlimit(args[0], args, PrintStyle::Plain);
     } else if (command == "limit") {
         // limit <expr>, <var>, <point>[, left|right]
         if (parts.size() < 3 || parts.size() > 4) {

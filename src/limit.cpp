@@ -20,6 +20,7 @@
 #include "mathsolver/derivative.hpp"
 #include "mathsolver/errors.hpp"
 #include "mathsolver/evaluator.hpp"
+#include "mathsolver/parser.hpp"
 #include "mathsolver/printer.hpp"
 #include "mathsolver/simplify.hpp"
 
@@ -413,6 +414,130 @@ LimitResult limit(const Expr& f, std::string_view var, const Expr& point,
     r.warnings.push_back(std::format("right limit: {}", describe(right)));
     r.method = "one-sided comparison";
     return r;
+}
+
+LimitResult limit_multi(const Expr& f, std::string_view xvar, const Expr& a,
+                        std::string_view yvar, const Expr& b) {
+    const std::string xv{xvar};
+    const std::string yv{yvar};
+    if (xv.empty() || yv.empty() || xv == yv) {
+        throw Error("mlimit needs two distinct variables");
+    }
+    if (xv != "t" && yv != "t" && contains_symbol(f, "t")) {
+        throw Error("mlimit uses t as the path parameter — rename the "
+                    "symbol t in the expression");
+    }
+    // Paths (dx(t), dy(t)) approaching t -> 0+: eight rays plus the two
+    // parabolas that catch the classic x = y^2 counterexamples.
+    struct Path {
+        const char* label;
+        const char* dx;
+        const char* dy;
+    };
+    const std::vector<Path> paths{
+        {"x-axis (+)", "t", "0"},     {"x-axis (-)", "-t", "0"},
+        {"y-axis (+)", "0", "t"},     {"y-axis (-)", "0", "-t"},
+        {"diagonal y=x", "t", "t"},   {"diagonal y=-x", "t", "-t"},
+        {"anti-diagonal", "-t", "t"}, {"ray (-1,-1)", "-t", "-t"},
+        {"parabola y=x^2", "t", "t^2"},
+        {"parabola x=y^2", "t^2", "t"},
+    };
+
+    struct Witness {
+        std::string label;
+        LimitResult r;
+    };
+    std::vector<Witness> definite;
+    int unsolved = 0;
+    for (const Path& p : paths) {
+        const Expr xt = simplify(make_add({a, parse_expression(p.dx)}));
+        const Expr yt = simplify(make_add({b, parse_expression(p.dy)}));
+        const Expr g = simplify(
+            substitute(substitute(f, xv, xt), yv, yt));
+        LimitResult r = limit(g, "t", make_num(0), +1);
+        if (r.status == LimitResult::Status::Exact ||
+            r.status == LimitResult::Status::Numeric ||
+            r.status == LimitResult::Status::Diverges) {
+            definite.push_back({p.label, std::move(r)});
+        } else {
+            ++unsolved;
+        }
+    }
+    LimitResult out;
+    if (definite.empty()) {
+        out.status = LimitResult::Status::Unsolved;
+        out.warnings.push_back("no path produced a definite limit");
+        return out;
+    }
+    // Compare every definite result against the first.
+    const auto value_of = [](const LimitResult& r) -> std::optional<double> {
+        if (r.status == LimitResult::Status::Diverges) {
+            return std::nullopt;
+        }
+        try {
+            return evaluate(r.value, Bindings{});
+        } catch (const Error&) {
+            return std::nullopt;
+        }
+    };
+    const auto describe_w = [&](const Witness& w) {
+        if (w.r.status == LimitResult::Status::Diverges) {
+            return std::format("along {}: {}", w.label,
+                               w.r.sign > 0   ? "+inf"
+                               : w.r.sign < 0 ? "-inf"
+                                              : "unbounded");
+        }
+        const auto v = value_of(w.r);
+        return std::format("along {}: {}", w.label,
+                           v ? std::format("{:.10g}", *v)
+                             : to_string(w.r.value, PrintStyle::Plain));
+    };
+    const Witness& first = definite.front();
+    for (const Witness& w : definite) {
+        const bool both_diverge =
+            first.r.status == LimitResult::Status::Diverges &&
+            w.r.status == LimitResult::Status::Diverges;
+        if (both_diverge) {
+            if (first.r.sign != w.r.sign) {
+                out.status = LimitResult::Status::DoesNotExist;
+                out.warnings = {describe_w(first), describe_w(w)};
+                out.method = "path comparison";
+                return out;
+            }
+            continue;
+        }
+        if ((first.r.status == LimitResult::Status::Diverges) !=
+            (w.r.status == LimitResult::Status::Diverges)) {
+            out.status = LimitResult::Status::DoesNotExist;
+            out.warnings = {describe_w(first), describe_w(w)};
+            out.method = "path comparison";
+            return out;
+        }
+        const auto v0 = value_of(first.r);
+        const auto v1 = value_of(w.r);
+        if (v0 && v1 &&
+            std::abs(*v0 - *v1) > 1e-6 * (1.0 + std::abs(*v0))) {
+            out.status = LimitResult::Status::DoesNotExist;
+            out.warnings = {describe_w(first), describe_w(w)};
+            out.method = "path comparison";
+            return out;
+        }
+    }
+    // Agreement across every definite path.
+    out = first.r;
+    bool all_exact = true;
+    for (const Witness& w : definite) {
+        all_exact = all_exact && w.r.status == LimitResult::Status::Exact;
+    }
+    if (out.status != LimitResult::Status::Diverges) {
+        out.status = all_exact && unsolved == 0
+                         ? LimitResult::Status::Exact
+                         : LimitResult::Status::Numeric;
+    }
+    out.method = std::format("agreement along {} paths", definite.size());
+    out.warnings.push_back(
+        "path sampling is evidence, not proof of a multivariate limit");
+    return out;
 }
 
 LimitResult limit_at_infinity(const Expr& f, std::string_view var,

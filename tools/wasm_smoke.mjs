@@ -87,6 +87,12 @@ check("sys feedback", ms.pluginCall("sys", "feedback", "1,s + 1,3"), (r) => r.ok
 check("sys rlocus", ms.pluginCall("sys", "rlocus", "1,s^3 + 3s^2 + 2s,100"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.series.some((s) => s.label.startsWith("locus"))) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Verdict" && v.includes("unstable near K"))), "locus + critical gain");
 check("sys tfz", ms.pluginCall("sys", "tfz", "z,z^2 - 0.5z + 0.06,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.equal === true && b.series.some((s) => s.label === "unit circle")) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("inside |z| = 1"))), "z-plane analysis");
 check("sys tfz unstable", ms.pluginCall("sys", "tfz", "1,z - 1.2,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("outside |z| = 1"))), "unstable z pole");
+// series at infinity + mlimit
+check("series at inf rational", ms.series("(x+1)/(x-1)", "x", "inf", 3), (r) => r.ok && r.plain.includes("2/x"), "1 + 2/x + ...");
+check("series at inf error", ms.series("e^x", "x", "inf", 3), (r) => !r.ok && r.error.includes("no expansion"), "e^x rejected");
+check("mlimit dne", ms.mlimit("x*y/(x^2 + y^2)", "x", "0", "y", "0"), (r) => r.ok && r.status === "doesNotExist" && r.warnings.length === 2, "witness paths reported");
+check("mlimit parabola trap", ms.mlimit("x*y^2/(x^2 + y^4)", "x", "0", "y", "0"), (r) => r.ok && r.status === "doesNotExist", "x = y^2 path caught");
+check("mlimit agree", ms.mlimit("x + 2*y", "x", "1", "y", "2"), (r) => r.ok && r.status === "exact" && r.plain === "5", "continuous point");
 // sys.dde (delay differential equations)
 check("sys dde", ms.pluginCall("sys", "dde", "-x_d,1,1,20"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.title === "Delay response") && r.blocks.some((b) => b.type === "kv" && b.items.some(([k]) => k === "Delay tau")), "oscillatory delay decay");
 check("sys dde error", ms.pluginCall("sys", "dde", "-x_d + y,1,1,20"), (r) => !r.ok && r.error.includes("found 'y'"), "stray symbol rejected");
