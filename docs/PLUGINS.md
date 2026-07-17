@@ -114,6 +114,7 @@ types take two edges and double the effective order.
 | `dsp.cheby2 <type>, <order 1-12>, <atten dB>, <fc>[, <f2>], <fs>` | Chebyshev II (equiripple stopband; cutoff = stop edge). |
 | `dsp.ellip <type>, <order 1-12>, <ripple dB>, <atten dB>, <fc>[, <f2>], <fs>` | Elliptic/Cauer (equiripple both bands — the sharpest transition per order). Jacobi elliptic functions by Landen recursion. |
 | `dsp.fir <type>, <taps 5-255>, <fc>[, <f2>], <fs>[, <window>[, <beta>]]` | Linear-phase windowed-sinc FIR (`rect`, `hann`, `hamming` default, `blackman`, `kaiser` with optional beta), response normalized to exactly unity at the band's reference frequency; odd taps required for high/band-stop. |
+| `dsp.remez <type>, <taps 5-255 odd>, <edges…>, <fs>[, <stop weight>]` | Optimal equiripple FIR by the Parks–McClellan (Remez exchange) algorithm. Edges are the transition-band corners — `fpass, fstop` for low-pass, `fstop, fpass` for high-pass, `fstop1, fpass1, fpass2, fstop2` for band-pass, `fpass1, fstop1, fstop2, fpass2` for band-stop. The optional stop weight (default 1) trades passband ripple for a deeper stopband. |
 | `dsp.freqz <fs Hz>, <b0>,<b1>,<b2>,<a1>,<a2> [, …groups of 5]` | Magnitude, phase, group delay, and time response of an arbitrary biquad cascade. |
 
 IIR design results carry: a summary (with the **measured** gain at each

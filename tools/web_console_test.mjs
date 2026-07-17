@@ -212,6 +212,14 @@ try {
     ellipOut.replace(/\n/g, " ").slice(0, 80),
   );
 
+  const remezOut = await run("dsp.remez lowpass, 31, 1000, 1500, 8000");
+  check(
+    "dsp.remez renders",
+    remezOut.includes("Parks") && remezOut.includes("Passband ripple") &&
+      remezOut.includes("Time response"),
+    remezOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
   await run("dsp.butter lowpass, 4, 30000, 48000");
   const pluginErr = await page.$eval(
     ".cells .cell:last-child",

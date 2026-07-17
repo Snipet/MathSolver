@@ -209,13 +209,14 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   The console also dispatches **plugin commands** — compiled-in C++ modules
   for numeric domains the CAS doesn't cover (see
   [docs/PLUGINS.md](docs/PLUGINS.md)). The built-in `dsp` plugin does IIR
-  filter design:
+  and FIR filter design:
 
   ```text
   dsp.butter lowpass, 4, 1000, 48000     → biquads + magnitude/phase/time
   dsp.cheby1 bandpass, 3, 1, 500, 2000, 48000
   dsp.ellip lowpass, 5, 1, 60, 1000, 48000
   dsp.fir lowpass, 101, 1000, 48000, kaiser, 10
+  dsp.remez lowpass, 31, 1000, 1500, 8000 → optimal equiripple (Parks–McClellan)
   dsp.freqz 48000, 0.2,0.4,0.2,-0.5,0.3  → response of your own biquads
   sys.tf s+1, s^2+3s+2                   → poles/zeros, margins, Bode, step
   sys.ode y'' + 3y' + 2y = u' + u        → ODE to transfer function

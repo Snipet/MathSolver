@@ -84,6 +84,33 @@ struct FirSpec {
 /// for BP).
 std::vector<double> design_fir(const FirSpec& spec);
 
+// --- FIR (equiripple, Parks–McClellan / Remez exchange) ---------------------
+
+/// One approximation band for the Remez exchange: a target amplitude and an
+/// error weight over a normalized-frequency interval (f/fs in [0, 0.5]).
+struct RemezBand {
+    double lo;       ///< Lower edge, normalized f = f/fs in [0, 0.5].
+    double hi;       ///< Upper edge, normalized f in [0, 0.5].
+    double desired;  ///< Target amplitude in this band (e.g. 1 pass, 0 stop).
+    double weight;   ///< Positive error weight (larger = tighter ripple).
+};
+
+/// Result of a Parks–McClellan design: the linear-phase taps plus the
+/// converged equiripple deviation and iteration diagnostics.
+struct RemezResult {
+    std::vector<double> taps;
+    double deviation = 0.0;  ///< Converged weighted ripple |E| (linear).
+    int iterations = 0;
+    bool converged = false;
+};
+
+/// Parks–McClellan optimal equiripple Type-I FIR (odd `taps`). Bands are given
+/// in normalized frequency, must be disjoint and strictly increasing, and each
+/// carries its own desired amplitude and weight. Minimizes the maximum
+/// weighted error via the Remez exchange (Chebyshev alternation).
+RemezResult remez_fir(int taps, const std::vector<RemezBand>& bands,
+                      int grid_density = 16);
+
 // --- responses --------------------------------------------------------------
 
 /// Frequency-response sample at one frequency.

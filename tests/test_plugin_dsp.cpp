@@ -57,15 +57,17 @@ TEST_CASE("plugins: builtin registration is idempotent and discoverable") {
 
 TEST_CASE("plugins: dsp advertises its commands with usage strings") {
     const auto cmds = dsp_plugin().commands();
-    REQUIRE(cmds.size() == 6);
+    REQUIRE(cmds.size() == 7);
     CHECK(cmds[0].name == "butter");
     CHECK_THAT(cmds[0].usage, ContainsSubstring("dsp.butter"));
     CHECK(cmds[1].name == "cheby1");
     CHECK(cmds[2].name == "cheby2");
     CHECK(cmds[3].name == "ellip");
     CHECK(cmds[4].name == "fir");
-    CHECK(cmds[5].name == "freqz");
-    CHECK_THAT(cmds[5].usage, ContainsSubstring("dsp.freqz"));
+    CHECK(cmds[5].name == "remez");
+    CHECK_THAT(cmds[5].usage, ContainsSubstring("dsp.remez"));
+    CHECK(cmds[6].name == "freqz");
+    CHECK_THAT(cmds[6].usage, ContainsSubstring("dsp.freqz"));
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +438,96 @@ TEST_CASE("dsp: fir validation errors") {
                     dsp::DesignError); // even taps for HP
     CHECK_THROWS_AS(dsp::design_fir(fir_spec(Kind::Lowpass, 101, 30000, 0, 48000)),
                     dsp::DesignError);
+}
+
+// ---------------------------------------------------------------------------
+// Parks–McClellan equiripple FIR (Remez exchange)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+/// Zero-phase amplitude A(ω) of a symmetric Type-I FIR at normalized f.
+double fir_amp_at(const std::vector<double>& h, double norm_f) {
+    const double w = 2.0 * std::numbers::pi * norm_f;
+    const double m = (static_cast<double>(h.size()) - 1.0) / 2.0;
+    double a = 0.0;
+    for (std::size_t n = 0; n < h.size(); ++n) {
+        a += h[n] * std::cos(w * (static_cast<double>(n) - m));
+    }
+    return a;
+}
+
+/// Worst absolute deviation from `target` over the normalized band [lo, hi].
+double worst_dev(const std::vector<double>& h, double lo, double hi,
+                 double target) {
+    double worst = 0.0;
+    for (double f = lo; f <= hi; f += 0.0005) {
+        worst = std::max(worst, std::abs(fir_amp_at(h, f) - target));
+    }
+    return worst;
+}
+
+} // namespace
+
+TEST_CASE("dsp: remez low-pass is symmetric and equiripple in both bands") {
+    const auto r = dsp::remez_fir(31, {{0.0, 0.2, 1.0, 1.0}, {0.25, 0.5, 0.0, 1.0}});
+    REQUIRE(r.taps.size() == 31);
+    CHECK(r.converged);
+    for (std::size_t n = 0; n < r.taps.size(); ++n) {
+        CHECK(std::abs(r.taps[n] - r.taps[r.taps.size() - 1 - n]) < 1e-12);
+    }
+    // Equal weights -> equal passband and stopband ripple, both ~ deviation.
+    const double dp = worst_dev(r.taps, 0.0, 0.2, 1.0);
+    const double ds = worst_dev(r.taps, 0.25, 0.5, 0.0);
+    CHECK(std::abs(dp - ds) < 0.02 * dp);          // equiripple
+    CHECK(std::abs(dp - r.deviation) < 0.02 * dp); // deviation matches
+}
+
+TEST_CASE("dsp: remez weighting trades passband ripple for stopband depth") {
+    const auto r =
+        dsp::remez_fir(31, {{0.0, 0.2, 1.0, 1.0}, {0.25, 0.5, 0.0, 10.0}});
+    const double dp = worst_dev(r.taps, 0.0, 0.2, 1.0);
+    const double ds = worst_dev(r.taps, 0.25, 0.5, 0.0);
+    // A weight of 10 on the stopband makes its ripple ~ 10x smaller.
+    CHECK(dp / ds > 8.0);
+    CHECK(dp / ds < 12.0);
+}
+
+TEST_CASE("dsp: remez beats a windowed-sinc filter of equal length") {
+    // For the same length and transition band, the optimal filter's peak
+    // stopband ripple is smaller than a Hamming window's.
+    const auto opt =
+        dsp::remez_fir(41, {{0.0, 0.18, 1.0, 1.0}, {0.25, 0.5, 0.0, 1.0}});
+    const double opt_stop = worst_dev(opt.taps, 0.25, 0.5, 0.0);
+    const auto win = dsp::design_fir(
+        fir_spec(Kind::Lowpass, 41, 0.215 * 48000, 0, 48000)); // edge mid-band
+    double win_stop = 0.0;
+    for (double f = 0.25; f <= 0.5; f += 0.0005) {
+        win_stop = std::max(win_stop, std::abs(fir_amp_at(win, f)));
+    }
+    CHECK(opt_stop < win_stop);
+}
+
+TEST_CASE("dsp: remez high-pass and band-pass reach their bands") {
+    const auto hp =
+        dsp::remez_fir(31, {{0.0, 0.2, 0.0, 1.0}, {0.25, 0.5, 1.0, 1.0}});
+    CHECK(std::abs(fir_amp_at(hp.taps, 0.5) - 1.0) < 0.05); // ~unity at Nyquist
+    CHECK(worst_dev(hp.taps, 0.0, 0.2, 0.0) < 0.05);        // stopband at DC
+
+    const auto bp = dsp::remez_fir(
+        41, {{0.0, 0.12, 0.0, 1.0}, {0.18, 0.32, 1.0, 1.0}, {0.38, 0.5, 0.0, 1.0}});
+    CHECK(std::abs(fir_amp_at(bp.taps, 0.25) - 1.0) < 0.08); // ~unity mid-band
+    CHECK(worst_dev(bp.taps, 0.0, 0.12, 0.0) < 0.08);
+    CHECK(worst_dev(bp.taps, 0.38, 0.5, 0.0) < 0.08);
+}
+
+TEST_CASE("dsp: remez validation errors") {
+    CHECK_THROWS_AS(dsp::remez_fir(30, {{0.0, 0.2, 1.0, 1.0}, {0.25, 0.5, 0.0, 1.0}}),
+                    dsp::DesignError); // even taps
+    CHECK_THROWS_AS(dsp::remez_fir(31, {{0.0, 0.3, 1.0, 1.0}, {0.2, 0.5, 0.0, 1.0}}),
+                    dsp::DesignError); // overlapping bands
+    CHECK_THROWS_AS(dsp::remez_fir(31, {{0.0, 0.6, 1.0, 1.0}}),
+                    dsp::DesignError); // single band + out of range
 }
 
 // ---------------------------------------------------------------------------
