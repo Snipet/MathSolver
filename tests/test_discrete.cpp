@@ -199,6 +199,51 @@ TEST_CASE("rsolve: missing conditions default to zero with a warning") {
     CHECK(std::abs(evaluate(r.solution, Bindings{{"n", 10.0}}) - 55.0) < 1e-6);
 }
 
+// ---------------------------------------------------------------------------
+// Regressions from the adversarial review (each was a confirmed defect)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("sum review: constant irrational ratios are classified, not warned") {
+    // 2^(k/2) has ratio sqrt(2) > 1: divergent, not "Exact with a warning".
+    CHECK(sum_infinite(P("2^(k/2)"), "k", P("0")).status ==
+          SumResult::Status::Diverges);
+}
+
+TEST_CASE("sum review: fractional numeric bounds are rejected") {
+    const SumResult r = sum_finite(P("k"), "k", P("1"), P("-5/2"));
+    CHECK(r.status == SumResult::Status::Unsolved);
+    const SumResult r2 = sum_finite(P("k"), "k", P("1"), P("21/2"));
+    CHECK(r2.status == SumResult::Status::Unsolved);
+}
+
+TEST_CASE("sum review: telescoping cancels across additive terms") {
+    // 1/k - 1/(k+1) telescopes to exactly 1 even though each term alone is
+    // harmonically divergent.
+    const SumResult r = sum_infinite(P("1/k - 1/(k+1)"), "k", P("1"));
+    REQUIRE(r.status == SumResult::Status::Exact);
+    CHECK(evaluate(r.value, Bindings{}) == 1.0);
+}
+
+TEST_CASE("sum review: ratio comparison at 1 is exact, not rounded") {
+    // (2^62-1)/2^62 < 1 exactly, though it rounds to 1.0 in double.
+    const SumResult r = sum_infinite(
+        P("(4611686018427387903/4611686018427387904)^k"), "k", P("0"));
+    CHECK(r.status != SumResult::Status::Diverges);
+}
+
+TEST_CASE("sum review: rational overflow is Unsolved, not an escape") {
+    // H(45) does not fit a 64-bit rational; the API must not throw.
+    const SumResult r = sum_infinite(P("1/(k*(k+45))"), "k", P("1"));
+    CHECK(r.status == SumResult::Status::Unsolved);
+}
+
+TEST_CASE("rsolve review: fully cancelling coefficients error, not crash") {
+    CHECK_THROWS_WITH(rsolve("a(n) = a(n)", {}),
+                      ContainsSubstring("not a recurrence"));
+    CHECK_THROWS_WITH(rsolve("a(n) + a(n) = 2*a(n) + n", {}),
+                      ContainsSubstring("not a recurrence"));
+}
+
 TEST_CASE("rsolve: errors are specific") {
     CHECK_THROWS_WITH(rsolve("a(n+1) + a(n)", {}), ContainsSubstring("'='"));
     CHECK_THROWS_WITH(rsolve("n = 1", {}), ContainsSubstring("no a("));

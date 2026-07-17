@@ -14,6 +14,7 @@
 #include <cctype>
 #include <cmath>
 #include <format>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
@@ -357,10 +358,27 @@ SumResult sum_term_infinite(const Expr& term, const std::string& var,
         res.method = "polynomial terms do not vanish";
         return res;
     }
-    const auto rn = as_num(simplify(r));
+    const Expr r_simple = simplify(r);
+    const auto rn = as_num(r_simple);
     SumResult res;
     if (rn) {
-        const double magnitude = std::abs(rn->to_double());
+        // Exact rational comparison: to_double rounds (2^62-1)/2^62 to 1.0
+        // and would misreport a convergent series as divergent.
+        const Rational mag = rn->num() < 0 ? -*rn : *rn;
+        if (!(mag < Rational{1})) {
+            res.status = SumResult::Status::Diverges;
+            res.method = "|ratio| >= 1";
+            return res;
+        }
+    } else if (free_symbols(r_simple).empty()) {
+        // Constant but irrational ratio (sqrt(2), e, ...): classify
+        // numerically — it is NOT a free parameter and must not get the
+        // "valid for |r| < 1" escape hatch.
+        double magnitude = std::numeric_limits<double>::infinity();
+        try {
+            magnitude = std::abs(evaluate(r_simple, Bindings{}));
+        } catch (const Error&) {
+        }
         if (magnitude >= 1.0) {
             res.status = SumResult::Status::Diverges;
             res.method = "|ratio| >= 1";
@@ -407,6 +425,11 @@ SumResult sum_finite(const Expr& term, std::string_view var, const Expr& lo,
         return unsolved("the lower bound must be an integer");
     }
     const auto hi_i = as_integer(hi);
+    if (!hi_i && simplify(hi)->kind() == Kind::Number) {
+        // A fractional numeric bound must not masquerade as a symbol (the
+        // fitted closed form would happily evaluate at n = -5/2).
+        return unsolved("the upper bound must be an integer or a symbol");
+    }
     if (hi_i && *hi_i < *lo_i) {
         SumResult r;
         r.status = SumResult::Status::Exact;
@@ -414,38 +437,42 @@ SumResult sum_finite(const Expr& term, std::string_view var, const Expr& lo,
         r.method = "empty range";
         return r;
     }
-    // Small numeric ranges: sum directly (always exact, no fitting).
-    if (hi_i && *hi_i - *lo_i <= 64) {
-        SumResult r;
-        r.status = SumResult::Status::Exact;
-        r.value = partial_sum(simplify(term), v, *lo_i, *hi_i);
-        r.method = "direct summation";
-        return r;
-    }
+    try {
+        // Small numeric ranges: sum directly (always exact, no fitting).
+        if (hi_i && *hi_i - *lo_i <= 64) {
+            SumResult r;
+            r.status = SumResult::Status::Exact;
+            r.value = partial_sum(simplify(term), v, *lo_i, *hi_i);
+            r.method = "direct summation";
+            return r;
+        }
 
-    const Expr t = simplify(term);
-    const std::vector<Expr> terms =
-        t->kind() == Kind::Add ? t->args() : std::vector<Expr>{t};
-    std::vector<Expr> pieces;
-    SumResult out;
-    for (const Expr& one : terms) {
-        SumResult part = sum_term_closed(one, v, *lo_i);
-        if (part.status != SumResult::Status::Exact) {
-            return part;
+        const Expr t = simplify(term);
+        const std::vector<Expr> terms =
+            t->kind() == Kind::Add ? t->args() : std::vector<Expr>{t};
+        std::vector<Expr> pieces;
+        SumResult out;
+        for (const Expr& one : terms) {
+            SumResult part = sum_term_closed(one, v, *lo_i);
+            if (part.status != SumResult::Status::Exact) {
+                return part;
+            }
+            out.warnings.insert(out.warnings.end(), part.warnings.begin(),
+                                part.warnings.end());
+            if (out.method.empty()) {
+                out.method = part.method;
+            } else if (out.method != part.method) {
+                out.method = "termwise closed forms";
+            }
+            pieces.push_back(part.value);
         }
-        out.warnings.insert(out.warnings.end(), part.warnings.begin(),
-                            part.warnings.end());
-        if (out.method.empty()) {
-            out.method = part.method;
-        } else if (out.method != part.method) {
-            out.method = "termwise closed forms";
-        }
-        pieces.push_back(part.value);
+        const Expr closed = simplify(make_add(std::move(pieces)));
+        out.status = SumResult::Status::Exact;
+        out.value = simplify(substitute(closed, v, hi));
+        return out;
+    } catch (const Error& e) {
+        return unsolved(e.what()); // 64-bit rational overflow etc.
     }
-    const Expr closed = simplify(make_add(std::move(pieces)));
-    out.status = SumResult::Status::Exact;
-    out.value = simplify(substitute(closed, v, hi));
-    return out;
 }
 
 SumResult sum_infinite(const Expr& term, std::string_view var, const Expr& lo) {
@@ -458,30 +485,41 @@ SumResult sum_infinite(const Expr& term, std::string_view var, const Expr& lo) {
         return unsolved("the lower bound must be an integer");
     }
     const Expr t = simplify(term);
-    const std::vector<Expr> terms =
-        t->kind() == Kind::Add ? t->args() : std::vector<Expr>{t};
-    std::vector<Expr> pieces;
-    SumResult out;
-    for (const Expr& one : terms) {
-        SumResult part = sum_term_infinite(one, v, *lo_i);
-        if (part.status == SumResult::Status::Diverges) {
-            return part;
+    try {
+        // Whole-expression pass FIRST: partial-fraction cancellation can
+        // happen ACROSS additive terms (1/k - 1/(k+1) telescopes to 1 even
+        // though each term alone is harmonically divergent), so a termwise
+        // divergence verdict is only trustworthy when the whole-expression
+        // telescoping did not resolve it.
+        SumResult whole = sum_term_infinite(t, v, *lo_i);
+        if (whole.status != SumResult::Status::Unsolved ||
+            t->kind() != Kind::Add) {
+            return whole;
         }
-        if (part.status != SumResult::Status::Exact) {
-            return part;
+        std::vector<Expr> pieces;
+        SumResult out;
+        for (const Expr& one : t->args()) {
+            SumResult part = sum_term_infinite(one, v, *lo_i);
+            if (part.status != SumResult::Status::Exact) {
+                return part;
+            }
+            out.warnings.insert(out.warnings.end(), part.warnings.begin(),
+                                part.warnings.end());
+            if (out.method.empty()) {
+                out.method = part.method;
+            } else if (out.method != part.method) {
+                out.method = "termwise closed forms";
+            }
+            pieces.push_back(part.value);
         }
-        out.warnings.insert(out.warnings.end(), part.warnings.begin(),
-                            part.warnings.end());
-        if (out.method.empty()) {
-            out.method = part.method;
-        } else if (out.method != part.method) {
-            out.method = "termwise closed forms";
-        }
-        pieces.push_back(part.value);
+        out.status = SumResult::Status::Exact;
+        out.value = simplify(make_add(std::move(pieces)));
+        return out;
+    } catch (const Error& e) {
+        // Exact arithmetic can overflow 64-bit rationals (harmonic numbers
+        // past ~H(44)); that is an honest Unsolved, not an exception.
+        return unsolved(e.what());
     }
-    out.status = SumResult::Status::Exact;
-    out.value = simplify(make_add(std::move(pieces)));
-    return out;
 }
 
 SumResult product_finite(const Expr& term, std::string_view var, const Expr& lo,
@@ -495,6 +533,9 @@ SumResult product_finite(const Expr& term, std::string_view var, const Expr& lo,
         return unsolved("the lower bound must be an integer");
     }
     const auto hi_i = as_integer(hi);
+    if (!hi_i && simplify(hi)->kind() == Kind::Number) {
+        return unsolved("the upper bound must be an integer or a symbol");
+    }
     if (hi_i) {
         if (*hi_i < *lo_i) {
             SumResult r;
@@ -506,15 +547,19 @@ SumResult product_finite(const Expr& term, std::string_view var, const Expr& lo,
         if (*hi_i - *lo_i > 512) {
             return unsolved("numeric products are capped at 512 factors");
         }
-        std::vector<Expr> fs;
-        for (long long k = *lo_i; k <= *hi_i; ++k) {
-            fs.push_back(substitute(simplify(term), v, make_num(k)));
+        try {
+            std::vector<Expr> fs;
+            for (long long k = *lo_i; k <= *hi_i; ++k) {
+                fs.push_back(substitute(simplify(term), v, make_num(k)));
+            }
+            SumResult r;
+            r.status = SumResult::Status::Exact;
+            r.value = simplify(make_mul(std::move(fs)));
+            r.method = "direct product";
+            return r;
+        } catch (const Error& e) {
+            return unsolved(e.what()); // 64-bit rational overflow
         }
-        SumResult r;
-        r.status = SumResult::Status::Exact;
-        r.value = simplify(make_mul(std::move(fs)));
-        r.method = "direct product";
-        return r;
     }
     // Symbolic upper bound: constant and geometric factors only.
     Expr rr, poly;
@@ -722,6 +767,10 @@ RsolveResult rsolve(std::string_view recurrence,
     if (contains_symbol(forcing, "a")) {
         throw Error("rsolve: only linear recurrences with constant "
                     "coefficients are supported");
+    }
+    if (shifted.empty()) {
+        throw Error("rsolve: every a(...) coefficient cancels — the equation "
+                    "is not a recurrence");
     }
     const long long order = shifted.rbegin()->first;
     if (order < 1) {
