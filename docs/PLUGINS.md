@@ -149,6 +149,17 @@ substeps chosen from the fastest pole).
 | `sys.rlocus <num>, <den>[, <K max>]` | Root locus: closed-loop pole sweep (160 gains over four decades) as a scatter, with open-loop poles/zeros marked and the smallest destabilizing K reported. |
 | `sys.tfz <num>, <den>, <fs Hz>` | Analyze a **discrete** transfer function H(z) (positive powers of z): poles/zeros with \|z\|/angle, stability by \|pole\| < 1, pole-zero map with the **unit circle** (equal-aspect), magnitude/phase response, and step + impulse from the difference equation. |
 | `sys.c2d <num>, <den>, <fs Hz>` | Discretize via the bilinear transform into digital biquads — reusing the dsp plugin's public `Zpk`/`bilinear_zpk`/`zpk_to_biquads` machinery — with the digital-vs-analog magnitude overlay. |
+| `sys.dde <f(t, x, x_d)>, <tau>, <phi(t)>, <T>` | **Delay differential equation** x′(t) = f(t, x, x(t−τ)) by the method of steps: RK4 with the delayed value interpolated from the stored solution (history φ before t = 0). The chart shows the history segment and the response. `x_d` is the delayed value (a subscripted symbol). |
+
+The **pde** plugin solves the classic 1-D boundary-value problems on
+`[0, L]` with homogeneous Dirichlet conditions by separation of variables —
+initial data expands in the sine eigenbasis with coefficients from the CAS
+integrator (exact where its rules reach, numeric otherwise):
+
+| Command | What it does |
+| --- | --- |
+| `pde.heat <L>, <alpha>, <f(x)>[, <T>]` | u_t = α u_xx with u(x,0) = f(x): b_n table, mode-1 time constant, and temperature profiles at t = 0, T/16, T/4, T. |
+| `pde.wave <L>, <c>, <f(x)>[, <g(x)>[, <T>]]` | u_tt = c² u_xx with displacement f and optional velocity g: displacement profiles across the fundamental period 2L/c. |
 
 The **linalg** plugin does dense linear algebra. Matrices are written
 `[1 2; 3 4]` (rows by `;`, entries by spaces or commas); entries are full

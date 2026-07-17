@@ -128,6 +128,17 @@ y(t) = sqrt(-2*(-t^2/2 - 2))
 method: separation of variables
 ```
 
+First-order linear **systems** solve through a single exact linear solve
+over rational functions of s — `;`-separated equations share the initial
+conditions:
+
+```console
+$ mathsolver dsolve "x' = -2x + y; y' = x - 2y, x(0)=1, y(0)=0"
+x(t) = e^(-3*t)/2 + e^(-t)/2
+y(t) = -e^(-3*t)/2 + e^(-t)/2
+method: laplace transform + linear solve + partial fractions
+```
+
 Two supporting verbs round out the calculus toolkit. `apart` expands a
 rational function into partial fractions over the rationals (linear and
 irreducible-quadratic factors, repeated factors, improper inputs divided
@@ -162,6 +173,20 @@ $ mathsolver limit "1/x" x 0
 the limit does not exist
 warning: left limit: -inf
 warning: right limit: +inf
+```
+
+Two-variable limits sample eight rays plus the parabolic paths that catch
+the classic counterexamples; disagreement proves nonexistence with both
+witnesses shown, agreement returns the value with an honest caveat.
+`series` also expands at infinity:
+
+```console
+$ mathsolver mlimit "x*y^2/(x^2+y^4)" x 0 y 0
+the limit does not exist
+warning: along x-axis (+): 0
+warning: along parabola x=y^2: 0.5
+$ mathsolver series "(x+1)/(x-1)" x inf 3
+1 + 2/x + 2/x^2 + 2/x^3
 ```
 
 Multivariate and vector calculus — `grad`, `div`, `curl` (3-D vector and
@@ -323,6 +348,9 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   linalg.eig [0 -1; 1 0]                 → eigenvalues incl. complex pairs
   linalg.svd [1 2; 3 4; 5 6]             → singular values, rank, cond
   linalg.det [a b; c d]                  → symbolic determinants (Bareiss)
+  pde.heat 1, 1, x*(1-x)                 → heat equation: Fourier series + profiles
+  pde.wave 1, 2, sin(pi*x)               → wave equation: standing-wave evolution
+  sys.dde -x_d, 1, 1, 20                 → delay equation x' = -x(t-1) by steps
   sys.tf s+1, s^2+3s+2                   → poles/zeros, margins, Bode, step
   sys.ode y'' + 3y' + 2y = u' + u        → ODE to transfer function
   sys.feedback 1, s(s+1)(s+2), 2         → closed loop under gain-K feedback
