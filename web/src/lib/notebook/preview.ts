@@ -145,6 +145,26 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
         latex: `\\frac{d}{d${v}}\\left(${f.latex}\\right)`,
       };
     }
+    case "laplace": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      return {
+        kind: "math",
+        latex: `\\mathcal{L}\\left\\{${f.latex}\\right\\}`,
+        note: args[1] ? `in ${args[1]}` : undefined,
+      };
+    }
+    case "ilaplace": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      return {
+        kind: "math",
+        latex: `\\mathcal{L}^{-1}\\left\\{${f.latex}\\right\\}`,
+        note: args[1] ? `in ${args[1]}` : undefined,
+      };
+    }
     case "integrate": {
       if (!expr) return NONE;
       const f = await fragment(expr);

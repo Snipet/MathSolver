@@ -55,6 +55,16 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         usage: "integrate <expr>[, <var>[, <lo>, <hi>]]",
         hint: "Antiderivative, or a definite integral with bounds",
       },
+      {
+        insert: "laplace",
+        usage: "laplace <expr>[, <t>]",
+        hint: "Laplace transform f(t) → F(s)",
+      },
+      {
+        insert: "ilaplace",
+        usage: "ilaplace <expr>[, <s>]",
+        hint: "Inverse Laplace F(s) → f(t)",
+      },
     ],
   },
   {

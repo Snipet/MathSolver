@@ -2,8 +2,9 @@
 
 A from-scratch computer-algebra system (CAS) in C++23: parse LaTeX-style math,
 simplify and transform expressions, differentiate and integrate symbolically,
-and solve equations — exactly where possible, numerically otherwise. No dependencies
-beyond the standard library (Catch2 is fetched automatically for tests only).
+take Laplace transforms and their inverses, and solve equations — exactly
+where possible, numerically otherwise. No dependencies beyond the standard
+library (Catch2 is fetched automatically for tests only).
 
 ## Build
 
@@ -69,6 +70,29 @@ An integral the rules cannot handle is reported honestly (`unable to
 integrate`) rather than guessed: every candidate antiderivative is verified
 by differentiating it back before it is printed.
 
+Laplace transforms — `laplace` maps a time function `f(t)` to `F(s)`, and
+`ilaplace` inverts `F(s)` back to `f(t)`. The forward transform composes a
+base table (1, `sin`/`cos`/`sinh`/`cosh`) with the s-shift theorem
+(`L{e^{at} g} = G(s - a)`) and frequency differentiation (`L{t^n g} =
+(-1)^n dⁿ/dsⁿ G`); the inverse matches each partial-fraction term against
+linear factors `c/(s - a)^n` and irreducible quadratics (completing the
+square into damped `sin`/`cos`):
+
+```console
+$ mathsolver laplace "e^(-t) sin(2t)"
+2/((s + 1)^2 + 4)
+$ mathsolver laplace "t^2 e^(-3t)"
+2/(s + 3)^3
+$ mathsolver ilaplace "1/(s^2 + 2s + 5)"
+e^(-t)*sin(2*t)/2
+$ mathsolver ilaplace "(2s + 3)/(s^2 + 4)"
+2*cos(2*t) + 3*sin(2*t)/2
+```
+
+The time variable defaults to `t` (any name but `s`) and the frequency
+variable to `s`; both accept an explicit name as a second argument. Inputs
+with no transform rule error rather than returning a wrong answer.
+
 Systems of equations — separate the equations with `;` inside one argument
 (the variables after it are optional when they can be inferred):
 
@@ -111,8 +135,9 @@ cos(x)/x - sin(x)/x^2
 
 A bare expression is simplified; a bare equation is solved for its single
 free symbol; `help` lists the commands (`solve`, `diff`, `integrate`,
-`eval`, `subs`, `collect`, `expand`, `factor`, `latex`, `debug` — e.g.
-`integrate sin(x), x, 0, pi`); errors keep the session alive.
+`laplace`, `ilaplace`, `eval`, `subs`, `collect`, `expand`, `factor`,
+`latex`, `debug` — e.g. `integrate sin(x), x, 0, pi`); errors keep the
+session alive.
 
 The REPL (and the web app) also keeps a session environment of **variable
 assignments**, entered as `name := value` and applied lazily to every

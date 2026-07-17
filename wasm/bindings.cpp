@@ -308,6 +308,24 @@ std::string ms_derivative(std::string input, std::string var) {
     });
 }
 
+/// laplace(expr, timeVar): f(t) -> F(s). Empty timeVar defaults to t.
+std::string ms_laplace(std::string input, std::string time) {
+    return guarded([&]() -> std::string {
+        const std::string t = trim(time).empty() ? "t" : trim(time);
+        const Expr F = laplace(parse_expression(input), t);
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(F));
+    });
+}
+
+/// ilaplace(expr, freqVar): F(s) -> f(t). Empty freqVar defaults to s.
+std::string ms_ilaplace(std::string input, std::string svar) {
+    return guarded([&]() -> std::string {
+        const std::string s = trim(svar).empty() ? "s" : trim(svar);
+        const Expr f = inverse_laplace(parse_expression(input), s);
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(f));
+    });
+}
+
 std::string ms_integrate(std::string input, std::string var) {
     return guarded([&]() -> std::string {
         const IntegrateResult r = integrate(parse_expression(input), var);
@@ -546,6 +564,8 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("subs", &ms_subs);
     emscripten::function("collect", &ms_collect);
     emscripten::function("derivative", &ms_derivative);
+    emscripten::function("laplace", &ms_laplace);
+    emscripten::function("ilaplace", &ms_ilaplace);
     emscripten::function("integrate", &ms_integrate);
     emscripten::function("integrateDefinite", &ms_integrate_definite);
     emscripten::function("solve", &ms_solve);

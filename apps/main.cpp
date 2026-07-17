@@ -290,6 +290,24 @@ void run_diff(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(differentiate(e, var), style));
 }
 
+/// `laplace` maps f(t) -> F(s); the time variable defaults to t and may be
+/// given explicitly (any name but s). Errors from the transform (e.g. no rule
+/// for the input) propagate as normal Error diagnostics.
+void run_laplace(const std::string& input, const std::string& explicit_var,
+                 PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = explicit_var.empty() ? "t" : explicit_var;
+    std::println("{}", to_string(laplace(e, var), style));
+}
+
+/// `ilaplace` maps F(s) -> f(t); the frequency variable defaults to s.
+void run_ilaplace(const std::string& input, const std::string& explicit_var,
+                  PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = explicit_var.empty() ? "s" : explicit_var;
+    std::println("{}", to_string(inverse_laplace(e, var), style));
+}
+
 /// `collect` regroups the expression as a polynomial in the variable (§7
 /// collect); the variable is inferred exactly like diff when omitted.
 void run_collect(const std::string& input, const std::string& explicit_var,
@@ -631,6 +649,8 @@ void print_usage(std::FILE* out) {
                "  mathsolver diff     \"sin(x^2)\" [x]\n"
                "  mathsolver integrate \"x*sin(x)\" [x]\n"
                "  mathsolver integrate \"sin(x)\" [x] --from 0 --to pi\n"
+               "  mathsolver laplace  \"e^(-t) sin(2t)\" [t]\n"
+               "  mathsolver ilaplace \"1/(s^2 + 2s + 5)\" [s]\n"
                "  mathsolver eval     \"x^2 + y\" x=3 y=0.5\n"
                "  mathsolver latex    \"sqrt(x)/2\"\n"
                "  mathsolver --help | --version\n"
@@ -652,7 +672,7 @@ void print_usage(std::FILE* out) {
 bool is_known_subcommand(std::string_view s) {
     return s == "simplify" || s == "expand" || s == "factor" || s == "solve" ||
            s == "diff" || s == "integrate" || s == "eval" || s == "latex" ||
-           s == "subs" || s == "collect";
+           s == "subs" || s == "collect" || s == "laplace" || s == "ilaplace";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -741,7 +761,7 @@ int run_one_shot(const std::vector<std::string>& args) {
                                                 positionals.end());
             run_solve_system(input, vars, style);
         } else if (sub == "solve" || sub == "diff" || sub == "integrate" ||
-                   sub == "collect") {
+                   sub == "collect" || sub == "laplace" || sub == "ilaplace") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (usage: mathsolver {} \"<input>\" [var])",
@@ -754,6 +774,10 @@ int run_one_shot(const std::vector<std::string>& args) {
                 run_diff(input, var, style);
             } else if (sub == "collect") {
                 run_collect(input, var, style);
+            } else if (sub == "laplace") {
+                run_laplace(input, var, style);
+            } else if (sub == "ilaplace") {
+                run_ilaplace(input, var, style);
             } else {
                 run_integrate(input, var, from_text, to_text, style);
             }
@@ -815,6 +839,8 @@ void print_repl_help() {
         "  eval <expression>, x=1[, y=2 ...]\n"
         "  subs <expression>, x=y+1[, z=2 ...]\n"
         "  collect <expression>[, <variable>]\n"
+        "  laplace <expression>[, <time var>]     f(t) -> F(s)\n"
+        "  ilaplace <expression>[, <freq var>]    F(s) -> f(t)\n"
         "  simplify <expression>      expand <expression>\n"
         "  factor <expression>        latex <expression>\n"
         "  debug <expression>         (s-expression dump)\n"
@@ -837,7 +863,8 @@ bool is_repl_command(std::string_view word) {
     return word == "simplify" || word == "expand" || word == "factor" ||
            word == "solve" || word == "diff" || word == "integrate" ||
            word == "eval" || word == "latex" || word == "debug" ||
-           word == "subs" || word == "collect";
+           word == "subs" || word == "collect" || word == "laplace" ||
+           word == "ilaplace";
 }
 
 // ---------------------------------------------------------------------------
@@ -1366,6 +1393,25 @@ void repl_command(const std::string& command, const std::string& rest,
             }
         }
         run_integrate(resolved, var, from_text, to_text, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "laplace" || command == "ilaplace") {
+        if (parts.size() > 2) {
+            throw UsageError{std::format(
+                "too many arguments: usage: {} <input>[, <variable>]", command)};
+        }
+        const std::string var = parts.size() > 1 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
+        if (command == "laplace") {
+            run_laplace(resolved, var, PrintStyle::Plain);
+        } else {
+            run_ilaplace(resolved, var, PrintStyle::Plain);
+        }
         warn_assigned_variable(var, env);
     } else if (command == "eval") {
         Bindings bindings;

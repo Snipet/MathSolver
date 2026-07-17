@@ -14,6 +14,7 @@
 #include "mathsolver/rational.hpp"
 #include "mathsolver/simplify.hpp"
 #include "mathsolver/solver.hpp"
+#include "mathsolver/transform.hpp"
 
 namespace mathsolver {
 

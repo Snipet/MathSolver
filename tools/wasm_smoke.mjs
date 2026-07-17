@@ -84,6 +84,17 @@ check("sys feedback", ms.pluginCall("sys", "feedback", "1,s + 1,3"), (r) => r.ok
 check("sys rlocus", ms.pluginCall("sys", "rlocus", "1,s^3 + 3s^2 + 2s,100"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.series.some((s) => s.label.startsWith("locus"))) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Verdict" && v.includes("unstable near K"))), "locus + critical gain");
 check("sys tfz", ms.pluginCall("sys", "tfz", "z,z^2 - 0.5z + 0.06,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.equal === true && b.series.some((s) => s.label === "unit circle")) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("inside |z| = 1"))), "z-plane analysis");
 check("sys tfz unstable", ms.pluginCall("sys", "tfz", "1,z - 1.2,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("outside |z| = 1"))), "unstable z pole");
+// symbolic Laplace / inverse Laplace transforms (transform.hpp)
+check("laplace 1", ms.laplace("1", "t"), (r) => r.ok && r.plain === "1/s", "1/s");
+check("laplace sin", ms.laplace("sin(3t)", "t"), (r) => r.ok && r.plain === "3/(s^2 + 9)", "3/(s^2 + 9)");
+check("laplace damped", ms.laplace("e^(-t) sin(2t)", "t"), (r) => r.ok && r.plain.includes("(s + 1)^2 + 4"), "s-shift into the table");
+check("laplace default t", ms.laplace("cos(3t)", ""), (r) => r.ok && r.plain === "s/(s^2 + 9)", "empty var defaults to t");
+check("laplace error", ms.laplace("ln(t)", "t"), (r) => !r.ok && r.error.includes("no Laplace transform rule"), "no rule for ln(t)");
+check("ilaplace const", ms.ilaplace("1/s", "s"), (r) => r.ok && r.plain === "1", "1");
+check("ilaplace sin", ms.ilaplace("3/(s^2 + 9)", "s"), (r) => r.ok && r.plain === "sin(3*t)", "sin(3t)");
+check("ilaplace cos", ms.ilaplace("s/(s^2 + 9)", "s"), (r) => r.ok && r.plain === "cos(3*t)", "cos(3t)");
+check("ilaplace default s", ms.ilaplace("1/(s - 2)", ""), (r) => r.ok && r.plain.includes("e^(2*t)"), "empty var defaults to s");
+check("ilaplace error", ms.ilaplace("s^2 + 1", "s"), (r) => !r.ok && r.error.length > 0, "polynomial has no inverse");
 
 function b_series_ok(r) {
   const s = r.blocks.find((b) => b.type === "series");

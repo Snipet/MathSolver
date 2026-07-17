@@ -141,6 +141,8 @@ export interface EngineApi {
   ];
   collect: [[input: string, variable: string], TransformResult];
   derivative: [[input: string, variable: string], TransformResult];
+  laplace: [[input: string, timeVar: string], TransformResult];
+  ilaplace: [[input: string, freqVar: string], TransformResult];
   integrate: [[input: string, variable: string], IntegrateResult];
   integrateDefinite: [
     [input: string, variable: string, lo: string, hi: string],

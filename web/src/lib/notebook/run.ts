@@ -44,6 +44,8 @@ const MATH_VERBS = new Set([
   "evaluate",
   "subs",
   "collect",
+  "laplace",
+  "ilaplace",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -168,6 +170,7 @@ function helpMessage(): NotebookMessage {
       "solve <eq>; <eq>[; …][, <var>, …]   (linear system)",
       "eval <expr>, x=1[, y=2 …]           subs <expr>, x=y+1[, …]",
       "collect <expr>[, <var>]             latex <expr>",
+      "laplace <expr>[, <t>]      f(t) → F(s)   ilaplace <expr>[, <s>]  F(s) → f(t)",
       "plot <expr>[, <lo>, <hi>]           chart an expression",
       "<name> := <value>      bind a variable (applies to later lines)",
       "<plugin>.<command> …   call a plugin (run plugins for the catalog),",
@@ -269,6 +272,22 @@ async function runVerb(verb: string, rest: string): Promise<CellResult> {
       const v = args[1] ?? (await inferVar(expr));
       const env = await applyEnv(expr, [v], "expr");
       const r = await call("collect", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "laplace": {
+      // Time variable defaults to t (not inferred): L{f(t)} = F(s).
+      const v = args[1] ?? "t";
+      const env = await applyEnv(expr, [v], "expr");
+      const r = await call("laplace", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "ilaplace": {
+      // Frequency variable defaults to s: L^-1{F(s)} = f(t).
+      const v = args[1] ?? "s";
+      const env = await applyEnv(expr, [v], "expr");
+      const r = await call("ilaplace", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }

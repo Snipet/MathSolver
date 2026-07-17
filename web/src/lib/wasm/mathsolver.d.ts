@@ -11,6 +11,8 @@ export interface MathSolverModule {
   subs(input: string, assignments: string, simplifyResult: boolean): string;
   collect(input: string, variable: string): string;
   derivative(input: string, variable: string): string;
+  laplace(input: string, timeVar: string): string;
+  ilaplace(input: string, freqVar: string): string;
   integrate(input: string, variable: string): string;
   integrateDefinite(input: string, variable: string, lo: string, hi: string): string;
   solve(input: string, variable: string, lo: number, hi: number, useRange: boolean): string;

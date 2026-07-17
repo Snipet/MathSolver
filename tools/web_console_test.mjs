@@ -133,6 +133,14 @@ try {
     "indefinite integral verb",
     (await run("integrate x*sin(x), x")).includes("-x*cos(x)"),
   );
+  check(
+    "laplace verb",
+    (await run("laplace e^(-t) sin(2t)")).includes("(s + 1)^2 + 4"),
+  );
+  check(
+    "ilaplace verb",
+    (await run("ilaplace s/(s^2 + 9)")).includes("cos(3*t)"),
+  );
 
   const solveOut = await run("solve x^2 = 4, x");
   check("solve equation", solveOut.includes("x = -2; x = 2"), solveOut.replace(/\n/g, " ").slice(0, 60));
