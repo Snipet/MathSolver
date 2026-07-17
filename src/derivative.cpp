@@ -44,6 +44,17 @@ Expr chain_factor(FunctionId id, const Expr& u) {
         return make_fn(FunctionId::Sinh, u);
     case FunctionId::Tanh:
         return make_sub(make_num(1), make_pow(make_fn(FunctionId::Tanh, u), make_num(2)));
+    case FunctionId::Asinh:
+        // 1 / sqrt(u^2 + 1)
+        return make_pow(make_add({make_pow(u, make_num(2)), make_num(1)}),
+                        make_num(Rational(-1, 2)));
+    case FunctionId::Acosh:
+        // 1 / sqrt(u^2 - 1)
+        return make_pow(make_add({make_pow(u, make_num(2)), make_num(-1)}),
+                        make_num(Rational(-1, 2)));
+    case FunctionId::Atanh:
+        // 1 / (1 - u^2)
+        return make_pow(make_sub(make_num(1), make_pow(u, make_num(2))), make_num(-1));
     case FunctionId::Ln:
         return make_pow(u, make_num(-1));
     case FunctionId::Abs:

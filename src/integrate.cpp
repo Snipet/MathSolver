@@ -227,6 +227,20 @@ std::optional<Attempt> try_table(const Expr& e, const std::string& sym) {
                                                make_add({make_num(1), square(u)})),
                                        make_num(2)));
                 break;
+            case FunctionId::Asinh:
+                Fu = make_sub(make_mul({u, e}),
+                              sqrt_of(make_add({square(u), make_num(1)})));
+                break;
+            case FunctionId::Acosh:
+                Fu = make_sub(make_mul({u, e}),
+                              sqrt_of(make_add({square(u), make_num(-1)})));
+                break;
+            case FunctionId::Atanh:
+                Fu = make_add({make_mul({u, e}),
+                               make_div(make_fn(FunctionId::Ln,
+                                                make_sub(make_num(1), square(u))),
+                                        make_num(2))});
+                break;
             case FunctionId::Abs: {
                 // §8b: abs(u) has a piecewise antiderivative; out of scope.
                 Attempt bad;

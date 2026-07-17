@@ -413,6 +413,15 @@ std::string render_function(const Expr& e, PrintStyle style) {
         // (KaTeX/MathJax) and humans expect, and the parser accepts them.
         return "\\left|" + arg + "\\right|";
     }
+    switch (e->function()) {
+        case FunctionId::Asinh:
+        case FunctionId::Acosh:
+        case FunctionId::Atanh:
+            // No dedicated LaTeX commands; \operatorname keeps KaTeX happy.
+            return "\\operatorname{" + std::string(function_name(e->function())) +
+                   "}\\left(" + arg + "\\right)";
+        default: break;
+    }
     std::string_view name;
     switch (e->function()) {
         case FunctionId::Asin: name = "arcsin"; break;

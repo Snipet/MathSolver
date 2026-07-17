@@ -53,6 +53,17 @@ double eval_function(FunctionId id, double u) {
         case FunctionId::Sinh: return std::sinh(u);
         case FunctionId::Cosh: return std::cosh(u);
         case FunctionId::Tanh: return std::tanh(u);
+        case FunctionId::Asinh: return std::asinh(u);
+        case FunctionId::Acosh:
+            if (u < 1.0) {
+                throw EvalError(std::format("acosh argument {} below 1", u));
+            }
+            return std::acosh(u);
+        case FunctionId::Atanh:
+            if (u <= -1.0 || u >= 1.0) {
+                throw EvalError(std::format("atanh argument {} outside (-1, 1)", u));
+            }
+            return std::atanh(u);
         case FunctionId::Ln:
             if (u <= 0.0) {
                 throw EvalError(std::format("ln of a non-positive value ({})", u));

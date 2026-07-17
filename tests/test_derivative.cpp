@@ -311,3 +311,15 @@ TEST_CASE("differentiate: matches central difference on composite expressions") 
         }
     }
 }
+
+TEST_CASE("differentiate: inverse hyperbolic functions") {
+    expect_diff("asinh(x)", "x", "(x^2 + 1)^(-1/2)");
+    expect_diff("acosh(x)", "x", "(x^2 - 1)^(-1/2)");
+    expect_diff("atanh(x)", "x", "1/(1 - x^2)");
+    // Chain rule + numeric cross-check where each is defined.
+    const Expr f = parse_expression("asinh(2x) + atanh(x/3)");
+    const Expr df = differentiate(f, "x");
+    check_central_difference(f, df, 0.7);
+    const Expr g = parse_expression("acosh(x^2 + 2)");
+    check_central_difference(g, differentiate(g, "x"), 1.3);
+}

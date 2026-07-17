@@ -863,14 +863,42 @@ Expr apply_fn_rules(const Expr& e) {
             if (is_number_value(u, Rational(0))) {
                 return make_num(0);
             }
+            if ((id == FunctionId::Sinh && is_function(u, FunctionId::Asinh)) ||
+                (id == FunctionId::Tanh && is_function(u, FunctionId::Atanh))) {
+                return u->arg(0); // sinh/asinh and tanh/atanh invert over all of R
+            }
             if (auto pos = negated_argument(u)) {
                 return make_neg(make_fn(id, std::move(*pos)));
             }
             return e;
         }
+        case FunctionId::Asinh:
+        case FunctionId::Atanh: {
+            if (is_number_value(u, Rational(0))) {
+                return make_num(0);
+            }
+            if ((id == FunctionId::Asinh && is_function(u, FunctionId::Sinh)) ||
+                (id == FunctionId::Atanh && is_function(u, FunctionId::Tanh))) {
+                return u->arg(0); // both inverses are exact over all of R
+            }
+            if (auto pos = negated_argument(u)) {
+                return make_neg(make_fn(id, std::move(*pos)));
+            }
+            return e;
+        }
+        case FunctionId::Acosh: {
+            if (is_number_value(u, Rational(1))) {
+                return make_num(0);
+            }
+            // acosh(cosh(x)) needs x >= 0; left alone.
+            return e;
+        }
         case FunctionId::Cosh: {
             if (is_number_value(u, Rational(0))) {
                 return make_num(1);
+            }
+            if (is_function(u, FunctionId::Acosh)) {
+                return u->arg(0); // cosh(acosh(x)) = x on the domain x >= 1
             }
             if (auto pos = negated_argument(u)) {
                 return make_fn(id, std::move(*pos));

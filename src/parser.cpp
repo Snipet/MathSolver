@@ -70,7 +70,10 @@ struct KnownName {
     NameKind kind;
 };
 
-constexpr std::array<KnownName, 33> kKnownNames{{
+constexpr std::array<KnownName, 39> kKnownNames{{
+    {"arcsinh", NameKind::Function}, {"arccosh", NameKind::Function},
+    {"arctanh", NameKind::Function}, {"asinh", NameKind::Function},
+    {"acosh", NameKind::Function},  {"atanh", NameKind::Function},
     {"arcsin", NameKind::Function}, {"arccos", NameKind::Function},
     {"arctan", NameKind::Function}, {"asin", NameKind::Function},
     {"acos", NameKind::Function},   {"atan", NameKind::Function},
