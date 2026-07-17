@@ -5,6 +5,8 @@
     computing?: boolean;
     computeDisabled?: boolean;
     oncompute: () => void;
+    /** Optional pre-handler (e.g. console history recall); may preventDefault. */
+    onkeydownextra?: (e: KeyboardEvent) => void;
   }
 
   let {
@@ -13,6 +15,7 @@
     computing = false,
     computeDisabled = false,
     oncompute,
+    onkeydownextra,
   }: Props = $props();
 
   let ta: HTMLTextAreaElement | undefined = $state();
@@ -35,6 +38,8 @@
   });
 
   function onkeydown(e: KeyboardEvent) {
+    onkeydownextra?.(e);
+    if (e.defaultPrevented) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (!computeDisabled) oncompute();

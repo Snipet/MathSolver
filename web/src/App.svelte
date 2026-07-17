@@ -3,7 +3,6 @@
   import { call, engineReady } from "./lib/engine";
   import type {
     AnalyzeResult,
-    Rendered,
     SolveResult,
     SystemResult,
   } from "./lib/engine/types";
@@ -12,19 +11,14 @@
   import { history, type HistoryEntry } from "./lib/history.svelte";
   import { fmt, hasTopLevelSemicolon, numOr, splitTopLevel } from "./lib/format";
   import { vars } from "./lib/vars.svelte";
+  import { closure } from "./lib/vars/resolve";
   import {
-    closure,
-    serializeAssignments,
-    findCycle,
-    cycleMessage,
-    equationRefMessage,
-  } from "./lib/vars/resolve";
-  import {
-    nameVerdict,
-    valueVerdict,
-    normalizeTypedName,
-    EMPTY_VALUE_ERROR,
-  } from "./lib/vars/validate";
+    splitAssignment,
+    buildAssignPreview,
+    swapEqSegments,
+    applyEnv,
+    type AssignPreview,
+  } from "./lib/vars/session";
   import Tabs from "./lib/components/Tabs.svelte";
   import ThemeToggle from "./lib/components/ThemeToggle.svelte";
   import ExpressionInput from "./lib/components/ExpressionInput.svelte";
@@ -36,6 +30,7 @@
   import VarChips, { type Chip } from "./lib/components/VarChips.svelte";
   import Katex from "./lib/components/Katex.svelte";
   import SpanHighlight from "./lib/components/SpanHighlight.svelte";
+  import Notebook from "./lib/components/Notebook.svelte";
 
   // --- engine readiness ------------------------------------------------------
   let ready = $state(false);
@@ -53,6 +48,25 @@
       versionLoaded = true;
       engineError = e instanceof Error ? e.message : String(e);
     });
+
+  // --- top-level mode: the tabbed workbench, or the line-by-line console -----
+  type Mode = "workbench" | "console";
+  const MODE_KEY = "mathsolver.mode";
+  function loadMode(): Mode {
+    try {
+      return localStorage.getItem(MODE_KEY) === "console" ? "console" : "workbench";
+    } catch {
+      return "workbench";
+    }
+  }
+  let mode = $state<Mode>(loadMode());
+  $effect(() => {
+    try {
+      localStorage.setItem(MODE_KEY, mode);
+    } catch {
+      /* storage unavailable */
+    }
+  });
 
   // --- workbench state -------------------------------------------------------
   let tab = $state<TabId>("simplify");
@@ -78,86 +92,6 @@
   let plotA = $state(false);
   let plotNonce = $state(0);
   let antiAvailable = $state(true);
-
-  // --- `:=` assignment recognition (spec §2: the input layer, not the parser)
-  interface AssignParts {
-    name: string;
-    value: string;
-  }
-  interface AssignPreview extends AssignParts {
-    error: string | null;
-    /** Caret span into `value` for parse errors. */
-    span?: { begin?: number; end?: number };
-    latex?: string;
-    commit?: {
-      symbol: string;
-      nameLatex: string;
-      kind: "expression" | "equation";
-      valuePlain: string;
-      valueLatex: string;
-      symbols: string[];
-    };
-  }
-
-  /**
-   * The first `:=` with a non-empty left part makes the line an assignment.
-   * (`:=` with an empty left side falls through to the parser and keeps its
-   * existing `':'` lex error; an empty right side is the §2.3 value error.)
-   */
-  function splitAssignment(text: string): AssignParts | null {
-    const i = text.indexOf(":=");
-    if (i < 0) return null;
-    const name = text.slice(0, i).trim();
-    if (!name) return null;
-    return { name, value: text.slice(i + 2).trim() };
-  }
-
-  async function buildAssignPreview(parts: AssignParts): Promise<AssignPreview> {
-    const name = normalizeTypedName(parts.name);
-    const nv = nameVerdict(name, await call("analyze", [name]));
-    if (!nv.ok) return { ...parts, error: nv.error };
-    if (!parts.value) return { ...parts, error: EMPTY_VALUE_ERROR };
-    const vv = valueVerdict(await call("analyze", [parts.value]));
-    if (!vv.ok)
-      return { ...parts, error: vv.error, span: { begin: vv.begin, end: vv.end } };
-    // Definition-time cycle check (§5.2) against the environment as it would
-    // become; redefinition replaces, so the old binding of this name is out.
-    const others = vars.active.filter((b) => b.name !== nv.symbol);
-    const path = findCycle(nv.symbol, vv.symbols, others);
-    if (path) return { ...parts, error: cycleMessage(path) };
-    return {
-      ...parts,
-      error: null,
-      latex: `${nv.latex} \\mathrel{:=} ${vv.latex}`,
-      commit: {
-        symbol: nv.symbol,
-        nameLatex: nv.latex,
-        kind: vv.kind,
-        valuePlain: vv.plain,
-        valueLatex: vv.latex,
-        symbols: vv.symbols,
-      },
-    };
-  }
-
-  /**
-   * §4 equation-name placement: on the Solve tab, a whole `;`-segment that is
-   * exactly an equation-valued name denotes the stored equation. Swapping is
-   * textual over plain-printed values (round-trip-safe, §5) and happens
-   * before the engine ever sees the text — `analyze`/`solveSystem` require
-   * an `=` in every segment.
-   */
-  function swapEqSegments(text: string): { text: string; swapped: boolean } {
-    const act = vars.active;
-    let swapped = false;
-    const segments = splitTopLevel(text).map((seg) => {
-      const b = act.find((x) => x.kind === "equation" && x.name === seg);
-      if (!b) return seg;
-      swapped = true;
-      return b.value;
-    });
-    return swapped ? { text: segments.join("; "), swapped } : { text, swapped };
-  }
 
   // --- live parse preview (debounced analyze) --------------------------------
   let analysis = $state<AnalyzeResult | null>(null);
@@ -316,77 +250,6 @@
       });
     return out;
   });
-
-  /** Resolution failure that should surface as an ordinary error card. */
-  class EnvError extends Error {}
-
-  interface Applied {
-    text: string;
-    computedFrom: Rendered | null;
-  }
-
-  /**
-   * Apply the environment to `text` (§5 resolve + §8 one `subs` call per
-   * equation segment), returning the resolved input for the operation and
-   * its rendering for the "computed from" line. Returns `text` unchanged
-   * when nothing applies.
-   */
-  async function applyEnv(
-    text: string,
-    excluded: string[],
-    mode: "expr" | "solve",
-  ): Promise<Applied> {
-    const act = vars.active;
-    if (act.length === 0) return { text, computedFrom: null };
-    let segments = [text];
-    let swapped = false;
-    if (mode === "solve") {
-      const sw = swapEqSegments(text);
-      swapped = sw.swapped;
-      segments = splitTopLevel(sw.text);
-      if (segments.length === 0) segments = [sw.text];
-    }
-    const joined = segments.join("; ");
-    // The verb reports parse errors on the (swapped) text it will receive.
-    const a = await call("analyze", [joined]);
-    if (!a.ok) return { text: joined, computedFrom: null };
-    const env = closure(a.symbols, act, excluded);
-    // §4 placement rule: an equation name is an error inside an expression
-    // (always when referenced from a binding's value; on the Solve tab also
-    // when it is not a whole segment). Other tabs leave it un-applied (§9.1).
-    if (env.nestedEquationRefs.length > 0)
-      throw new EnvError(equationRefMessage(env.nestedEquationRefs[0]));
-    if (mode === "solve" && env.directEquationRefs.length > 0)
-      throw new EnvError(equationRefMessage(env.directEquationRefs[0]));
-    if (env.active.length === 0 && !swapped) return { text, computedFrom: null };
-
-    const outs: Rendered[] = [];
-    if (env.active.length === 0) {
-      for (const seg of segments) {
-        const sa = await call("analyze", [seg]);
-        if (!sa.ok || sa.kind === "system")
-          return { text: segments.join("; "), computedFrom: null };
-        outs.push({ plain: sa.plain, latex: sa.latex });
-      }
-    } else {
-      const csv = serializeAssignments(env.active);
-      for (const seg of segments) {
-        // simplifyResult=false (§8): "computed from" must show the resolved
-        // input un-simplified (x + x + 7, not 2x + 7); the operation itself
-        // simplifies downstream as usual.
-        const r = await call("subs", [seg, csv, false]);
-        if (!r.ok) throw new EnvError(r.error);
-        outs.push({ plain: r.plain, latex: r.latex });
-      }
-    }
-    return {
-      text: outs.map((o) => o.plain).join("; "),
-      computedFrom: {
-        plain: outs.map((o) => o.plain).join("; "),
-        latex: outs.map((o) => o.latex).join(" ;\\; "),
-      },
-    };
-  }
 
   // Suppress the live preview error while an identical error card is shown for
   // the same input — one mistake should read as one error, not two.
@@ -755,6 +618,7 @@
 
   // --- history restore ---------------------------------------------------------
   function restore(e: HistoryEntry) {
+    mode = "workbench";
     tab = e.tab;
     input = e.input;
     const p = e.params ?? {};
@@ -810,12 +674,33 @@
         <span class="version-chip shimmer" aria-hidden="true"></span>
       {/if}
       <span class="spacer"></span>
+      <div class="mode-switch" role="tablist" aria-label="View">
+        <button
+          role="tab"
+          aria-selected={mode === "workbench"}
+          class:active={mode === "workbench"}
+          onclick={() => (mode = "workbench")}
+        >
+          Workbench
+        </button>
+        <button
+          role="tab"
+          aria-selected={mode === "console"}
+          class:active={mode === "console"}
+          onclick={() => (mode = "console")}
+        >
+          Console
+        </button>
+      </div>
       <ThemeToggle />
     </div>
   </header>
 
   <div class="layout">
     <main class="column">
+      {#if mode === "console"}
+        <Notebook {ready} {engineError} />
+      {:else}
       <Tabs tabs={TABS} active={tab} onselect={selectTab} />
 
       <div
@@ -1044,6 +929,7 @@
           </div>
         </details>
       </div>
+      {/if}
     </main>
 
     <aside class="sidebar" aria-label="Session variables and computation history">
@@ -1119,6 +1005,30 @@
   }
   .spacer {
     flex: 1;
+  }
+
+  .mode-switch {
+    display: inline-flex;
+    gap: 0.15rem;
+    padding: 0.15rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+  .mode-switch button {
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--fg-muted);
+    background: transparent;
+    border: none;
+    border-radius: 999px;
+    padding: 0.25rem 0.85rem;
+    cursor: pointer;
+  }
+  .mode-switch button.active {
+    color: var(--accent-fg, #fff);
+    background: var(--accent);
   }
 
   .layout {

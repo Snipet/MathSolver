@@ -150,14 +150,34 @@ multiplication (`2x`, `(x+1)(x-2)`).
 ## Web app
 
 The same engine, compiled to WebAssembly, powers a static single-page app in
-[`web/`](web) (Svelte + Vite): simplify/expand/factor, solve equations and
-linear systems, differentiate, integrate (indefinite and definite), evaluate
-numerically, and plot functions (with optional derivative and antiderivative
-overlays). Results render as KaTeX with copyable plain text, a live "as
-parsed" preview underlines errors in place, and a computation history
-persists locally. All computation runs in your browser via WebAssembly —
-nothing is sent to a server, and the built site is plain static files with
-no backend.
+[`web/`](web) (Svelte + Vite). It offers two views, switched from the header:
+
+- **Workbench** — a guided, tabbed UI: simplify/expand/factor, solve equations
+  and linear systems, differentiate, integrate (indefinite and definite),
+  evaluate numerically, and plot functions (with optional derivative and
+  antiderivative overlays).
+- **Console** — a Mathematica-style, line-by-line surface where you call the
+  engine programmatically instead of switching tabs. Enter a bare expression to
+  simplify it or an equation to solve it, or use a verb:
+
+  ```text
+  2x + 3x
+  solve x^2 = 4, x
+  diff sin(x^2), x
+  integrate x*sin(x), x        integrate sin(x), x, 0, pi
+  eval x^2 + y, x=3, y=0.5      subs a*x + 3, a=2
+  factor x^2 - 5x + 6           collect a*x + b*x + c, x
+  a := 2                        (bindings apply to later lines; vars/unset/clear)
+  ```
+
+  Each entry becomes an In[n]/Out[n] cell; `:=` assignments feed the same
+  Variables environment the Workbench uses, `help` lists the grammar, and the
+  session persists locally. ↑/↓ recall previous lines.
+
+Results render as KaTeX with copyable plain text, a live "as parsed" preview
+underlines errors in place, and computation history persists locally. All
+computation runs in your browser via WebAssembly — nothing is sent to a
+server, and the built site is plain static files with no backend.
 
 Prerequisites: [Emscripten](https://emscripten.org) (`brew install
 emscripten`) and Node.js.
