@@ -70,6 +70,11 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         usage: "ilaplace <expr>[, <s>]",
         hint: "Inverse Laplace F(s) → f(t)",
       },
+      {
+        insert: "dsolve",
+        usage: "dsolve <ode>[, y(0)=v, y'(0)=v, …]",
+        hint: "Solve a linear ODE initial-value problem exactly",
+      },
     ],
   },
   {

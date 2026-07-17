@@ -92,6 +92,12 @@ check("apart linear", ms.apart("(3x+2)/((x+1)(x+2))", "x"), (r) => r.ok && r.pla
 check("apart improper", ms.apart("x^2/(x^2-1)", "x"), (r) => r.ok && r.plain.startsWith("1 "), "polynomial part 1 leads");
 check("apart inferred var", ms.apart("1/(x(x+1)^2)", ""), (r) => r.ok && r.plain.includes("(x + 1)^2"), "repeated factor kept");
 check("apart error", ms.apart("sin(x)/(x+1)", "x"), (r) => !r.ok && r.error.includes("not a polynomial"), "non-rational rejected");
+// dsolve: linear ODE IVPs by the Laplace method (ode.hpp)
+check("dsolve decay", ms.dsolve("y' + y = 0", "y(0)=1"), (r) => r.ok && r.plain === "e^(-t)", "e^(-t)");
+check("dsolve forced", ms.dsolve("y'' + 3y' + 2y = e^(-t)", "y(0)=1,y'(0)=0"), (r) => r.ok && r.plain.includes("t*e^(-t)") && r.transformPlain.includes("(s + 1)^2"), "t e^(-t) + e^(-t), Y(s) shown");
+check("dsolve resonance", ms.dsolve("y'' + y = sin(t)", "y(0)=0,y'(0)=0"), (r) => r.ok && r.plain.includes("t*cos(t)"), "secular t cos t term");
+check("dsolve warning", ms.dsolve("y' + y = 1", ""), (r) => r.ok && r.warnings.length === 1 && r.warnings[0].includes("y(0) = 0"), "assumed-zero IC warning");
+check("dsolve error", ms.dsolve("y' + y = ln(t)", ""), (r) => !r.ok && r.error.includes("no Laplace transform"), "untransformable forcing");
 // symbolic Laplace / inverse Laplace transforms (transform.hpp)
 check("laplace 1", ms.laplace("1", "t"), (r) => r.ok && r.plain === "1/s", "1/s");
 check("laplace sin", ms.laplace("sin(3t)", "t"), (r) => r.ok && r.plain === "3/(s^2 + 9)", "3/(s^2 + 9)");

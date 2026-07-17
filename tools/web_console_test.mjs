@@ -145,6 +145,12 @@ try {
     "ilaplace verb",
     (await run("ilaplace s/(s^2 + 9)")).includes("cos(3*t)"),
   );
+  const dsolveOut = await run("dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0");
+  check(
+    "dsolve verb solves an IVP",
+    dsolveOut.includes("t*e^(-t)") && dsolveOut.includes("Y(s)"),
+    dsolveOut.replace(/\n/g, " ").slice(0, 80),
+  );
 
   const solveOut = await run("solve x^2 = 4, x");
   check("solve equation", solveOut.includes("x = -2; x = 2"), solveOut.replace(/\n/g, " ").slice(0, 60));

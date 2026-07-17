@@ -333,6 +333,37 @@ std::string ms_apart(std::string input, std::string variable) {
     });
 }
 
+/// dsolve(ode, conditionsCsv): solve a linear constant-coefficient IVP.
+/// Returns the solution as plain/latex plus the partial-fraction Y(s) and
+/// any assumed-zero-IC warnings.
+std::string ms_dsolve(std::string ode, std::string conditions_csv) {
+    return guarded([&]() -> std::string {
+        std::vector<std::string> conditions;
+        std::size_t start = 0;
+        while (start <= conditions_csv.size()) {
+            const std::size_t comma = conditions_csv.find(',', start);
+            const std::string part = trim(conditions_csv.substr(
+                start, comma == std::string::npos ? std::string::npos
+                                                  : comma - start));
+            if (!part.empty()) {
+                conditions.push_back(part);
+            }
+            if (comma == std::string::npos) {
+                break;
+            }
+            start = comma + 1;
+        }
+        const DsolveResult r = dsolve(ode, conditions);
+        return std::format(
+            "{{\"ok\":true,{},\"transformPlain\":{},\"transformLatex\":{},"
+            "\"warnings\":{}}}",
+            rendered_fields(r.solution),
+            jstr(to_string(r.transform, PrintStyle::Plain)),
+            jstr(to_string(r.transform, PrintStyle::LaTeX)),
+            jarr_str(r.warnings));
+    });
+}
+
 /// laplace(expr, timeVar): f(t) -> F(s). Empty timeVar defaults to t.
 std::string ms_laplace(std::string input, std::string time) {
     return guarded([&]() -> std::string {
@@ -590,6 +621,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("collect", &ms_collect);
     emscripten::function("derivative", &ms_derivative);
     emscripten::function("apart", &ms_apart);
+    emscripten::function("dsolve", &ms_dsolve);
     emscripten::function("laplace", &ms_laplace);
     emscripten::function("ilaplace", &ms_ilaplace);
     emscripten::function("integrate", &ms_integrate);

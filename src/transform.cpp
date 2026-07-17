@@ -250,8 +250,11 @@ Expr inverse_term(const Expr& term_in, const Expr& s, const std::string& t) {
         return result;
     }
 
-    // Irreducible quadratic denominator, power 1: (α s + β)/((s - p)^2 + w^2).
-    if (power == 1 && base->kind() == Kind::Add) {
+    // Quadratic denominator (α s + β)/(A[(s - a)^2 + w^2])^power. Power 1
+    // inverts to damped sin/cos (w^2 > 0), damped sinh/cosh (w^2 < 0), or a
+    // repeated real root (w^2 = 0); power 2 with w^2 > 0 is the resonance
+    // pair t·sin / sin - wt·cos.
+    if ((power == 1 || power == 2) && base->kind() == Kind::Add) {
         // Coefficients of base = A s^2 + B s + C by Taylor at 0.
         const Expr b0 = simplify(substitute(base, S, num(0)));
         const Expr d1 = simplify(differentiate(base, S));
@@ -262,37 +265,71 @@ Expr inverse_term(const Expr& term_in, const Expr& s, const std::string& t) {
         if (!contains_symbol(An, S) && !is_zero(An) && !contains_symbol(B, S) &&
             !contains_symbol(b0, S)) {
             // Complete the square: base = A[(s + B/2A)^2 + (C/A - B^2/4A^2)].
-            const Expr p = simplify(make_div(make_neg(B), make_mul({num(2), An})));
+            const Expr a = simplify(make_div(make_neg(B), make_mul({num(2), An})));
             const Expr w2 =
                 simplify(make_sub(make_div(b0, An),
                                   make_div(powi(B, 2), make_mul({num(4), powi(An, 2)}))));
             const auto w2n = as_num(w2);
-            if (w2n && w2n->to_double() > 0) {
-                const Expr w = simplify(make_pow(w2, make_div(num(1), num(2))));
-                // numerator α s + β.
-                const Expr alpha = simplify(differentiate(numerator, S));
-                if (contains_symbol(alpha, S)) {
-                    throw Error("inverse transform: numerator over a quadratic "
-                                "must be linear in s");
-                }
-                const Expr beta = simplify(substitute(numerator, S, num(0)));
-                // base = A[(s - a)^2 + w^2] with a = -B/(2A) = p (the shift).
-                const Expr a = p;
-                // Write α s + β = α (s - a) + (β + α a).
-                const Expr cos_c = simplify(make_div(alpha, An));
-                const Expr sin_c = simplify(make_div(
-                    make_div(make_add({beta, make_mul({alpha, a})}), An), w));
-                const Expr wt = make_mul({w, make_sym(t)});
-                Expr body = simplify(make_add(
-                    {make_mul({cos_c, make_fn(FunctionId::Cos, wt)}),
-                     make_mul({sin_c, make_fn(FunctionId::Sin, wt)})}));
+            // numerator α s + β, rewritten as α u + γ with u = s - a.
+            const Expr alpha = simplify(differentiate(numerator, S));
+            if (contains_symbol(alpha, S)) {
+                throw Error("inverse transform: numerator over a quadratic "
+                            "must be linear in s");
+            }
+            const Expr beta = simplify(substitute(numerator, S, num(0)));
+            const Expr gamma = simplify(make_add({beta, make_mul({alpha, a})}));
+            const Expr T = make_sym(t);
+            const auto shifted = [&](Expr body) {
                 if (!is_zero(a)) {
                     body = simplify(make_mul(
-                        {make_pow(make_const(ConstantId::E),
-                                  make_mul({a, make_sym(t)})),
+                        {make_pow(make_const(ConstantId::E), make_mul({a, T})),
                          body}));
                 }
                 return body;
+            };
+            if (power == 1 && w2n && w2n->to_double() > 0) {
+                // (α u + γ)/(A(u^2 + w^2)) -> [α cos(wt) + (γ/w) sin(wt)]/A.
+                const Expr w = simplify(make_pow(w2, make_div(num(1), num(2))));
+                const Expr wt = make_mul({w, T});
+                return shifted(simplify(make_div(
+                    make_add({make_mul({alpha, make_fn(FunctionId::Cos, wt)}),
+                              make_mul({make_div(gamma, w),
+                                        make_fn(FunctionId::Sin, wt)})}),
+                    An)));
+            }
+            if (power == 1 && w2n && w2n->to_double() < 0) {
+                // (α u + γ)/(A(u^2 - v^2)) -> [α cosh(vt) + (γ/v) sinh(vt)]/A.
+                const Expr v =
+                    simplify(make_pow(simplify(make_neg(w2)), make_div(num(1), num(2))));
+                const Expr vt = make_mul({v, T});
+                return shifted(simplify(make_div(
+                    make_add({make_mul({alpha, make_fn(FunctionId::Cosh, vt)}),
+                              make_mul({make_div(gamma, v),
+                                        make_fn(FunctionId::Sinh, vt)})}),
+                    An)));
+            }
+            if (power == 1 && w2n && w2n->is_zero()) {
+                // (α u + γ)/(A u^2) = α/(A u) + γ/(A u^2) -> [α + γ t]/A.
+                return shifted(simplify(
+                    make_div(make_add({alpha, make_mul({gamma, T})}), An)));
+            }
+            if (power == 2 && w2n && w2n->to_double() > 0) {
+                // Resonance: over A^2 (u^2 + w^2)^2,
+                //   u/(u^2+w^2)^2       <-> t sin(wt)/(2w)
+                //   1/(u^2+w^2)^2       <-> (sin(wt) - wt cos(wt))/(2w^3)
+                const Expr w = simplify(make_pow(w2, make_div(num(1), num(2))));
+                const Expr wt = make_mul({w, T});
+                const Expr sin_wt = make_fn(FunctionId::Sin, wt);
+                const Expr cos_wt = make_fn(FunctionId::Cos, wt);
+                const Expr t_sin = make_div(make_mul({T, sin_wt}),
+                                            make_mul({num(2), w}));
+                const Expr sin_minus = make_div(
+                    make_sub(sin_wt, make_mul({wt, cos_wt})),
+                    make_mul({num(2), powi(w, 3)}));
+                return shifted(simplify(make_div(
+                    make_add({make_mul({alpha, t_sin}),
+                              make_mul({gamma, sin_minus})}),
+                    powi(An, 2))));
             }
         }
     }

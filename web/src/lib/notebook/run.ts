@@ -47,6 +47,7 @@ const MATH_VERBS = new Set([
   "apart",
   "laplace",
   "ilaplace",
+  "dsolve",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -173,6 +174,8 @@ function helpMessage(): NotebookMessage {
       "collect <expr>[, <var>]             latex <expr>",
       "apart <expr>[, <var>]               partial fractions",
       "laplace <expr>[, <t>]      f(t) → F(s)   ilaplace <expr>[, <s>]  F(s) → f(t)",
+      "dsolve <ode>[, y(0)=v, y'(0)=v, …]  solve an IVP, e.g.",
+      "       dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0",
       "plot <expr>[, <lo>, <hi>]           chart an expression",
       "<name> := <value>      bind a variable (applies to later lines)",
       "<plugin>.<command> …   call a plugin (run plugins for the catalog),",
@@ -283,6 +286,13 @@ async function runVerb(verb: string, rest: string): Promise<CellResult> {
       const r = await call("apart", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "dsolve": {
+      // args[0] is the ODE, the rest are initial conditions. The prime
+      // grammar is handled by the engine; no environment resolution.
+      const r = await call("dsolve", [expr, args.slice(1).join(",")]);
+      if (!r.ok) return err(expr, r);
+      return { kind: "dsolve", result: r, computedFrom: null };
     }
     case "laplace": {
       // Time variable defaults to t (not inferred): L{f(t)} = F(s).

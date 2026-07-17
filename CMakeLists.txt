@@ -53,6 +53,7 @@ add_library(mathsolver_core STATIC
     src/derivative.cpp
     src/integrate.cpp
     src/apart.cpp
+    src/ode.cpp
     src/solver.cpp
     src/transform.cpp
     src/plugin.cpp

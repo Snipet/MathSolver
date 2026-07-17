@@ -24,6 +24,7 @@ add_executable(mathsolver_tests
     test_solver.cpp
     test_solver_review.cpp
     test_transform.cpp
+    test_ode.cpp
     test_system.cpp
     test_cli.cpp
     test_plugin_dsp.cpp

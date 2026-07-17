@@ -21,6 +21,15 @@ export type AnalyzeResult =
 
 export type TransformResult = ({ ok: true } & Rendered) | EngineError;
 
+export type DsolveResult =
+  | ({
+      ok: true;
+      transformPlain: string;
+      transformLatex: string;
+      warnings: string[];
+    } & Rendered)
+  | EngineError;
+
 export type IntegrateResult =
   | ({ ok: true; solved: true; method: string; warnings: string[] } & Rendered)
   | { ok: true; solved: false; method: string; warnings: string[] }
@@ -141,6 +150,7 @@ export interface EngineApi {
   ];
   collect: [[input: string, variable: string], TransformResult];
   apart: [[input: string, variable: string], TransformResult];
+  dsolve: [[ode: string, conditionsCsv: string], DsolveResult];
   derivative: [[input: string, variable: string], TransformResult];
   laplace: [[input: string, timeVar: string], TransformResult];
   ilaplace: [[input: string, freqVar: string], TransformResult];

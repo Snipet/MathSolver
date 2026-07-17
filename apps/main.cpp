@@ -523,6 +523,21 @@ bool has_top_level_semicolon(const std::string& s) {
     return split_top_level(s, ';').size() > 1;
 }
 
+/// `dsolve`: the input's first top-level comma segment is the ODE, the rest
+/// are initial conditions ("y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0").
+/// Prints y(t), the partial-fraction Y(s), and assumed-zero-IC warnings.
+void run_dsolve(const std::string& input, PrintStyle style) {
+    const std::vector<std::string> parts = split_top_level(input, ',');
+    const DsolveResult res =
+        dsolve(parts[0], {parts.begin() + 1, parts.end()});
+    std::println("y(t) = {}", to_string(res.solution, style));
+    std::println("Y(s) = {}", to_string(res.transform, style));
+    std::println("method: laplace transform + partial fractions");
+    for (const std::string& w : res.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
 void print_system_result(const SystemSolveResult& res,
                          const std::vector<std::string>& vars, PrintStyle style) {
     switch (res.status) {
@@ -661,6 +676,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver apart    \"(3x+2)/((x+1)(x+2))\" [x]\n"
                "  mathsolver laplace  \"e^(-t) sin(2t)\" [t]\n"
                "  mathsolver ilaplace \"1/(s^2 + 2s + 5)\" [s]\n"
+               "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
                "  mathsolver eval     \"x^2 + y\" x=3 y=0.5\n"
                "  mathsolver latex    \"sqrt(x)/2\"\n"
                "  mathsolver --help | --version\n"
@@ -683,7 +699,7 @@ bool is_known_subcommand(std::string_view s) {
     return s == "simplify" || s == "expand" || s == "factor" || s == "solve" ||
            s == "diff" || s == "integrate" || s == "eval" || s == "latex" ||
            s == "subs" || s == "collect" || s == "laplace" || s == "ilaplace" ||
-           s == "apart";
+           s == "apart" || s == "dsolve";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -795,6 +811,14 @@ int run_one_shot(const std::vector<std::string>& args) {
             } else {
                 run_integrate(input, var, from_text, to_text, style);
             }
+        } else if (sub == "dsolve") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the ODE and its conditions "
+                    "in one quoted argument)",
+                    positionals[1])};
+            }
+            run_dsolve(input, style);
         } else if (sub == "eval") {
             Bindings bindings;
             for (std::size_t i = 1; i < positionals.size(); ++i) {
@@ -856,6 +880,8 @@ void print_repl_help() {
         "  apart <expression>[, <variable>]       partial fractions\n"
         "  laplace <expression>[, <time var>]     f(t) -> F(s)\n"
         "  ilaplace <expression>[, <freq var>]    F(s) -> f(t)\n"
+        "  dsolve <ode>[, y(0)=v, y'(0)=v, ...]   solve an IVP, e.g.\n"
+        "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
         "  simplify <expression>      expand <expression>\n"
         "  factor <expression>        latex <expression>\n"
         "  debug <expression>         (s-expression dump)\n"
@@ -879,7 +905,7 @@ bool is_repl_command(std::string_view word) {
            word == "solve" || word == "diff" || word == "integrate" ||
            word == "eval" || word == "latex" || word == "debug" ||
            word == "subs" || word == "collect" || word == "laplace" ||
-           word == "ilaplace" || word == "apart";
+           word == "ilaplace" || word == "apart" || word == "dsolve";
 }
 
 // ---------------------------------------------------------------------------
@@ -1336,6 +1362,17 @@ void repl_bare_equation(const Equation& eq, const Environment& env) {
 
 void repl_command(const std::string& command, const std::string& rest,
                   const Environment& env) {
+    if (command == "dsolve") {
+        // The ODE grammar (primes, y(0)=...) is handled by dsolve itself;
+        // the session environment does not apply to ODE text.
+        if (trim(rest).empty()) {
+            throw UsageError{
+                "usage: dsolve <ode>[, y(0)=v, y'(0)=v, ...]   e.g. "
+                "dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0"};
+        }
+        run_dsolve(rest, PrintStyle::Plain);
+        return;
+    }
     const std::vector<std::string> parts = split_top_level_commas(rest);
     if (parts.empty() || parts[0].empty()) {
         const std::string_view suffix =

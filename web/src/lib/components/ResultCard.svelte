@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Outcome } from "../outcome";
   import ResultTransform from "./ResultTransform.svelte";
+  import ResultDsolve from "./ResultDsolve.svelte";
   import ResultSolve from "./ResultSolve.svelte";
   import ResultSystem from "./ResultSystem.svelte";
   import ResultIntegral from "./ResultIntegral.svelte";
@@ -30,6 +31,8 @@
     <div class="card" class:error-card={outcome.kind === "error"} class:flat>
       {#if outcome.kind === "transform"}
         <ResultTransform result={outcome.result} />
+      {:else if outcome.kind === "dsolve"}
+        <ResultDsolve result={outcome.result} />
       {:else if outcome.kind === "solve"}
         <ResultSolve variable={outcome.variable} result={outcome.result} />
       {:else if outcome.kind === "system"}

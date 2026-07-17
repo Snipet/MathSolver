@@ -124,6 +124,25 @@ TEST_CASE("ilaplace: irreducible quadratics give sin/cos") {
     check_ilaplace("(s + 1)/(s^2 + 2s + 5)", "e^(-t) cos(2t)");
 }
 
+TEST_CASE("ilaplace: negative-discriminant quadratics give sinh/cosh") {
+    check_ilaplace("1/(s^2 - 2)", "sinh(sqrt(2) t)/sqrt(2)");
+    check_ilaplace("s/(s^2 - 4)", "cosh(2t)");
+    // Shifted: (s+1)^2 - 1 = s^2 + 2s.
+    check_ilaplace("1/(s^2 + 2s)", "e^(-t) sinh(t)");
+}
+
+TEST_CASE("ilaplace: zero-discriminant quadratics are repeated real roots") {
+    check_ilaplace("(s + 2)/(s^2 + 2s + 1)", "e^(-t) (1 + t)");
+    check_ilaplace("1/(s^2 - 4s + 4)", "t e^(2t)");
+}
+
+TEST_CASE("ilaplace: squared quadratics give the resonance pair") {
+    check_ilaplace("1/(s^2 + 1)^2", "(sin(t) - t cos(t))/2");
+    check_ilaplace("s/(s^2 + 4)^2", "t sin(2t)/4");
+    // Shifted resonance.
+    check_ilaplace("1/((s + 1)^2 + 1)^2", "e^(-t) (sin(t) - t cos(t))/2");
+}
+
 TEST_CASE("ilaplace: partial-fraction sums") {
     check_ilaplace("1/(s + 1) + 2/(s + 3)", "e^(-t) + 2 e^(-3t)");
     check_ilaplace("3/s - 2/(s - 4)", "3 - 2 e^(4t)");

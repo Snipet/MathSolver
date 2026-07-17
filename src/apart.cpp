@@ -436,17 +436,53 @@ Expr apart(const Expr& e, std::string_view var) {
     const Expr s = simplify(e);
     const std::vector<Expr> terms =
         s->kind() == Kind::Add ? s->args() : std::vector<Expr>{s};
-    std::vector<Expr> out;
+    std::vector<Expr> raw;
     for (const Expr& term : terms) {
         const Expr d = apart_term(term, v);
         if (d->kind() == Kind::Add) {
             for (const Expr& t : d->args()) {
-                out.push_back(t);
+                raw.push_back(t);
             }
         } else if (!is_zero(d)) {
-            out.push_back(d);
+            raw.push_back(d);
         }
     }
+
+    // Merge like denominators across input terms (a sum decomposes termwise,
+    // so e.g. 2/(x+1) from one term and -1/(x+1) from another combine here).
+    std::vector<std::string> key_order;
+    std::map<std::string, std::vector<Expr>> numerators;
+    std::map<std::string, Expr> denominators;
+    for (const Expr& term : raw) {
+        std::vector<Expr> num_fs;
+        std::vector<Expr> den_fs;
+        for (const Expr& f : factors_of(term)) {
+            const auto p = f->kind() == Kind::Pow ? as_num(f->arg(1))
+                                                  : std::nullopt;
+            if (p && p->is_integer() && p->num() < 0 &&
+                contains_symbol(f->arg(0), v)) {
+                den_fs.push_back(f);
+            } else {
+                num_fs.push_back(f);
+            }
+        }
+        const Expr den = product(den_fs);
+        const std::string key = to_string(den, PrintStyle::Plain);
+        if (!numerators.contains(key)) {
+            key_order.push_back(key);
+            denominators[key] = den;
+        }
+        numerators[key].push_back(product(num_fs));
+    }
+    std::vector<Expr> out;
+    for (const std::string& key : key_order) {
+        const Expr numerator = simplify(make_add(std::move(numerators[key])));
+        if (is_zero(numerator)) {
+            continue;
+        }
+        out.push_back(simplify(make_mul({numerator, denominators[key]})));
+    }
+
     if (out.empty()) {
         return make_num(0);
     }
