@@ -8,7 +8,7 @@
     type ConsolePreview,
   } from "../notebook/preview";
   import CommandReference from "./CommandReference.svelte";
-  import ExpressionInput from "./ExpressionInput.svelte";
+  import ConsolePrompt from "./ConsolePrompt.svelte";
   import Katex from "./Katex.svelte";
   import NotebookCell from "./NotebookCell.svelte";
   import SpanHighlight from "./SpanHighlight.svelte";
@@ -20,7 +20,10 @@
   let computing = $state(false);
   let recall = $state<number | null>(null);
   let listEl: HTMLDivElement | undefined = $state();
-  let exprInput: ReturnType<typeof ExpressionInput> | undefined = $state();
+  let exprInput: ReturnType<typeof ConsolePrompt> | undefined = $state();
+
+  /** The cell number the prompt line will become when run. */
+  const promptIndex = $derived(notebook.cells.length + 1);
 
   const EXAMPLE_GROUPS = [
     {
@@ -339,39 +342,42 @@
       <p class="usage-hint"><code>{activeUsage}</code></p>
     {/if}
 
-    <div class="palette" role="group" aria-label="Symbol palette">
-      {#each PALETTE as p (p.label)}
-        <button
-          class="palette-chip"
-          title={p.title}
-          tabindex="-1"
-          onmousedown={(e) => {
-            e.preventDefault(); // keep textarea focus
-            exprInput?.insertAtCursor(p.pre, p.post);
-          }}
-        >
-          {p.label}
-        </button>
-      {/each}
-    </div>
-
     <div class="prompt">
-      <ExpressionInput
+      <ConsolePrompt
         bind:this={exprInput}
         bind:value={input}
-        placeholder="Enter a command — try: solve x^2 = 4, x"
+        index={promptIndex}
+        placeholder={notebook.cells.length === 0 ? "try: solve x^2 = 4, x" : ""}
+        {ready}
         {computing}
-        computeDisabled={!ready || computing || !input.trim()}
-        oncompute={run}
+        onrun={run}
         {onkeydownextra}
-        buttonLabel="Run"
       />
       {#if engineError}
         <p class="engine-error" role="alert">
           The math engine failed to load ({engineError}). Reload the page to try
           again.
         </p>
-      {:else if !ready}
+      {/if}
+    </div>
+
+    <div class="prompt-foot">
+      <div class="palette" role="group" aria-label="Symbol palette">
+        {#each PALETTE as p (p.label)}
+          <button
+            class="palette-chip"
+            title={p.title}
+            tabindex="-1"
+            onmousedown={(e) => {
+              e.preventDefault(); // keep textarea focus
+              exprInput?.insertAtCursor(p.pre, p.post);
+            }}
+          >
+            {p.label}
+          </button>
+        {/each}
+      </div>
+      {#if !ready && !engineError}
         <p class="loading-note">loading engine…</p>
       {:else}
         <p class="key-hints">
@@ -529,7 +535,7 @@
     position: relative;
     flex: 0 0 auto;
     border-top: 1px solid var(--border);
-    padding-top: 0.6rem;
+    padding-top: 0.35rem;
   }
   .suggest {
     position: absolute;
@@ -633,22 +639,22 @@
     display: flex;
     gap: 0.3rem;
     flex-wrap: wrap;
-    margin-bottom: 0.4rem;
   }
   .palette-chip {
     font-family: var(--font-mono);
-    font-size: 0.8rem;
+    font-size: 0.78rem;
     line-height: 1;
     color: var(--fg-muted);
-    background: var(--bg-panel);
+    background: transparent;
     border: 1px solid var(--border);
     border-radius: calc(var(--radius) / 2);
-    padding: 0.28rem 0.5rem;
+    padding: 0.24rem 0.45rem;
     cursor: pointer;
   }
   .palette-chip:hover {
     color: var(--accent);
     border-color: var(--accent);
+    background: var(--bg-panel);
   }
 
   .prompt {
@@ -656,11 +662,28 @@
     flex-direction: column;
     gap: 0.35rem;
   }
+
+  /* Slim utility row under the prompt: symbol palette left, key hints right. */
+  .prompt-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-top: 0.45rem;
+    padding: 0 0.25rem;
+  }
   .key-hints {
     margin: 0;
     font-size: 0.72rem;
     color: var(--fg-muted);
     user-select: none;
+    white-space: nowrap;
+  }
+  @media (max-width: 720px) {
+    .key-hints {
+      display: none;
+    }
   }
   kbd {
     font-family: var(--font-mono);

@@ -1087,9 +1087,14 @@
     height: 100dvh;
     overflow: hidden;
   }
+  .app.console-mode .header-inner {
+    max-width: none;
+  }
+  /* Full-bleed: the console owns the whole viewport width, so no dead
+     margin appears to the right of the sidebar on wide screens. */
   .app.console-mode .layout {
     min-height: 0;
-    max-width: 1400px;
+    max-width: none;
     padding-top: 0;
     padding-bottom: 0.9rem;
   }
