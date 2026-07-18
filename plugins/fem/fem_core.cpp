@@ -75,6 +75,17 @@ class DenseLU {
   public:
     explicit DenseLU(Matrix a) : a_(std::move(a)), piv_(a_.size()) {
         const std::size_t n = a_.size();
+        // Singularity is judged RELATIVE to the matrix scale: an absolute
+        // pivot floor is meaningless when the whole system is scaled by
+        // p/h (tiny p) or 1/h (large 1/h), which produced both spurious
+        // "singular" errors and missed singularities.
+        double scale = 0.0;
+        for (const Vector& row : a_) {
+            for (const double v : row) {
+                scale = std::max(scale, std::abs(v));
+            }
+        }
+        const double tol = std::max(1e-300, 1e-12 * scale);
         for (std::size_t k = 0; k < n; ++k) {
             std::size_t p = k;
             for (std::size_t i = k + 1; i < n; ++i) {
@@ -82,7 +93,7 @@ class DenseLU {
                     p = i;
                 }
             }
-            if (std::abs(a_[p][k]) < 1e-13) {
+            if (std::abs(a_[p][k]) < tol) {
                 throw Error("the assembled system is singular");
             }
             std::swap(a_[p], a_[k]);
@@ -181,6 +192,29 @@ Assembled assemble(const Expr& p, const Expr& q, const Expr* f, double a,
         }
     }
     return out;
+}
+
+/// Rigorous lower bound for every generalized eigenvalue of
+/// -(p u')' + q u = lambda w u: since the p-stiffness term is >= 0 and
+/// lambda = [∫ p u'^2 + ∫ q u^2] / [∫ w u^2] >= (∫ q u^2)/(∫ w u^2)
+/// >= min_x (q(x) / w(x)) (using w > 0), the smallest ratio over the
+/// quadrature points bounds the whole spectrum below. Inverse iteration
+/// shifts by this so it finds the smallest ALGEBRAIC eigenvalue (the
+/// physical ground state) rather than the smallest in magnitude.
+double spectrum_lower_bound(const Expr& q, const Expr& w, double a, double b,
+                            int elements) {
+    const double h = (b - a) / elements;
+    double lo = std::numeric_limits<double>::infinity();
+    for (int e = 0; e < elements; ++e) {
+        const double xl = a + h * e;
+        for (const GaussPoint& g : k_gauss) {
+            const double x = xl + g.xi * h;
+            const double qv = eval_at(q, x, "q(x)");
+            const double wv = eval_at(w, x, "w(x)");
+            lo = std::min(lo, qv / wv);
+        }
+    }
+    return lo;
 }
 
 /// Apply one boundary condition to the assembled system (symmetrically for
@@ -284,8 +318,17 @@ BvpResult solve_bvp(const Expr& p, const Expr& q, const Expr& f, double a,
     if (degree != 1 && degree != 2) {
         throw Error("element degree must be 1 (linear) or 2 (quadratic)");
     }
-    if (elements < 4 || elements > 256) {
-        throw Error("element count must be in [4, 256]");
+    // The estimate refines to 4x, so the FINEST mesh — not the requested one —
+    // sets the cost. Cap that: a 4*elements P2 mesh is 8*elements+1 nodes
+    // through a dense O(n^3) LU, and we keep the finest under ~1000 nodes so
+    // the browser never stalls.
+    const int max_fine_nodes = 1000;
+    const int max_elements = (max_fine_nodes - 1) / (4 * degree);
+    if (elements < 4 || elements > max_elements) {
+        throw Error(std::format(
+            "element count must be in [4, {}] for P{} (the solve refines to "
+            "4x for the error estimate)",
+            max_elements, degree));
     }
     const FemSolution coarse =
         solve_single(p, q, f, a, b, left, right, degree, elements);
@@ -299,22 +342,40 @@ BvpResult solve_bvp(const Expr& p, const Expr& q, const Expr& f, double a,
     constexpr int k_samples = 211;
     double e_coarse = 0.0;
     double e_mid = 0.0;
+    double u_scale = 0.0;
     for (int i = 0; i < k_samples; ++i) {
         const double x = a + (b - a) * (i + 0.5) / k_samples;
         const double uf = fem_eval(fine, x);
+        u_scale = std::max(u_scale, std::abs(uf));
         e_coarse = std::max(e_coarse, std::abs(fem_eval(coarse, x) - uf));
         e_mid = std::max(e_mid, std::abs(fem_eval(mid, x) - uf));
     }
     BvpResult out;
     out.solution = fine;
     out.error_estimate = e_mid;
-    if (e_mid > 1e-13 && e_coarse > e_mid) {
-        out.observed_order = std::log2(e_coarse / e_mid);
-    } else {
-        out.observed_order = std::numeric_limits<double>::quiet_NaN();
+    out.observed_order = std::numeric_limits<double>::quiet_NaN();
+    const double scale = std::max(1.0, u_scale);
+    if (e_mid <= 1e-10 * scale) {
+        // Genuinely at the roundoff floor: the discrete solution is (near)
+        // exact for this problem, so an order cannot be measured.
         out.warnings.push_back(
             "refinement differences are at roundoff — no observed order "
-            "(the discrete solution is likely exact for this problem)");
+            "(the discrete solution is essentially exact for this problem)");
+    } else if (e_mid > 0.1 * scale || e_coarse <= e_mid) {
+        // Either the refinement disagreement is a large FRACTION of the
+        // solution (a converged FEM solution has small relative error), or
+        // it fails to shrink under refinement — both mean the discrete
+        // problem is not usefully converging, almost always q near an
+        // eigenvalue (a resonant / near-singular BVP). Say so loudly
+        // instead of claiming the solution is exact or reporting an order.
+        out.warnings.push_back(std::format(
+            "the solution is NOT converging under refinement (refinement "
+            "disagreement {:.3g} is {:.0f}% of the solution scale {:.3g}) — "
+            "the problem is likely near a resonance (q close to an "
+            "eigenvalue); treat the result as unreliable",
+            e_mid, 100.0 * e_mid / scale, scale));
+    } else {
+        out.observed_order = std::log2(e_coarse / e_mid);
     }
     return out;
 }
@@ -343,6 +404,14 @@ ModesResult solve_modes(const Expr& p, const Expr& q, const Expr& w, double a,
     // global node (vertices in both P1 and P2 numbering).
     const std::size_t m = ks.k.size();
     const std::size_t mi = m - 2;
+    // The discrete problem has exactly `mi` eigenpairs; asking for more would
+    // otherwise fabricate duplicates.
+    if (count > static_cast<int>(mi)) {
+        throw Error(std::format(
+            "only {} eigenpairs exist for this discretization ({} interior "
+            "degrees of freedom); ask for fewer modes or use more elements",
+            mi, mi));
+    }
     Matrix ki(mi, Vector(mi, 0.0));
     Matrix mm(mi, Vector(mi, 0.0));
     for (std::size_t i = 0; i < mi; ++i) {
@@ -351,15 +420,37 @@ ModesResult solve_modes(const Expr& p, const Expr& q, const Expr& w, double a,
             mm[i][j] = ms.k[i + 1][j + 1];
         }
     }
-    ModesResult out;
+
+    // Spectral shift so inverse iteration finds the smallest ALGEBRAIC
+    // eigenvalues, not the smallest in magnitude: with an indefinite K
+    // (q < 0) the true ground state can be a large-magnitude negative
+    // eigenvalue that the unshifted iteration would skip entirely. Shift
+    // sigma below the whole spectrum; (K - sigma M) is then M-positive-
+    // definite, so inverse iteration on it converges to the smallest
+    // lambda - sigma, i.e. the smallest algebraic lambda. This also makes
+    // the factored operator nonsingular even when lambda = 0.
+    const double lo = spectrum_lower_bound(q, w, a, b, elements);
+    const double sigma = lo - 1.0; // strictly below every eigenvalue
+    Matrix shifted(mi, Vector(mi, 0.0));
+    for (std::size_t i = 0; i < mi; ++i) {
+        for (std::size_t j = 0; j < mi; ++j) {
+            shifted[i][j] = ki[i][j] - sigma * mm[i][j];
+        }
+    }
     std::unique_ptr<DenseLU> lu;
     try {
-        lu = std::make_unique<DenseLU>(ki);
+        lu = std::make_unique<DenseLU>(shifted);
     } catch (const Error&) {
-        throw Error("the stiffness matrix is singular (lambda = 0 is an "
-                    "eigenvalue); shift it by adding a constant to q");
+        throw Error("the shifted stiffness matrix is singular — the problem "
+                    "may be ill-posed (check that p > 0 and w > 0)");
     }
 
+    struct Mode {
+        double lambda;
+        Vector vec;
+        bool converged;
+    };
+    std::vector<Mode> modes;
     std::vector<Vector> found;
     for (int mode = 0; mode < count; ++mode) {
         // Deterministic start biased toward the next expected shape.
@@ -387,7 +478,9 @@ ModesResult solve_modes(const Expr& p, const Expr& q, const Expr& w, double a,
             for (double& v : y) {
                 v /= norm;
             }
-            const double next = m_dot(ki, y, y); // Rayleigh (M-normalized)
+            // Rayleigh quotient of the ORIGINAL (unshifted) operator gives
+            // the true lambda; convergence is judged on it.
+            const double next = m_dot(ki, y, y); // M-normalized
             const bool done =
                 it > 0 && std::abs(next - lambda) <=
                               1e-11 * std::max(1.0, std::abs(next));
@@ -397,12 +490,6 @@ ModesResult solve_modes(const Expr& p, const Expr& q, const Expr& w, double a,
                 converged = true;
                 break;
             }
-        }
-        if (!converged) {
-            out.warnings.push_back(std::format(
-                "mode {} did not fully converge in 500 iterations (clustered "
-                "eigenvalues?)",
-                mode + 1));
         }
         // Sign convention: the largest-magnitude component is positive.
         const auto peak = std::max_element(
@@ -414,32 +501,33 @@ ModesResult solve_modes(const Expr& p, const Expr& q, const Expr& w, double a,
             }
         }
         found.push_back(x);
-        out.lambdas.push_back(lambda);
+        modes.push_back({lambda, x, converged});
+    }
+    // Inverse iteration finds them smallest-first by construction, but the
+    // deflated starts can occasionally swap near-degenerate pairs: sort by
+    // eigenvalue, THEN number the convergence warnings by final position.
+    std::sort(modes.begin(), modes.end(),
+              [](const Mode& p, const Mode& q) { return p.lambda < q.lambda; });
+    ModesResult out;
+    for (std::size_t idx = 0; idx < modes.size(); ++idx) {
+        const Mode& mo = modes[idx];
+        if (!mo.converged) {
+            out.warnings.push_back(std::format(
+                "mode {} did not fully converge in 500 iterations (clustered "
+                "eigenvalues?)",
+                idx + 1));
+        }
+        out.lambdas.push_back(mo.lambda);
         FemSolution sol;
         sol.degree = degree;
         sol.x = ks.nodes;
         sol.u.assign(m, 0.0);
         for (std::size_t i = 0; i < mi; ++i) {
-            sol.u[i + 1] = x[i];
+            sol.u[i + 1] = mo.vec[i];
         }
         out.modes.push_back(std::move(sol));
     }
-    // Inverse iteration finds them smallest-first by construction, but the
-    // deflated starts can occasionally swap near-degenerate pairs: sort.
-    std::vector<std::size_t> order(out.lambdas.size());
-    for (std::size_t i = 0; i < order.size(); ++i) {
-        order[i] = i;
-    }
-    std::sort(order.begin(), order.end(), [&](std::size_t i, std::size_t j) {
-        return out.lambdas[i] < out.lambdas[j];
-    });
-    ModesResult sorted;
-    sorted.warnings = out.warnings;
-    for (const std::size_t i : order) {
-        sorted.lambdas.push_back(out.lambdas[i]);
-        sorted.modes.push_back(std::move(out.modes[i]));
-    }
-    return sorted;
+    return out;
 }
 
 } // namespace mathsolver::plugins::fem

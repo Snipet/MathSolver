@@ -67,6 +67,12 @@ std::optional<double> parse_double(const std::string& s) {
         if (pos != s.size()) {
             return std::nullopt;
         }
+        // "inf"/"nan" parse as finite doubles through stod but are not valid
+        // numeric arguments (an infinite L/alpha/T would sail past the > 0
+        // checks and produce an all-null chart or a false blow-up).
+        if (!std::isfinite(v)) {
+            return std::nullopt;
+        }
         return v;
     } catch (const std::exception&) {
         return std::nullopt;
@@ -252,8 +258,10 @@ std::string cmd_simulate(const std::vector<std::string>& args) {
     int steps = 400;
     if (args.size() == 6) {
         const auto n = parse_double(args[5]);
-        if (!n || *n != static_cast<int>(*n)) {
-            return error_json("steps must be an integer");
+        // std::floor (not a cast) tests integrality without UB; the range
+        // bound keeps the subsequent int conversion in range.
+        if (!n || *n != std::floor(*n) || *n < 1 || *n > 1e7) {
+            return error_json("steps must be a positive integer");
         }
         steps = static_cast<int>(*n);
     }

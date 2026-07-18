@@ -101,6 +101,46 @@ TEST_CASE("fem: reaction term and Helmholtz sign") {
           1e-6);
 }
 
+TEST_CASE("fem: a resonant BVP is flagged, not called 'exact'") {
+    // q near a discrete eigenvalue: -u'' - pi^2 u = 1 on [0, 1] is at resonance (q = -pi^2 makes the
+    // operator singular), so the discrete solutions do NOT
+    // converge. The old code took the roundoff branch and lied "exact"; now
+    // it must warn about non-convergence and leave the order unset.
+    const fe::BvpResult r = fe::solve_bvp(
+        P("1"), P("-9.8696"), P("1"), 0.0, 1.0, {true, 0.0}, {true, 0.0}, 1, 16);
+    CHECK(std::isnan(r.observed_order));
+    CHECK(r.error_estimate > 1.0); // genuinely large, not roundoff
+    REQUIRE_FALSE(r.warnings.empty());
+    CHECK_THAT(r.warnings.front(), ContainsSubstring("NOT converging"));
+    CHECK_THAT(r.warnings.front(), ContainsSubstring("resonance"));
+}
+
+TEST_CASE("fem: tiny p is solved, not falsely called singular") {
+    // A well-posed Dirichlet problem scaled by a tiny p must not trip the
+    // singularity check (which was an absolute 1e-13 against a p/h-scaled
+    // matrix). u = sin(pi x) with p = 1e-10: f = 1e-10 pi^2 sin(pi x).
+    const fe::BvpResult r = fe::solve_bvp(
+        P("1e-10"), P("0"), P("1e-10*pi^2*sin(pi*x)"), 0.0, 1.0, {true, 0.0},
+        {true, 0.0}, 1, 16);
+    CHECK(max_err_against(r.solution, 0.0, 1.0,
+                          [](double x) { return std::sin(std::numbers::pi * x); }) <
+          1e-3);
+}
+
+TEST_CASE("fem: the element cap accounts for the 4x refinement") {
+    // The finest mesh (4x) is what runs; P2 caps lower than P1 so the dense
+    // solve stays bounded. 200 P2 elements (fine = 800 -> 1601 nodes) must
+    // be rejected; a comfortable count must pass.
+    CHECK_THROWS_WITH(
+        fe::solve_bvp(P("1"), P("0"), P("1"), 0.0, 1.0, {true, 0.0},
+                      {true, 0.0}, 2, 200),
+        ContainsSubstring("must be in [4,"));
+    const fe::BvpResult ok = fe::solve_bvp(
+        P("1"), P("0"), P("pi^2*sin(pi*x)"), 0.0, 1.0, {true, 0.0},
+        {true, 0.0}, 2, 100);
+    CHECK(ok.solution.x.size() == 2u * 4 * 100 + 1); // fine P2 nodes
+}
+
 TEST_CASE("fem: solver errors are specific") {
     CHECK_THROWS_WITH(
         fe::solve_bvp(P("y"), P("0"), P("1"), 0.0, 1.0, {true, 0.0},
@@ -162,6 +202,37 @@ TEST_CASE("fem: P2 eigenvalues converge much faster than P1") {
     const double e1 = std::abs(p1.lambdas[0] - 1.0);
     const double e2 = std::abs(p2.lambdas[0] - 1.0);
     CHECK(e2 < e1 / 20.0);
+}
+
+TEST_CASE("fem: indefinite K returns the smallest ALGEBRAIC eigenvalues") {
+    // -u'' - 20u = lambda u on [0, pi]: lambda_n = n^2 - 20 = -19, -16, -11,
+    // -4, 5, ... The unshifted iteration would return the smallest-magnitude
+    // (-4) first and skip the true ground state -19; the spectral shift must
+    // recover them smallest-first.
+    const fe::ModesResult r = fe::solve_modes(
+        P("1"), P("-20"), P("1"), 0.0, std::numbers::pi, 4, 2, 128);
+    REQUIRE(r.lambdas.size() == 4);
+    CHECK(std::abs(r.lambdas[0] + 19.0) < 1e-3);
+    CHECK(std::abs(r.lambdas[1] + 16.0) < 1e-3);
+    CHECK(std::abs(r.lambdas[2] + 11.0) < 1e-2);
+    CHECK(std::abs(r.lambdas[3] + 4.0) < 2e-2);
+    // Strictly ascending.
+    for (std::size_t i = 1; i < r.lambdas.size(); ++i) {
+        CHECK(r.lambdas[i] > r.lambdas[i - 1]);
+    }
+    // lambda = 0 is no longer a breakdown: -u'' - u on [0, pi] has ground
+    // state 1 - 1 = 0 exactly.
+    const fe::ModesResult z = fe::solve_modes(
+        P("1"), P("-1"), P("1"), 0.0, std::numbers::pi, 2, 2, 64);
+    CHECK(std::abs(z.lambdas[0]) < 1e-3);
+    CHECK(std::abs(z.lambdas[1] - 3.0) < 1e-2);
+}
+
+TEST_CASE("fem: asking for more modes than exist is rejected, not faked") {
+    // P1 with 4 elements has only 3 interior DOFs -> at most 3 eigenpairs.
+    CHECK_THROWS_WITH(
+        fe::solve_modes(P("1"), P("0"), P("1"), 0.0, 1.0, 6, 1, 4),
+        ContainsSubstring("only 3 eigenpairs"));
 }
 
 TEST_CASE("fem: modes errors are specific") {

@@ -168,6 +168,48 @@ TEST_CASE("pde.simulate: reaction blow-up stops with a note") {
     CHECK(r.times.back() < 1.0);
 }
 
+TEST_CASE("pde.simulate: a stiff runaway stops gracefully at an honest time") {
+    // 10 u^2 on [0,1] with a moderate bump runs away in finite time; the
+    // implicit step eventually fails to converge. That must be a graceful
+    // early stop (a real answer), never an exception, and the recorded time
+    // must be the one actually reached — strictly inside the horizon and
+    // after t = 0 (Fix: advance() returns the achieved time).
+    const pd::SimulateResult r = pd::simulate_reaction_diffusion(
+        1.0, 1.0, parse_expression("10*u^2"), parse_expression("3*sin(pi*x)"),
+        3.0);
+    CHECK(r.stopped_early);
+    CHECK_THAT(r.note, ContainsSubstring("stopped"));
+    CHECK(r.times.back() > 0.0);
+    CHECK(r.times.back() < 3.0);
+}
+
+TEST_CASE("pde.simulate: a reaction that overflows is caught, never thrown") {
+    // e^(5u) is a thermal-runaway reaction: as u grows, f(u) = e^(5u)
+    // overflows to non-finite. The evaluation failure must be caught inside
+    // the step and surface as an early stop, not escape and discard the run
+    // (Fix: the reaction eval is wrapped in the step's try/catch). We assert
+    // by *not* letting an exception escape and by getting a stopped result.
+    const pd::SimulateResult r = pd::simulate_reaction_diffusion(
+        1.0, 1.0, parse_expression("e^(5u)"), parse_expression("3*sin(pi*x)"),
+        3.0);
+    CHECK(r.stopped_early);
+    CHECK_THAT(r.note, ContainsSubstring("stopped"));
+    CHECK(r.times.back() < 3.0);
+}
+
+TEST_CASE("pde.simulate: the command rejects infinite arguments") {
+    register_builtin_plugins();
+    const Plugin* p = find("pde");
+    REQUIRE(p != nullptr);
+    CHECK_THAT(p->invoke("simulate", {"inf", "1", "u", "sin(pi*x)", "1"}),
+               ContainsSubstring("positive"));
+    CHECK_THAT(p->invoke("simulate", {"1", "1", "u", "sin(pi*x)", "inf"}),
+               ContainsSubstring("positive"));
+    // And still solves the ordinary case.
+    CHECK_THAT(p->invoke("simulate", {"1", "1", "0", "sin(pi*x)", "0.1"}),
+               ContainsSubstring("\"ok\":true"));
+}
+
 TEST_CASE("pde.simulate: errors are specific") {
     CHECK_THROWS_WITH(
         pd::simulate_reaction_diffusion(1.0, 1.0, parse_expression("u + y"),

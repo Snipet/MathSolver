@@ -142,8 +142,8 @@ std::string cmd_bvp(const std::vector<std::string>& args) {
     int elements = 32;
     if (args.size() == 9) {
         const auto n = parse_number(args[8]);
-        if (!n || *n != std::floor(*n)) {
-            return error_json("element count must be an integer");
+        if (!n || *n != std::floor(*n) || *n < 1 || *n > 1e7) {
+            return error_json("element count must be a positive integer");
         }
         elements = static_cast<int>(*n);
     }
@@ -209,8 +209,8 @@ std::string cmd_modes(const std::vector<std::string>& args) {
     int count = 4;
     if (args.size() >= 6) {
         const auto n = parse_number(args[5]);
-        if (!n || *n != std::floor(*n)) {
-            return error_json("mode count must be an integer");
+        if (!n || *n != std::floor(*n) || *n < 1 || *n > 1e7) {
+            return error_json("mode count must be a positive integer");
         }
         count = static_cast<int>(*n);
     }
@@ -228,8 +228,8 @@ std::string cmd_modes(const std::vector<std::string>& args) {
     int elements = 128;
     if (args.size() == 8) {
         const auto n = parse_number(args[7]);
-        if (!n || *n != std::floor(*n)) {
-            return error_json("element count must be an integer");
+        if (!n || *n != std::floor(*n) || *n < 1 || *n > 1e7) {
+            return error_json("element count must be a positive integer");
         }
         elements = static_cast<int>(*n);
     }

@@ -140,74 +140,96 @@ struct Stepper {
         return out;
     }
 
-    /// One Crank–Nicolson step of size dt via Newton; false when Newton
-    /// stalls (the caller halves dt).
+    /// One Crank–Nicolson step of size dt via Newton; false when the step
+    /// cannot be resolved (the caller halves dt). A reaction that evaluates
+    /// non-finite mid-step (f(u) overflowing as u blows up) is caught here
+    /// and reported as a failed step, NOT thrown out of the whole run —
+    /// that is how finite-time blow-up becomes the graceful early stop.
     bool cn_step(std::vector<double>& u, double dt) {
         const std::size_t m = u.size();
-        // Explicit half: b = u^n + dt/2 (A u^n + F(u^n)).
-        std::vector<double> b = diffuse(u);
-        for (std::size_t i = 0; i < m; ++i) {
-            b[i] = u[i] + 0.5 * dt * (b[i] + reaction_at(u[i]));
-        }
-        std::vector<double> v = u; // Newton iterate for u^{n+1}
         const double c = alpha / (h * h);
-        for (int it = 1; it <= 25; ++it) {
-            ++newton_total;
-            newton_max = std::max(newton_max, it);
-            // Residual r(v) = v - dt/2 (A v + F(v)) - b.
-            std::vector<double> r = diffuse(v);
-            double scale = 1.0;
+        try {
+            // Explicit half: b = u^n + dt/2 (A u^n + F(u^n)).
+            std::vector<double> b = diffuse(u);
             for (std::size_t i = 0; i < m; ++i) {
-                r[i] = v[i] - 0.5 * dt * (r[i] + reaction_at(v[i])) - b[i];
-                scale = std::max(scale, std::abs(v[i]));
+                b[i] = u[i] + 0.5 * dt * (b[i] + reaction_at(u[i]));
             }
-            double rnorm = 0.0;
-            for (const double ri : r) {
-                rnorm = std::max(rnorm, std::abs(ri));
+            std::vector<double> v = u; // Newton iterate for u^{n+1}
+            for (int it = 1; it <= 25; ++it) {
+                ++newton_total;
+                newton_max = std::max(newton_max, it);
+                // Residual r(v) = v - dt/2 (A v + F(v)) - b.
+                std::vector<double> r = diffuse(v);
+                double scale = 1.0;
+                for (std::size_t i = 0; i < m; ++i) {
+                    r[i] = v[i] - 0.5 * dt * (r[i] + reaction_at(v[i])) - b[i];
+                    scale = std::max(scale, std::abs(v[i]));
+                }
+                double rnorm = 0.0;
+                for (const double ri : r) {
+                    rnorm = std::max(rnorm, std::abs(ri));
+                }
+                if (rnorm <= 1e-10 * scale) {
+                    u = std::move(v);
+                    return true;
+                }
+                // J = I - dt/2 (A + diag f'(v)): tridiagonal, Thomas-solved.
+                la::Vector diag(m, 0.0);
+                la::Vector off(m - 1, -0.5 * dt * c);
+                for (std::size_t i = 0; i < m; ++i) {
+                    diag[i] =
+                        1.0 + dt * c - 0.5 * dt * reaction_slope_at(v[i]);
+                }
+                const la::Vector delta = la::tridiag_solve(off, diag, off, r);
+                double dnorm = 0.0;
+                bool finite = true;
+                for (std::size_t i = 0; i < m; ++i) {
+                    v[i] -= delta[i];
+                    dnorm = std::max(dnorm, std::abs(delta[i]));
+                    finite = finite && std::isfinite(v[i]);
+                }
+                if (!finite) {
+                    return false;
+                }
+                // Converge on a negligible Newton UPDATE, not just a small
+                // residual: for large dt*alpha/h^2 the residual floor sits
+                // below the achievable roundoff, so a residual-only test
+                // would loop forever and (falsely) report blow-up. The
+                // update is scale-invariant and always reaches roundoff.
+                if (dnorm <= 1e-12 * scale) {
+                    u = std::move(v);
+                    return true;
+                }
             }
-            if (rnorm <= 1e-11 * scale) {
-                u = std::move(v);
-                return true;
-            }
-            // J = I - dt/2 (A + diag f'(v)): tridiagonal, Thomas-solved.
-            la::Vector diag(m, 0.0);
-            la::Vector off(m - 1, -0.5 * dt * c);
-            for (std::size_t i = 0; i < m; ++i) {
-                diag[i] = 1.0 + dt * c - 0.5 * dt * reaction_slope_at(v[i]);
-            }
-            la::Vector delta;
-            try {
-                delta = la::tridiag_solve(off, diag, off, r);
-            } catch (const la::LinalgError&) {
-                return false; // singular Jacobian: retry with a smaller dt
-            }
-            bool finite = true;
-            for (std::size_t i = 0; i < m; ++i) {
-                v[i] -= delta[i];
-                finite = finite && std::isfinite(v[i]);
-            }
-            if (!finite) {
-                return false;
-            }
+            return false;
+        } catch (const Error&) {
+            return false; // reaction non-finite: blow-up, retry smaller / stop
+        } catch (const la::LinalgError&) {
+            return false; // singular Jacobian: retry with a smaller dt
         }
-        return false;
     }
 
-    /// Advance by dt, halving on Newton failure (up to 4 levels deep).
-    /// False means the step is unresolvable even at dt/16 — with an
-    /// A-stable implicit scheme that is the signature of finite-time
-    /// blow-up (or extreme stiffness), which the caller reports as an
-    /// early stop rather than an exception: it is a real answer.
-    bool advance(std::vector<double>& u, double dt, int depth) {
+    /// Advance by dt, halving on step failure (up to 4 levels deep), and
+    /// return the time actually advanced (in [0, dt]). A return below dt
+    /// means the step was unresolvable even at dt/16 — with an A-stable
+    /// implicit scheme that is the signature of finite-time blow-up (or
+    /// extreme stiffness), which the caller reports as an early stop rather
+    /// than an exception: it is a real answer. Returning the achieved time
+    /// lets the caller stamp the stopped state honestly instead of at the
+    /// nominal (never-reached) step time.
+    double advance(std::vector<double>& u, double dt, int depth) {
         if (cn_step(u, dt)) {
-            return true;
+            return dt;
         }
         if (depth >= 4) {
-            return false;
+            return 0.0;
         }
         ++halvings;
-        return advance(u, dt / 2.0, depth + 1) &&
-               advance(u, dt / 2.0, depth + 1);
+        const double first = advance(u, dt / 2.0, depth + 1);
+        if (first < dt / 2.0) {
+            return first; // first half already gave up partway
+        }
+        return first + advance(u, dt / 2.0, depth + 1);
     }
 };
 
@@ -277,16 +299,21 @@ SimulateResult simulate_reaction_diffusion(double length, double alpha,
     record(0.0);
 
     const double dt = horizon / steps;
+    double t_now = 0.0; // the time actually reached (honest under early stop)
     int next_snapshot = 1;
     for (int n = 1; n <= steps; ++n) {
-        if (!st.advance(u, dt, 0)) {
+        const double advanced = st.advance(u, dt, 0);
+        t_now += advanced;
+        if (advanced < dt) {
+            // The state is stamped with the time it truly reached, not the
+            // nominal step time it never got to.
             out.stopped_early = true;
             out.note = std::format(
                 "the implicit step stopped converging near t = {:.6g} even "
                 "at 1/16 of the time step — simulation stopped (finite-time "
                 "blow-up or extreme stiffness)",
-                dt * n);
-            record(dt * n);
+                t_now);
+            record(t_now);
             break;
         }
         double peak = 0.0;
@@ -298,14 +325,15 @@ SimulateResult simulate_reaction_diffusion(double length, double alpha,
             out.note = std::format(
                 "the solution exceeded {:.0e} near t = {:.6g} — simulation "
                 "stopped (reaction blow-up)",
-                k_blow_up, dt * n);
-            record(dt * n);
+                k_blow_up, t_now);
+            record(t_now);
             break;
         }
-        // 4 post-initial snapshots at T/4, T/2, 3T/4, T.
+        // 4 post-initial snapshots at T/4, T/2, 3T/4, T. Full steps advance
+        // exactly dt, so t_now = dt*n here and the snapshots stay aligned.
         while (next_snapshot <= 4 &&
                n == (steps * next_snapshot + 3) / 4) {
-            record(dt * n);
+            record(t_now);
             ++next_snapshot;
         }
     }
