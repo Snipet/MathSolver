@@ -44,6 +44,25 @@ const MATH_VERBS = new Set([
   "evaluate",
   "subs",
   "collect",
+  "apart",
+  "laplace",
+  "ilaplace",
+  "dsolve",
+  "series",
+  "grad",
+  "div",
+  "curl",
+  "laplacian",
+  "jacobian",
+  "hessian",
+  "vecfield",
+  "limit",
+  "mlimit",
+  "stirling",
+  "seq",
+  "sum",
+  "product",
+  "rsolve",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -168,6 +187,19 @@ function helpMessage(): NotebookMessage {
       "solve <eq>; <eq>[; …][, <var>, …]   (linear system)",
       "eval <expr>, x=1[, y=2 …]           subs <expr>, x=y+1[, …]",
       "collect <expr>[, <var>]             latex <expr>",
+      "apart <expr>[, <var>]               partial fractions",
+      "laplace <expr>[, <t>]      f(t) → F(s)   ilaplace <expr>[, <s>]  F(s) → f(t)",
+      "dsolve <ode>[, y(0)=v, y'(0)=v, …]  solve an IVP, e.g.",
+      "       dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0",
+      "series <expr>[, <var>[, <center>[, <order>]]]   Taylor expansion",
+      "limit <expr>, <var>, <point>[, left|right]   (point: number, inf, -inf)",
+      "mlimit <expr>, <x>, <a>, <y>, <b>   2-D limit by path sampling",
+      "series <expr>, <var>, inf[, <order>]   asymptotic expansion in 1/x",
+      "sum <term>, <var>, <lo>, <hi>       product <term>, <var>, <lo>, <hi>",
+      "rsolve <recurrence>[, a(0)=v, …]    e.g. rsolve a(n+2)=a(n+1)+a(n), a(0)=0, a(1)=1",
+      "grad <f>, <vars…>    div/curl <F1;F2;…>, <vars…>    laplacian <f>, <vars…>",
+      "jacobian <F1;F2;…>, <vars…>    hessian <f>, <vars…>",
+      "vecfield <Fx>; <Fy>[, <xlo>, <xhi>, <ylo>, <yhi>]   quiver plot",
       "plot <expr>[, <lo>, <hi>]           chart an expression",
       "<name> := <value>      bind a variable (applies to later lines)",
       "<plugin>.<command> …   call a plugin (run plugins for the catalog),",
@@ -269,6 +301,242 @@ async function runVerb(verb: string, rest: string): Promise<CellResult> {
       const v = args[1] ?? (await inferVar(expr));
       const env = await applyEnv(expr, [v], "expr");
       const r = await call("collect", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "apart": {
+      const v = args[1] ?? (await inferVar(expr));
+      const env = await applyEnv(expr, [v], "expr");
+      const r = await call("apart", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "dsolve": {
+      // args[0] is the ODE, the rest are initial conditions. The prime
+      // grammar is handled by the engine; no environment resolution.
+      const r = await call("dsolve", [expr, args.slice(1).join(",")]);
+      if (!r.ok) return err(expr, r);
+      return { kind: "dsolve", result: r, computedFrom: null };
+    }
+    case "series": {
+      if (args.length > 4)
+        return usage("usage: series <expr>[, <var>[, <center>[, <order>]]]");
+      const v = args[1] ?? (await inferVar(expr));
+      const order = args[3] ? Number.parseInt(args[3], 10) : 6;
+      if (Number.isNaN(order))
+        return usage(`series order must be an integer, got '${args[3]}'`);
+      const env = await applyEnv(expr, [v], "expr");
+      const r = await call("series", [env.text, v, args[2] ?? "", order]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "stirling": {
+      // stirling [<var>[, <terms>]] — no expression argument.
+      if (args.length > 2) return usage("usage: stirling [<var>[, <terms>]]");
+      const v = args[0] || "x";
+      const terms = args[1] ? Number.parseInt(args[1], 10) : 3;
+      if (Number.isNaN(terms))
+        return usage(`stirling terms must be an integer, got '${args[1]}'`);
+      const r = await call("stirling", [v, terms]);
+      if (!r.ok) return err(v, r);
+      return {
+        kind: "transform",
+        result: {
+          ...r,
+          plain: `ln Gamma(${v}) ~ ${r.plain}`,
+          latex: `\\ln \\Gamma(${v}) \\sim ${r.latex}`,
+        },
+        computedFrom: null,
+      };
+    }
+    case "seq": {
+      // seq <a0>, <a1>, <a2>, <a3>[, ...] — recognize the pattern.
+      if (args.length < 4)
+        return usage("usage: seq <a0>, <a1>, <a2>, <a3>[, ...] (at least 4 terms)");
+      const r = await call("seq", [args.join(",")]);
+      if (!r.ok) return err(args.join(", "), r);
+      const notes = [r.description];
+      if (r.recurrence) notes.push(`recurrence: ${r.recurrence}`);
+      if (r.next.length) notes.push(`next: ${r.next.join(", ")}`);
+      notes.push(...r.warnings);
+      if (r.plain && r.latex) {
+        return {
+          kind: "transform",
+          result: {
+            ok: true,
+            plain: `a(n) = ${r.plain}`,
+            latex: `a(n) = ${r.latex}`,
+            notes,
+          },
+          computedFrom: null,
+        };
+      }
+      return { kind: "message", tone: "info", lines: notes };
+    }
+    case "limit": {
+      // limit <expr>, <var>, <point>[, left|right]
+      if (args.length < 3 || args.length > 4)
+        return usage("usage: limit <expr>, <var>, <point>[, left|right]");
+      const v = args[1];
+      const env = await applyEnv(expr, [v], "expr");
+      const r = await call("limit", [env.text, v, args[2], args[3] ?? ""]);
+      if (!r.ok) return err(env.text, r);
+      if (r.status === "exact" && r.plain && r.latex) {
+        return {
+          kind: "transform",
+          result: { ok: true, plain: r.plain, latex: r.latex },
+          computedFrom: env.computedFrom,
+        };
+      }
+      const lines: string[] = [];
+      if (r.status === "numeric") lines.push(`limit ≈ ${r.approx}`);
+      else if (r.status === "diverges")
+        lines.push(`limit = ${r.sign > 0 ? "+∞" : r.sign < 0 ? "−∞" : "∞ (unsigned)"}`);
+      else if (r.status === "doesNotExist") lines.push("the limit does not exist");
+      else lines.push("unable to determine the limit");
+      if (r.method) lines.push(`method: ${r.method}`);
+      lines.push(...r.warnings);
+      return { kind: "message", tone: "info", lines };
+    }
+    case "mlimit": {
+      if (args.length !== 5)
+        return usage("usage: mlimit <expr>, <x>, <a>, <y>, <b>");
+      const env = await applyEnv(expr, [args[1], args[3]], "expr");
+      const r = await call("mlimit", [env.text, args[1], args[2], args[3], args[4]]);
+      if (!r.ok) return err(env.text, r);
+      if (r.status === "exact" && r.plain && r.latex) {
+        return {
+          kind: "transform",
+          result: { ok: true, plain: r.plain, latex: r.latex },
+          computedFrom: env.computedFrom,
+        };
+      }
+      const lines: string[] = [];
+      if (r.status === "numeric") lines.push(`limit ≈ ${r.approx}`);
+      else if (r.status === "doesNotExist") lines.push("the limit does not exist");
+      else if (r.status === "diverges")
+        lines.push(`limit = ${r.sign > 0 ? "+∞" : r.sign < 0 ? "−∞" : "∞"}`);
+      else lines.push("unable to determine the limit");
+      if (r.method) lines.push(`method: ${r.method}`);
+      lines.push(...r.warnings);
+      return { kind: "message", tone: "info", lines };
+    }
+    case "sum":
+    case "product": {
+      if (args.length !== 4)
+        return usage(
+          `usage: ${verb} <term>, <var>, <lo>, <hi>` +
+            (verb === "sum" ? "   (hi may be inf)" : ""),
+        );
+      const v = args[1];
+      const env = await applyEnv(expr, [v], "expr");
+      const r = await call(verb, [env.text, v, args[2], args[3]]);
+      if (!r.ok) return err(env.text, r);
+      if (r.status === "exact" && r.plain && r.latex) {
+        return {
+          kind: "transform",
+          result: { ok: true, plain: r.plain, latex: r.latex },
+          computedFrom: env.computedFrom,
+        };
+      }
+      const lines = [
+        r.status === "diverges"
+          ? `the ${verb} diverges`
+          : "unable to find a closed form",
+      ];
+      if (r.method) lines.push(`method: ${r.method}`);
+      lines.push(...r.warnings);
+      return { kind: "message", tone: "info", lines };
+    }
+    case "rsolve": {
+      const r = await call("rsolve", [expr, args.slice(1).join(",")]);
+      if (!r.ok) return err(expr, r);
+      return {
+        kind: "transform",
+        result: { ok: true, plain: `a(n) = ${r.plain}`, latex: `a(n) = ${r.latex}` },
+        computedFrom: null,
+      };
+    }
+    case "grad":
+    case "div":
+    case "curl":
+    case "laplacian":
+    case "jacobian":
+    case "hessian": {
+      if (args.length < 2)
+        return usage(
+          `usage: ${verb} <field>, <var>[, <var> …]  (a vector field is ` +
+            `';'-separated, e.g. "x*y; y*z; z*x")`,
+        );
+      const vars = args.slice(1);
+      // Resolve session variables into each field component (vars excluded).
+      const comps = args[0].split(";").map((c) => c.trim());
+      const resolved: string[] = [];
+      for (const c of comps) {
+        resolved.push((await applyEnv(c, vars, "expr")).text);
+      }
+      const r = await call("vectorOp", [verb, resolved.join(";"), vars.join(",")]);
+      if (!r.ok) return err(args[0], r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "vecfield": {
+      // vecfield Fx; Fy [, xlo, xhi, ylo, yhi] — quiver plot over x,y.
+      const comps = args[0].split(";").map((c) => c.trim());
+      if (comps.length !== 2)
+        return usage(
+          'usage: vecfield <Fx>; <Fy>[, <xlo>, <xhi>, <ylo>, <yhi>]  (two ' +
+            "components over x and y)",
+        );
+      // Bounds: none (default box) or exactly four finite numbers with
+      // xlo < xhi and ylo < yhi — partial/malformed bounds are an error,
+      // not a silent default.
+      let xlo = -2;
+      let xhi = 2;
+      let ylo = -2;
+      let yhi = 2;
+      if (args.length > 1) {
+        const b = args.slice(1).map((s) => Number.parseFloat(s));
+        if (
+          b.length !== 4 ||
+          !b.every((n) => Number.isFinite(n)) ||
+          b[0] >= b[1] ||
+          b[2] >= b[3]
+        )
+          return usage(
+            "vecfield bounds must be four finite numbers with xlo < xhi and " +
+              "ylo < yhi: vecfield <Fx>; <Fy>, <xlo>, <xhi>, <ylo>, <yhi>",
+          );
+        [xlo, xhi, ylo, yhi] = b;
+      }
+      const fx = (await applyEnv(comps[0], ["x", "y"], "expr")).text;
+      const fy = (await applyEnv(comps[1], ["x", "y"], "expr")).text;
+      const r = await call("sampleField", [
+        fx,
+        fy,
+        "x",
+        "y",
+        xlo,
+        xhi,
+        ylo,
+        yhi,
+        13,
+      ]);
+      if (!r.ok) return err(args[0], r);
+      return { kind: "vecfield", fx: comps[0], fy: comps[1], result: r };
+    }
+    case "laplace": {
+      // Time variable defaults to t (not inferred): L{f(t)} = F(s).
+      const v = args[1] ?? "t";
+      const env = await applyEnv(expr, [v], "expr");
+      const r = await call("laplace", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "ilaplace": {
+      // Frequency variable defaults to s: L^-1{F(s)} = f(t).
+      const v = args[1] ?? "s";
+      const env = await applyEnv(expr, [v], "expr");
+      const r = await call("ilaplace", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }

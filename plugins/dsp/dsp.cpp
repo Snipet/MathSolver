@@ -529,6 +529,140 @@ std::string fir(const std::vector<std::string>& args) {
         fir_time_block(h));
 }
 
+std::string remez(const std::vector<std::string>& args) {
+    constexpr const char* usage =
+        "usage: dsp.remez <type>, <taps>, <edges...>, <fs>[, <stop weight>]  "
+        "(lowpass: fpass, fstop; highpass: fstop, fpass; bandpass: fstop1, "
+        "fpass1, fpass2, fstop2; bandstop: fpass1, fstop1, fstop2, fpass2)";
+    if (args.size() < 4) {
+        return error_json(usage);
+    }
+    const auto kind = parse_kind(args[0]);
+    if (!kind) {
+        return error_json(std::format(
+            "unknown filter type '{}': expected lowpass, highpass, bandpass, or "
+            "bandstop",
+            args[0]));
+    }
+    const bool band = is_band(*kind);
+    const int nfreq = band ? 4 : 2;
+    const std::size_t base = 2 + static_cast<std::size_t>(nfreq) + 1; // +type,taps,fs
+    if (args.size() < base || args.size() > base + 1) {
+        return error_json(usage);
+    }
+    const auto taps = parse_int(args[1]);
+    if (!taps) {
+        return error_json(std::format("taps must be an integer, got '{}'", args[1]));
+    }
+    // Edge frequencies (Hz), then the sample rate, then an optional weight.
+    std::vector<double> edges;
+    for (int i = 0; i < nfreq; ++i) {
+        const auto f = parse_double(args[2 + static_cast<std::size_t>(i)]);
+        if (!f) {
+            return error_json("band edges must be numbers");
+        }
+        edges.push_back(*f);
+    }
+    const auto fs = parse_double(args[2 + static_cast<std::size_t>(nfreq)]);
+    if (!fs || !(*fs > 0.0)) {
+        return error_json("sample rate must be a positive number");
+    }
+    double stop_weight = 1.0;
+    if (args.size() == base + 1) {
+        const auto w = parse_double(args[base]);
+        if (!w || !(*w > 0.0) || *w > 1000.0) {
+            return error_json(std::format(
+                "stop weight must be in (0, 1000], got '{}'", args[base]));
+        }
+        stop_weight = *w;
+    }
+    // Edges must be strictly increasing and inside (0, fs/2).
+    for (std::size_t i = 0; i < edges.size(); ++i) {
+        if (!(edges[i] > 0.0 && edges[i] < *fs / 2.0)) {
+            return error_json("every band edge must lie in (0, fs/2)");
+        }
+        if (i > 0 && !(edges[i] > edges[i - 1])) {
+            return error_json(
+                "band edges must be strictly increasing (transition bands must "
+                "not overlap)");
+        }
+    }
+
+    // Assemble the approximation bands. The passband weight is fixed at 1 and
+    // the stopband weight scales the ripple ratio (heavier = deeper stopband).
+    const double n = *fs; // for normalizing f -> f/fs
+    auto nf = [&](double f) { return f / n; };
+    std::vector<dsp::RemezBand> bands;
+    switch (*kind) {
+        case Kind::Lowpass:
+            bands = {{0.0, nf(edges[0]), 1.0, 1.0},
+                     {nf(edges[1]), 0.5, 0.0, stop_weight}};
+            break;
+        case Kind::Highpass:
+            bands = {{0.0, nf(edges[0]), 0.0, stop_weight},
+                     {nf(edges[1]), 0.5, 1.0, 1.0}};
+            break;
+        case Kind::Bandpass:
+            bands = {{0.0, nf(edges[0]), 0.0, stop_weight},
+                     {nf(edges[1]), nf(edges[2]), 1.0, 1.0},
+                     {nf(edges[3]), 0.5, 0.0, stop_weight}};
+            break;
+        case Kind::Bandstop:
+            bands = {{0.0, nf(edges[0]), 1.0, 1.0},
+                     {nf(edges[1]), nf(edges[2]), 0.0, stop_weight},
+                     {nf(edges[3]), 0.5, 1.0, 1.0}};
+            break;
+    }
+
+    dsp::RemezResult res;
+    try {
+        res = dsp::remez_fir(*taps, bands);
+    } catch (const dsp::DesignError& e) {
+        return error_json(e.what());
+    }
+    const std::vector<double>& h = res.taps;
+
+    // Convert the converged deviation into engineering ripple figures. The
+    // weighted error is uniform, so the passband ripple amplitude is δ and the
+    // stopband ripple is δ / stop_weight.
+    const double dp = res.deviation;                 // passband weight is 1
+    const double ds = res.deviation / stop_weight;   // stopband amplitude
+    const double pass_ripple_db = 20.0 * std::log10(1.0 + dp);
+    const double stop_atten_db = ds > 0.0 ? -20.0 * std::log10(ds) : 0.0;
+
+    std::string edge_text;
+    for (std::size_t i = 0; i < edges.size(); ++i) {
+        if (i > 0) edge_text += ", ";
+        edge_text += std::format("{:g}", edges[i]);
+    }
+    std::string kv = std::format(
+        "{{\"type\":\"kv\",\"items\":[[\"Design\",\"FIR equiripple "
+        "(Parks–McClellan)\"],[\"Type\",{}],[\"Taps\",\"{}\"],"
+        "[\"Band edges\",\"{} Hz\"],[\"Passband ripple\",\"{:.3f} dB\"],"
+        "[\"Stopband atten.\",\"{:.1f} dB\"],[\"Weighted deviation\",\"{:.5f}\"],"
+        "[\"Iterations\",\"{}{}\"],[\"Group delay\",\"{} samples (linear "
+        "phase)\"],[\"Sample rate\",\"{:g} Hz\"]]}}",
+        jstr(kind_label(*kind)), *taps, edge_text, pass_ripple_db, stop_atten_db,
+        res.deviation, res.iterations, res.converged ? "" : " (not converged)",
+        (*taps - 1) / 2.0, *fs);
+
+    std::vector<VLine> marks;
+    for (double e : edges) {
+        marks.push_back({e, std::format("{:g}", e)});
+    }
+
+    const ResponseGrid g = sample_response_grid(
+        [&](double f) { return dsp::fir_response_at(h, f, *fs); }, *fs);
+    return std::format(
+        "{{\"ok\":true,\"title\":{},\"blocks\":[{},{},{},{}]}}",
+        jstr(std::format("Equiripple FIR {} — {} taps, edges {} Hz @ {:g} Hz",
+                         kind_label(*kind), *taps, edge_text, *fs)),
+        kv, fir_taps_table_block(h),
+        series_block("Magnitude response", "gain (dB)", g.freqs, g.mag_db,
+                     "|H(f)|", marks),
+        fir_time_block(h));
+}
+
 std::string freqz(const std::vector<std::string>& args) {
     if (args.size() < 6 || (args.size() - 1) % 5 != 0) {
         return error_json(
@@ -574,28 +708,40 @@ std::string freqz(const std::vector<std::string>& args) {
 class DspPlugin final : public Plugin {
   public:
     std::string_view name() const override { return "dsp"; }
-    std::string_view version() const override { return "0.3.0"; }
+    std::string_view version() const override { return "0.4.0"; }
     std::string_view summary() const override {
         return "DSP filter design: Butterworth/Chebyshev/elliptic IIR, "
-               "windowed-sinc FIR, frequency and time responses";
+               "windowed-sinc and equiripple (Parks–McClellan) FIR, frequency "
+               "and time responses";
     }
     std::vector<CommandInfo> commands() const override {
         return {
             {"butter", "Butterworth low/high/band-pass/band-stop design",
              "dsp.butter <type>, <order 1-12>, <fc>[, <f2>], <fs>   (type: "
-             "lowpass|highpass|bandpass|bandstop)"},
+             "lowpass|highpass|bandpass|bandstop)",
+             "dsp.butter lowpass, 4, 1000, 48000"},
             {"cheby1", "Chebyshev I design (equiripple passband)",
-             "dsp.cheby1 <type>, <order 1-12>, <ripple dB>, <fc>[, <f2>], <fs>"},
+             "dsp.cheby1 <type>, <order 1-12>, <ripple dB>, <fc>[, <f2>], <fs>",
+             "dsp.cheby1 bandpass, 3, 1, 500, 2000, 48000"},
             {"cheby2", "Chebyshev II design (equiripple stopband)",
-             "dsp.cheby2 <type>, <order 1-12>, <atten dB>, <fc>[, <f2>], <fs>"},
+             "dsp.cheby2 <type>, <order 1-12>, <atten dB>, <fc>[, <f2>], <fs>",
+             "dsp.cheby2 lowpass, 4, 40, 2000, 48000"},
             {"ellip", "Elliptic (Cauer) design: sharpest transition per order",
              "dsp.ellip <type>, <order 1-12>, <ripple dB>, <atten dB>, <fc>[, "
-             "<f2>], <fs>"},
+             "<f2>], <fs>",
+             "dsp.ellip lowpass, 5, 1, 60, 1000, 48000"},
             {"fir", "Linear-phase windowed-sinc FIR design",
              "dsp.fir <type>, <taps 5-255>, <fc>[, <f2>], <fs>[, <window>[, "
-             "<kaiser beta>]]"},
+             "<kaiser beta>]]",
+             "dsp.fir lowpass, 101, 1000, 48000, kaiser, 10"},
+            {"remez", "Optimal equiripple FIR (Parks–McClellan)",
+             "dsp.remez <type>, <taps 5-255 odd>, <edges...>, <fs>[, <stop "
+             "weight>]   (lowpass: fpass, fstop; bandpass: fstop1, fpass1, "
+             "fpass2, fstop2)",
+             "dsp.remez lowpass, 31, 1000, 1500, 8000"},
             {"freqz", "Magnitude/phase/group delay/time response of a cascade",
-             "dsp.freqz <fs Hz>, <b0>,<b1>,<b2>,<a1>,<a2> [, ...more groups of 5]"},
+             "dsp.freqz <fs Hz>, <b0>,<b1>,<b2>,<a1>,<a2> [, ...more groups of 5]",
+             "dsp.freqz 48000, 0.2, 0.4, 0.2, -0.5, 0.3"},
         };
     }
     std::string invoke(std::string_view command,
@@ -628,6 +774,9 @@ class DspPlugin final : public Plugin {
             }
             if (command == "fir") {
                 return fir(args);
+            }
+            if (command == "remez") {
+                return remez(args);
             }
             if (command == "freqz") {
                 return freqz(args);

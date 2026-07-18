@@ -615,6 +615,277 @@ std::vector<double> design_fir(const FirSpec& spec) {
     return h;
 }
 
+// --- Parks–McClellan equiripple FIR (Remez exchange) ------------------------
+
+namespace {
+
+/// Dense frequency grid over the approximation bands: each point carries its
+/// angular frequency ω = 2π f, the node x = cos ω used for interpolation, the
+/// desired amplitude, the weight, and the index of its band (so the extremum
+/// search never straddles the gap between two bands).
+struct RemezGrid {
+    std::vector<double> omega, x, des, wt;
+    std::vector<int> band;
+};
+
+RemezGrid build_grid(const std::vector<RemezBand>& bands, int m, int density) {
+    RemezGrid g;
+    const double step = 0.5 / (static_cast<double>(density) * m); // in norm. f
+    for (std::size_t bi = 0; bi < bands.size(); ++bi) {
+        const RemezBand& b = bands[bi];
+        const int n = std::max(1, static_cast<int>(std::ceil((b.hi - b.lo) / step)));
+        for (int i = 0; i <= n; ++i) {
+            const double f = b.lo + (b.hi - b.lo) * i / n;
+            const double w = 2.0 * std::numbers::pi * f;
+            g.omega.push_back(w);
+            g.x.push_back(std::cos(w));
+            g.des.push_back(b.desired);
+            g.wt.push_back(b.weight);
+            g.band.push_back(static_cast<int>(bi));
+        }
+    }
+    return g;
+}
+
+/// Barycentric weights γ_k = 1 / Π_{i≠k} (x_k - x_i) over the given nodes
+/// (scaled by 2 per factor, the standard Parks–McClellan normalization that
+/// keeps the products from underflowing for long filters).
+std::vector<double> bary_weights(const std::vector<double>& x,
+                                 const std::vector<int>& nodes) {
+    const int m = static_cast<int>(nodes.size());
+    std::vector<double> w(static_cast<std::size_t>(m));
+    for (int k = 0; k < m; ++k) {
+        double p = 1.0;
+        for (int i = 0; i < m; ++i) {
+            if (i != k) {
+                p *= 2.0 * (x[static_cast<std::size_t>(nodes[k])] -
+                            x[static_cast<std::size_t>(nodes[i])]);
+            }
+        }
+        w[static_cast<std::size_t>(k)] = 1.0 / p;
+    }
+    return w;
+}
+
+int sign_of(double v) { return v > 0.0 ? 1 : (v < 0.0 ? -1 : 0); }
+
+} // namespace
+
+RemezResult remez_fir(int taps, const std::vector<RemezBand>& bands,
+                      int grid_density) {
+    if (taps < 5 || taps > 255) {
+        throw DesignError("taps must be in [5, 255]");
+    }
+    if (taps % 2 == 0) {
+        throw DesignError("equiripple design here is Type I: the tap count must "
+                          "be odd");
+    }
+    if (bands.size() < 2) {
+        throw DesignError("give at least two bands (e.g. a passband and a "
+                          "stopband)");
+    }
+    for (std::size_t i = 0; i < bands.size(); ++i) {
+        const RemezBand& b = bands[i];
+        if (!(b.lo >= 0.0 && b.hi <= 0.5 && b.lo < b.hi)) {
+            throw DesignError("each band edge must satisfy 0 <= lo < hi <= 0.5 "
+                              "(normalized frequency)");
+        }
+        if (!(b.weight > 0.0)) {
+            throw DesignError("band weights must be positive");
+        }
+        if (i > 0 && !(bands[i - 1].hi < b.lo)) {
+            throw DesignError("bands must be disjoint and increasing");
+        }
+    }
+    if (grid_density < 4) {
+        grid_density = 4;
+    }
+
+    const int mm = (taps - 1) / 2;   // filter half-length
+    const int r = mm + 1;            // number of cosine coefficients
+    const int next = r + 1;          // extrema required (alternation theorem)
+
+    const RemezGrid g = build_grid(bands, mm, grid_density);
+    const int ngrid = static_cast<int>(g.omega.size());
+    if (ngrid < next) {
+        throw DesignError("frequency grid too coarse for this tap count; the "
+                          "bands are too narrow");
+    }
+
+    // Initial extrema: evenly spaced grid indices.
+    std::vector<int> ext(static_cast<std::size_t>(next));
+    for (int k = 0; k < next; ++k) {
+        ext[static_cast<std::size_t>(k)] =
+            static_cast<int>(std::llround(static_cast<double>(k) * (ngrid - 1) /
+                                          (next - 1)));
+    }
+
+    double deviation = 0.0;
+    bool converged = false;
+    int iter = 0;
+    const int max_iter = 100;
+    std::vector<double> ext_amp(static_cast<std::size_t>(next)); // C_k at extrema
+
+    for (iter = 1; iter <= max_iter; ++iter) {
+        // Deviation δ from the closed-form ratio over all `next` extrema.
+        const std::vector<double> gamma = bary_weights(g.x, ext);
+        double numr = 0.0, den = 0.0;
+        for (int k = 0; k < next; ++k) {
+            const int gi = ext[static_cast<std::size_t>(k)];
+            const double s = (k % 2 == 0) ? 1.0 : -1.0;
+            numr += gamma[static_cast<std::size_t>(k)] * g.des[static_cast<std::size_t>(gi)];
+            den += gamma[static_cast<std::size_t>(k)] * s / g.wt[static_cast<std::size_t>(gi)];
+        }
+        deviation = numr / den;
+
+        // Amplitude target at every extremum: C_k = D_k - (-1)^k δ / W_k.
+        for (int k = 0; k < next; ++k) {
+            const int gi = ext[static_cast<std::size_t>(k)];
+            const double s = (k % 2 == 0) ? 1.0 : -1.0;
+            ext_amp[static_cast<std::size_t>(k)] =
+                g.des[static_cast<std::size_t>(gi)] -
+                s * deviation / g.wt[static_cast<std::size_t>(gi)];
+        }
+
+        // Barycentric interpolant of A(ω) through the first r extrema (a
+        // degree-mm polynomial in x = cos ω — exactly a cosine polynomial).
+        std::vector<int> rnodes(ext.begin(), ext.begin() + r);
+        const std::vector<double> beta = bary_weights(g.x, rnodes);
+        auto amplitude = [&](double x) -> double {
+            double n2 = 0.0, d2 = 0.0;
+            for (int k = 0; k < r; ++k) {
+                const double dx = x - g.x[static_cast<std::size_t>(rnodes[static_cast<std::size_t>(k)])];
+                if (std::abs(dx) < 1e-15) {
+                    return ext_amp[static_cast<std::size_t>(k)];
+                }
+                const double t = beta[static_cast<std::size_t>(k)] / dx;
+                n2 += t * ext_amp[static_cast<std::size_t>(k)];
+                d2 += t;
+            }
+            return n2 / d2;
+        };
+
+        // Weighted error over the whole grid.
+        std::vector<double> err(static_cast<std::size_t>(ngrid));
+        double max_grid_err = 0.0;
+        for (int i = 0; i < ngrid; ++i) {
+            err[static_cast<std::size_t>(i)] =
+                g.wt[static_cast<std::size_t>(i)] *
+                (amplitude(g.x[static_cast<std::size_t>(i)]) - g.des[static_cast<std::size_t>(i)]);
+            max_grid_err = std::max(max_grid_err, std::abs(err[static_cast<std::size_t>(i)]));
+        }
+
+        // Convergence: the interpolant equioscillates at ±δ on its extrema, so
+        // the design is optimal once no grid point exceeds |δ|. Test this
+        // BEFORE exchanging, and reconstruct from THIS `ext` (whose δ / C_k the
+        // interpolant is built on) — never from the not-yet-validated new set.
+        const double dev_abs = std::abs(deviation);
+        if (max_grid_err <= dev_abs * (1.0 + 1e-4)) {
+            converged = true;
+            break;
+        }
+
+        // Candidate extrema: each band edge, plus interior local maxima of |E|
+        // within a band (neighbors compared only inside the same band).
+        std::vector<int> cand;
+        for (int i = 0; i < ngrid; ++i) {
+            const bool first_of_band =
+                i == 0 || g.band[static_cast<std::size_t>(i)] != g.band[static_cast<std::size_t>(i - 1)];
+            const bool last_of_band =
+                i == ngrid - 1 || g.band[static_cast<std::size_t>(i)] != g.band[static_cast<std::size_t>(i + 1)];
+            if (first_of_band || last_of_band) {
+                cand.push_back(i);
+                continue;
+            }
+            const double e = err[static_cast<std::size_t>(i)];
+            const double el = err[static_cast<std::size_t>(i - 1)];
+            const double eh = err[static_cast<std::size_t>(i + 1)];
+            if ((e > 0.0 && e >= el && e >= eh) ||
+                (e < 0.0 && e <= el && e <= eh)) {
+                cand.push_back(i);
+            }
+        }
+
+        // Enforce sign alternation: collapse runs of equal-sign candidates to
+        // the one with the largest |error|.
+        std::vector<int> alt;
+        for (int idx : cand) {
+            const double e = err[static_cast<std::size_t>(idx)];
+            if (sign_of(e) == 0) {
+                continue;
+            }
+            if (!alt.empty() &&
+                sign_of(err[static_cast<std::size_t>(alt.back())]) == sign_of(e)) {
+                if (std::abs(e) > std::abs(err[static_cast<std::size_t>(alt.back())])) {
+                    alt.back() = idx;
+                }
+            } else {
+                alt.push_back(idx);
+            }
+        }
+
+        // Trim any excess by dropping the smaller-error endpoint (preserves
+        // alternation); a deficit means the grid missed an extremum — keep the
+        // previous set and stop.
+        while (static_cast<int>(alt.size()) > next) {
+            if (std::abs(err[static_cast<std::size_t>(alt.front())]) <
+                std::abs(err[static_cast<std::size_t>(alt.back())])) {
+                alt.erase(alt.begin());
+            } else {
+                alt.pop_back();
+            }
+        }
+        if (static_cast<int>(alt.size()) < next) {
+            break; // grid too coarse to isolate every extremum
+        }
+        ext = alt; // exchange: adopt the new extrema for the next pass
+    }
+
+    // Reconstruct the linear-phase taps from the converged amplitude: sample
+    // A(ω) at the taps equally spaced frequencies and inverse-DFT with the
+    // mm-sample delay folded back in. A is even and real, so h is real and
+    // symmetric.
+    const std::vector<double> gamma = bary_weights(g.x, ext);
+    std::vector<int> rnodes(ext.begin(), ext.begin() + r);
+    const std::vector<double> beta = bary_weights(g.x, rnodes);
+    // Recompute C_k for the final ext set.
+    for (int k = 0; k < next; ++k) {
+        const int gi = ext[static_cast<std::size_t>(k)];
+        const double s = (k % 2 == 0) ? 1.0 : -1.0;
+        ext_amp[static_cast<std::size_t>(k)] =
+            g.des[static_cast<std::size_t>(gi)] -
+            s * deviation / g.wt[static_cast<std::size_t>(gi)];
+    }
+    (void)gamma;
+    auto amplitude = [&](double x) -> double {
+        double n2 = 0.0, d2 = 0.0;
+        for (int k = 0; k < r; ++k) {
+            const double dx =
+                x - g.x[static_cast<std::size_t>(rnodes[static_cast<std::size_t>(k)])];
+            if (std::abs(dx) < 1e-15) {
+                return ext_amp[static_cast<std::size_t>(k)];
+            }
+            const double t = beta[static_cast<std::size_t>(k)] / dx;
+            n2 += t * ext_amp[static_cast<std::size_t>(k)];
+            d2 += t;
+        }
+        return n2 / d2;
+    };
+
+    const int n = taps;
+    std::vector<double> h(static_cast<std::size_t>(n), 0.0);
+    for (int i = 0; i < n; ++i) {
+        const double wk = 2.0 * std::numbers::pi * i / n;
+        const double ak = amplitude(std::cos(wk));
+        for (int t = 0; t < n; ++t) {
+            h[static_cast<std::size_t>(t)] +=
+                ak * std::cos(wk * (t - mm)) / n;
+        }
+    }
+
+    return RemezResult{std::move(h), std::abs(deviation), iter, converged};
+}
+
 ResponsePoint fir_response_at(const std::vector<double>& taps, double f, double fs) {
     const double w = 2.0 * std::numbers::pi * f / fs;
     cd h{0.0, 0.0};

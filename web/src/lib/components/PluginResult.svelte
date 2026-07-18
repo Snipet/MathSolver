@@ -83,6 +83,7 @@
         xlabel={block.xlabel}
         ylabel={block.ylabel}
         logx={block.logx ?? false}
+        equal={block.equal ?? false}
         vlines={block.vlines ?? []}
       />
     {:else if block.type === "text"}

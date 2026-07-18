@@ -594,6 +594,28 @@ IsoStatus isolate_function(const Expr& side, const Expr& c, IsoState& st) {
                                               make_sub(make_num(1), c)))}));
         return isolate(u, root, st);
     }
+    case FunctionId::Asinh:
+        return isolate(u, simplify(make_fn(FunctionId::Sinh, c)), st);
+    case FunctionId::Acosh:
+        // acosh only outputs values >= 0.
+        if (out_of_range(c, cv, [](const Rational& r) { return r.is_negative(); },
+                         [](double v) { return v < -kRangeEps; })) {
+            return IsoStatus::NoReal;
+        }
+        if (!cv) {
+            range_warning("is >= 0");
+        }
+        return isolate(u, simplify(make_fn(FunctionId::Cosh, c)), st);
+    case FunctionId::Atanh:
+        return isolate(u, simplify(make_fn(FunctionId::Tanh, c)), st);
+    case FunctionId::Gamma:
+    case FunctionId::Digamma:
+    case FunctionId::Erf:
+    case FunctionId::Erfc:
+    case FunctionId::Fib:
+    case FunctionId::Harmonic:
+        // No elementary inverses; the numeric fallback handles these.
+        return IsoStatus::Fail;
     }
     return IsoStatus::Fail;
 }

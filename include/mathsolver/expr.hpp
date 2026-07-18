@@ -22,7 +22,11 @@ enum class Kind { Number, Symbol, Constant, Add, Mul, Pow, Function };
 
 enum class ConstantId { Pi, E, I };
 
-enum class FunctionId { Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Ln, Abs };
+enum class FunctionId {
+    Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Asinh, Acosh, Atanh,
+    Gamma, Digamma, Erf, Erfc, Fib, Harmonic,
+    Ln, Abs
+};
 
 /// Lowercase canonical name: "sin", "asin", "ln", "abs", ...
 std::string_view function_name(FunctionId id);

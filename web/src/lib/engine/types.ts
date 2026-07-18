@@ -19,7 +19,66 @@ export type AnalyzeResult =
   | { ok: true; kind: "system"; symbols: string[] }
   | EngineError;
 
-export type TransformResult = ({ ok: true } & Rendered) | EngineError;
+export type TransformResult =
+  | ({ ok: true; notes?: string[] } & Rendered)
+  | EngineError;
+
+export type SeqCallResult =
+  | ({
+      ok: true;
+      kind: "arithmetic" | "geometric" | "polynomial" | "recurrence" | "unknown";
+      description: string;
+      recurrence?: string;
+      next: string[];
+      warnings: string[];
+    } & Partial<Rendered>)
+  | EngineError;
+
+export type LimitCallResult =
+  | ({
+      ok: true;
+      status: "exact" | "numeric" | "diverges" | "doesNotExist" | "unsolved";
+      sign: number;
+      approx?: number;
+      method: string;
+      warnings: string[];
+    } & Partial<Rendered>)
+  | EngineError;
+
+export type SumCallResult =
+  | ({
+      ok: true;
+      status: "exact" | "diverges" | "unsolved";
+      method: string;
+      warnings: string[];
+    } & Partial<Rendered>)
+  | EngineError;
+
+export type RsolveCallResult =
+  | ({ ok: true; order: number; method: string; warnings: string[] } & Rendered)
+  | EngineError;
+
+export type FieldResult =
+  | {
+      ok: true;
+      n: number;
+      x: number[];
+      y: number[];
+      u: (number | null)[];
+      v: (number | null)[];
+    }
+  | EngineError;
+
+export type DsolveResult =
+  | ({
+      ok: true;
+      transformPlain: string;
+      transformLatex: string;
+      implicit: boolean;
+      method: string;
+      warnings: string[];
+    } & Rendered)
+  | EngineError;
 
 export type IntegrateResult =
   | ({ ok: true; solved: true; method: string; warnings: string[] } & Rendered)
@@ -84,6 +143,8 @@ export interface PluginCommandMeta {
   name: string;
   summary: string;
   usage: string;
+  /** A concrete runnable invocation, e.g. "dsp.butter lowpass, 4, 1000, 48000". */
+  example: string;
 }
 
 export interface PluginMeta {
@@ -107,6 +168,8 @@ export type PluginBlock =
       xlabel?: string;
       ylabel?: string;
       logx?: boolean;
+      /** Equal units-per-pixel on both axes (e.g. pole-zero maps). */
+      equal?: boolean;
       x: number[];
       series: {
         label: string;
@@ -138,7 +201,46 @@ export interface EngineApi {
     TransformResult,
   ];
   collect: [[input: string, variable: string], TransformResult];
+  apart: [[input: string, variable: string], TransformResult];
+  dsolve: [[ode: string, conditionsCsv: string], DsolveResult];
+  series: [
+    [input: string, variable: string, center: string, order: number],
+    TransformResult,
+  ];
+  vectorOp: [[op: string, fieldSemi: string, varsCsv: string], TransformResult];
+  limit: [
+    [input: string, variable: string, point: string, direction: string],
+    LimitCallResult,
+  ];
+  mlimit: [
+    [input: string, xVar: string, a: string, yVar: string, b: string],
+    LimitCallResult,
+  ];
+  stirling: [[variable: string, terms: number], TransformResult];
+  seq: [[termsCsv: string], SeqCallResult];
+  sum: [[term: string, variable: string, lo: string, hi: string], SumCallResult];
+  product: [
+    [term: string, variable: string, lo: string, hi: string],
+    SumCallResult,
+  ];
+  rsolve: [[recurrence: string, conditionsCsv: string], RsolveCallResult];
+  sampleField: [
+    [
+      fx: string,
+      fy: string,
+      xVar: string,
+      yVar: string,
+      xlo: number,
+      xhi: number,
+      ylo: number,
+      yhi: number,
+      n: number,
+    ],
+    FieldResult,
+  ];
   derivative: [[input: string, variable: string], TransformResult];
+  laplace: [[input: string, timeVar: string], TransformResult];
+  ilaplace: [[input: string, freqVar: string], TransformResult];
   integrate: [[input: string, variable: string], IntegrateResult];
   integrateDefinite: [
     [input: string, variable: string, lo: string, hi: string],

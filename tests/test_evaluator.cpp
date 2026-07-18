@@ -223,3 +223,14 @@ TEST_CASE("try_exact_numeric: n-ary folding avoids pairwise overflow", "[evaluat
     REQUIRE(folded.has_value());
     CHECK(*folded == Rational(LLONG_MAX));
 }
+
+TEST_CASE("evaluate: inverse hyperbolic values and domains") {
+    const auto E = [](std::string_view s) {
+        return evaluate(parse_expression(s), Bindings{});
+    };
+    CHECK(std::abs(E("asinh(1)") - std::asinh(1.0)) < 1e-15);
+    CHECK(std::abs(E("acosh(2)") - std::acosh(2.0)) < 1e-15);
+    CHECK(std::abs(E("atanh(1/2)") - std::atanh(0.5)) < 1e-15);
+    CHECK_THROWS_AS(E("acosh(1/2)"), Error);
+    CHECK_THROWS_AS(E("atanh(2)"), Error);
+}

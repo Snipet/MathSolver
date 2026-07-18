@@ -1,6 +1,8 @@
 // Discriminated union describing what the result card should render.
 import type {
   TransformResult,
+  DsolveResult,
+  FieldResult,
   SolveResult,
   SystemResult,
   IntegrateResult,
@@ -24,6 +26,7 @@ export interface EnvApplied {
 
 export type Outcome =
   | ({ kind: "transform"; result: Ok<TransformResult> } & EnvApplied)
+  | ({ kind: "dsolve"; result: Ok<DsolveResult> } & EnvApplied)
   | ({ kind: "solve"; variable: string; result: Ok<SolveResult> } & EnvApplied)
   | ({ kind: "system"; result: Ok<SystemResult> } & EnvApplied)
   | ({ kind: "integral"; variable: string; result: Ok<IntegrateResult> } & EnvApplied)
@@ -38,5 +41,6 @@ export type Outcome =
       xlabel: string;
       ylabel: string;
     }
+  | { kind: "vecfield"; fx: string; fy: string; result: Ok<FieldResult> }
   | { kind: "assignment"; name: string; plain: string; latex: string }
   | { kind: "error"; message: string; input: string; begin?: number; end?: number };

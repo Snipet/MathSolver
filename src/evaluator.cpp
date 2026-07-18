@@ -34,6 +34,30 @@ double eval_pow(double base, double exponent) {
     return std::pow(base, exponent);
 }
 
+
+/// Digamma psi(x): reflection for x < 1/2, upward recurrence to x >= 6,
+/// then the Bernoulli asymptotic series (DLMF 5.11.2).
+double digamma_impl(double x) {
+    if (x <= 0.0 && x == std::floor(x)) {
+        throw EvalError(std::format(
+            "digamma has a pole at the nonpositive integer {}", x));
+    }
+    if (x < 0.5) {
+        return digamma_impl(1.0 - x) -
+               std::numbers::pi / std::tan(std::numbers::pi * x);
+    }
+    double acc = 0.0;
+    while (x < 6.0) {
+        acc -= 1.0 / x;
+        x += 1.0;
+    }
+    const double inv = 1.0 / x;
+    const double inv2 = inv * inv;
+    return acc + std::log(x) - 0.5 * inv -
+           inv2 * (1.0 / 12 -
+                   inv2 * (1.0 / 120 - inv2 * (1.0 / 252 - inv2 * (1.0 / 240))));
+}
+
 double eval_function(FunctionId id, double u) {
     switch (id) {
         case FunctionId::Sin: return std::sin(u);
@@ -53,6 +77,43 @@ double eval_function(FunctionId id, double u) {
         case FunctionId::Sinh: return std::sinh(u);
         case FunctionId::Cosh: return std::cosh(u);
         case FunctionId::Tanh: return std::tanh(u);
+        case FunctionId::Gamma:
+            if (u <= 0.0 && u == std::floor(u)) {
+                throw EvalError(std::format(
+                    "gamma has a pole at the nonpositive integer {}", u));
+            }
+            return std::tgamma(u);
+        case FunctionId::Digamma: return digamma_impl(u);
+        case FunctionId::Erf: return std::erf(u);
+        case FunctionId::Erfc: return std::erfc(u);
+        case FunctionId::Fib: {
+            if (u != std::floor(u)) {
+                throw EvalError(std::format(
+                    "fib is defined for integers (got {})", u));
+            }
+            // Binet, with the reflection F(-n) = (-1)^(n+1) F(n).
+            const double n = std::abs(u);
+            const double phi = (1.0 + std::sqrt(5.0)) / 2.0;
+            double f = (std::pow(phi, n) - std::pow(-phi, -n)) / std::sqrt(5.0);
+            if (u < 0.0 && std::fmod(n, 2.0) == 0.0) {
+                f = -f;
+            }
+            return f;
+        }
+        case FunctionId::Harmonic:
+            // H_x = digamma(x + 1) + euler_gamma, for any non-pole x.
+            return digamma_impl(u + 1.0) + 0.57721566490153286;
+        case FunctionId::Asinh: return std::asinh(u);
+        case FunctionId::Acosh:
+            if (u < 1.0) {
+                throw EvalError(std::format("acosh argument {} below 1", u));
+            }
+            return std::acosh(u);
+        case FunctionId::Atanh:
+            if (u <= -1.0 || u >= 1.0) {
+                throw EvalError(std::format("atanh argument {} outside (-1, 1)", u));
+            }
+            return std::atanh(u);
         case FunctionId::Ln:
             if (u <= 0.0) {
                 throw EvalError(std::format("ln of a non-positive value ({})", u));

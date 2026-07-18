@@ -290,6 +290,24 @@ void run_diff(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(differentiate(e, var), style));
 }
 
+/// `laplace` maps f(t) -> F(s); the time variable defaults to t and may be
+/// given explicitly (any name but s). Errors from the transform (e.g. no rule
+/// for the input) propagate as normal Error diagnostics.
+void run_laplace(const std::string& input, const std::string& explicit_var,
+                 PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = explicit_var.empty() ? "t" : explicit_var;
+    std::println("{}", to_string(laplace(e, var), style));
+}
+
+/// `ilaplace` maps F(s) -> f(t); the frequency variable defaults to s.
+void run_ilaplace(const std::string& input, const std::string& explicit_var,
+                  PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = explicit_var.empty() ? "s" : explicit_var;
+    std::println("{}", to_string(inverse_laplace(e, var), style));
+}
+
 /// `collect` regroups the expression as a polynomial in the variable (§7
 /// collect); the variable is inferred exactly like diff when omitted.
 void run_collect(const std::string& input, const std::string& explicit_var,
@@ -297,6 +315,299 @@ void run_collect(const std::string& input, const std::string& explicit_var,
     const Expr e = parse_expression_diag(input);
     const std::string var = choose_variable(explicit_var, free_symbols(e), "collect");
     std::println("{}", to_string(collect(e, var), style));
+}
+
+/// `apart` expands a rational function into partial fractions; the variable
+/// is inferred exactly like collect when omitted.
+void run_apart(const std::string& input, const std::string& explicit_var,
+               PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "apart");
+    std::println("{}", to_string(apart(e, var), style));
+}
+
+/// `series`: Taylor expansion about a center (default 0) to an order
+/// (default 6); the variable is inferred like diff when omitted.
+void run_series(const std::string& input, const std::string& explicit_var,
+                const std::string& center_text, const std::string& order_text,
+                PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "series");
+    int order = 6;
+    if (!order_text.empty()) {
+        const auto n = parse_double(order_text);
+        if (!n || *n != std::floor(*n)) {
+            throw UsageError{std::format("series order must be an integer, got '{}'",
+                                         order_text)};
+        }
+        order = static_cast<int>(*n);
+    }
+    if (center_text == "inf" || center_text == "oo") {
+        std::println("{}", to_string(series_at_infinity(e, var, order), style));
+        return;
+    }
+    const Expr center =
+        center_text.empty() ? make_num(0) : parse_expression_diag(center_text);
+    std::println("{}", to_string(series(e, var, center, order), style));
+}
+
+/// `stirling`: the Stirling asymptotic series for ln Gamma(var) with exact
+/// Bernoulli coefficients; the lgamma accuracy check prints as notes.
+void run_stirling(const std::string& var_text, const std::string& terms_text,
+                  PrintStyle style) {
+    std::string var = "x";
+    if (!var_text.empty()) {
+        const Expr ve = parse_expression_diag(var_text);
+        if (ve->kind() != Kind::Symbol) {
+            throw UsageError{std::format(
+                "stirling: the first argument must be a variable name, got "
+                "'{}'",
+                var_text)};
+        }
+        var = to_string(ve, PrintStyle::Plain);
+    }
+    int terms = 3;
+    if (!terms_text.empty()) {
+        const auto n = parse_double(terms_text);
+        if (!n || *n != std::floor(*n)) {
+            throw UsageError{std::format(
+                "stirling terms must be an integer, got '{}'", terms_text)};
+        }
+        terms = static_cast<int>(*n);
+    }
+    const StirlingResult r = stirling_series(var, terms);
+    std::println("ln Gamma({}) ~ {}", var, to_string(r.series, style));
+    for (const std::string& c : r.checks) {
+        std::println("note: {}", c);
+    }
+    std::println("note: ln n! = ln Gamma(n + 1); the full series diverges "
+                 "for fixed {} — truncation, not convergence",
+                 var);
+}
+
+/// `seq`: recognize the pattern behind a list of exact terms.
+void run_seq(const std::vector<std::string>& term_texts, PrintStyle style) {
+    std::vector<Rational> terms;
+    for (const std::string& t : term_texts) {
+        const Expr e = simplify(parse_expression_diag(t));
+        if (e->kind() != Kind::Number) {
+            throw UsageError{std::format(
+                "seq terms must be exact numbers, got '{}'", t)};
+        }
+        terms.push_back(e->number());
+    }
+    const SeqResult r = recognize_sequence(terms);
+    std::println("pattern: {}", r.description);
+    if (r.formula) {
+        std::println("a(n) = {}   (n = 0, 1, 2, ...)",
+                     to_string(r.formula, style));
+    }
+    if (!r.recurrence.empty()) {
+        std::println("recurrence: {}", r.recurrence);
+    }
+    if (!r.next.empty()) {
+        std::string nx;
+        for (const Rational& v : r.next) {
+            if (!nx.empty()) nx += ", ";
+            nx += v.to_string();
+        }
+        std::println("next: {}", nx);
+    }
+    for (const std::string& w : r.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
+std::vector<std::string> split_top_level(const std::string& s, char delim);
+
+void print_sum_result(const SumResult& r, const char* noun, PrintStyle style) {
+    switch (r.status) {
+        case SumResult::Status::Exact:
+            std::println("{} = {}", noun, to_string(r.value, style));
+            break;
+        case SumResult::Status::Diverges:
+            std::println("the {} diverges", noun);
+            break;
+        case SumResult::Status::Unsolved:
+            std::println("unable to find a closed form");
+            break;
+    }
+    if (!r.method.empty()) {
+        std::println("method: {}", r.method);
+    }
+    for (const std::string& w : r.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
+/// `sum <term> <var> <lo> <hi>` (hi accepts inf) and `product` likewise.
+void run_sum(const std::string& input, const std::vector<std::string>& args,
+             bool is_product, PrintStyle style) {
+    if (args.size() != 4) {
+        throw UsageError{std::format(
+            "usage: {} <term>, <variable>, <lo>, <hi>{}",
+            is_product ? "product" : "sum", is_product ? "" : "   (hi may be inf)")};
+    }
+    const Expr term = parse_expression_diag(input);
+    const std::string& var = args[1];
+    const Expr lo = parse_expression_diag(args[2]);
+    if (!is_product && (args[3] == "inf" || args[3] == "oo")) {
+        print_sum_result(sum_infinite(term, var, lo), "sum", style);
+        return;
+    }
+    const Expr hi = parse_expression_diag(args[3]);
+    if (is_product) {
+        print_sum_result(product_finite(term, var, lo, hi), "product", style);
+    } else {
+        print_sum_result(sum_finite(term, var, lo, hi), "sum", style);
+    }
+}
+
+/// `rsolve <recurrence>[, a(0)=v, ...]` — mirrors dsolve's shape.
+void run_rsolve(const std::string& input, PrintStyle style) {
+    const std::vector<std::string> parts = split_top_level(input, ',');
+    const RsolveResult res = rsolve(parts[0], {parts.begin() + 1, parts.end()});
+    std::println("a(n) = {}", to_string(res.solution, style));
+    std::println("method: {}", res.method);
+    for (const std::string& w : res.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
+/// `limit <expr> <var> <point> [left|right]`. The point accepts inf/-inf/oo.
+void run_limit(const std::string& input, const std::string& var,
+               const std::string& point_text, const std::string& dir_text,
+               PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    if (var.empty() || point_text.empty()) {
+        throw UsageError{
+            "usage: limit <expression>, <variable>, <point>[, left|right]"};
+    }
+    int dir = 0;
+    if (dir_text == "left") {
+        dir = -1;
+    } else if (dir_text == "right") {
+        dir = +1;
+    } else if (!dir_text.empty() && dir_text != "both") {
+        throw UsageError{std::format(
+            "the limit direction must be left, right, or both (got '{}')",
+            dir_text)};
+    }
+    LimitResult r;
+    if (point_text == "inf" || point_text == "+inf" || point_text == "oo") {
+        r = limit_at_infinity(e, var, true);
+    } else if (point_text == "-inf" || point_text == "-oo") {
+        r = limit_at_infinity(e, var, false);
+    } else {
+        r = limit(e, var, parse_expression_diag(point_text), dir);
+    }
+    switch (r.status) {
+        case LimitResult::Status::Exact:
+            std::println("limit = {}", to_string(r.value, style));
+            break;
+        case LimitResult::Status::Numeric:
+            std::println("limit ≈ {:.10g}", evaluate(r.value, Bindings{}));
+            break;
+        case LimitResult::Status::Diverges:
+            std::println("limit = {}", r.sign > 0   ? "+inf"
+                                       : r.sign < 0 ? "-inf"
+                                                    : "inf (unsigned)");
+            break;
+        case LimitResult::Status::DoesNotExist:
+            std::println("the limit does not exist");
+            break;
+        case LimitResult::Status::Unsolved:
+            std::println("unable to determine the limit");
+            break;
+    }
+    if (!r.method.empty()) {
+        std::println("method: {}", r.method);
+    }
+    for (const std::string& w : r.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
+/// `mlimit <f> <x> <a> <y> <b>`: two-variable limit by path sampling.
+void run_mlimit(const std::string& input, const std::vector<std::string>& args,
+                PrintStyle style) {
+    if (args.size() != 5) {
+        throw UsageError{
+            "usage: mlimit <expression>, <x var>, <a>, <y var>, <b>"};
+    }
+    const Expr e = parse_expression_diag(input);
+    const LimitResult r =
+        limit_multi(e, args[1], parse_expression_diag(args[2]), args[3],
+                    parse_expression_diag(args[4]));
+    switch (r.status) {
+        case LimitResult::Status::Exact:
+            std::println("limit = {}", to_string(r.value, style));
+            break;
+        case LimitResult::Status::Numeric:
+            std::println("limit ≈ {:.10g}", evaluate(r.value, Bindings{}));
+            break;
+        case LimitResult::Status::Diverges:
+            std::println("limit = {}", r.sign > 0   ? "+inf"
+                                       : r.sign < 0 ? "-inf"
+                                                    : "inf (unsigned)");
+            break;
+        case LimitResult::Status::DoesNotExist:
+            std::println("the limit does not exist");
+            break;
+        case LimitResult::Status::Unsolved:
+            std::println("unable to determine the limit");
+            break;
+    }
+    if (!r.method.empty()) {
+        std::println("method: {}", r.method);
+    }
+    for (const std::string& w : r.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
+/// Vector-calculus verbs (grad/div/curl/laplacian/jacobian/hessian). The
+/// first positional is the scalar field or a ';'-separated vector field; the
+/// remaining positionals are the variables (in order). Scalar operators
+/// print a vector/matrix, div/curl2d/laplacian print a scalar.
+void run_vector(const std::string& sub, const std::vector<std::string>& positionals,
+                PrintStyle style) {
+    if (positionals.size() < 2) {
+        throw UsageError{std::format(
+            "usage: mathsolver {} \"<field>\" <var> [<var> ...]   (a vector "
+            "field is ';'-separated, e.g. \"x*y; y*z; z*x\")",
+            sub)};
+    }
+    std::vector<std::string> vars(positionals.begin() + 1, positionals.end());
+    ExprVec field;
+    for (const std::string& comp : split_top_level(positionals[0], ';')) {
+        field.push_back(parse_expression_diag(comp));
+    }
+    const bool wants_scalar =
+        sub == "grad" || sub == "laplacian" || sub == "hessian";
+    if (wants_scalar && field.size() != 1) {
+        throw UsageError{std::format(
+            "{} takes a single scalar field, not {} ';'-separated components",
+            sub, field.size())};
+    }
+    const Expr scalar = field.front();
+    if (sub == "grad") {
+        std::println("{}", vec_to_string(gradient(scalar, vars), style));
+    } else if (sub == "div") {
+        std::println("{}", to_string(divergence(field, vars), style));
+    } else if (sub == "curl") {
+        if (field.size() == 2 && vars.size() == 2) {
+            std::println("{}", to_string(curl2d(field, vars), style));
+        } else {
+            std::println("{}", vec_to_string(curl(field, vars), style));
+        }
+    } else if (sub == "laplacian") {
+        std::println("{}", to_string(laplacian(scalar, vars), style));
+    } else if (sub == "jacobian") {
+        std::println("{}", mat_to_string(jacobian(field, vars), style));
+    } else if (sub == "hessian") {
+        std::println("{}", mat_to_string(hessian(scalar, vars), style));
+    }
 }
 
 /// `integrate` (DESIGN.md §8b): indefinite prints `F(x) + C`, definite
@@ -496,6 +807,42 @@ bool has_top_level_semicolon(const std::string& s) {
     return split_top_level(s, ';').size() > 1;
 }
 
+/// `dsolve`: the input's first top-level comma segment is the ODE, the rest
+/// are initial conditions ("y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0").
+/// Prints y(t), the partial-fraction Y(s), and assumed-zero-IC warnings.
+void run_dsolve(const std::string& input, PrintStyle style) {
+    const std::vector<std::string> parts = split_top_level(input, ',');
+    // A ';' in the equation part selects the first-order-system path:
+    //   dsolve x' = -2x + y; y' = x - 2y, x(0)=1, y(0)=0
+    if (split_top_level(parts[0], ';').size() > 1) {
+        const DsolveSystemResult res = dsolve_system(
+            split_top_level(parts[0], ';'), {parts.begin() + 1, parts.end()});
+        for (std::size_t i = 0; i < res.names.size(); ++i) {
+            std::println("{}(t) = {}", res.names[i],
+                         to_string(res.solutions[i], style));
+        }
+        std::println("method: {}", res.method);
+        for (const std::string& w : res.warnings) {
+            std::println("warning: {}", w);
+        }
+        return;
+    }
+    const DsolveResult res =
+        dsolve(parts[0], {parts.begin() + 1, parts.end()});
+    if (res.implicit) {
+        std::println("implicit solution: {} = 0", to_string(res.solution, style));
+    } else {
+        std::println("y(t) = {}", to_string(res.solution, style));
+    }
+    if (res.transform) {
+        std::println("Y(s) = {}", to_string(res.transform, style));
+    }
+    std::println("method: {}", res.method);
+    for (const std::string& w : res.warnings) {
+        std::println("warning: {}", w);
+    }
+}
+
 void print_system_result(const SystemSolveResult& res,
                          const std::vector<std::string>& vars, PrintStyle style) {
     switch (res.status) {
@@ -631,6 +978,19 @@ void print_usage(std::FILE* out) {
                "  mathsolver diff     \"sin(x^2)\" [x]\n"
                "  mathsolver integrate \"x*sin(x)\" [x]\n"
                "  mathsolver integrate \"sin(x)\" [x] --from 0 --to pi\n"
+               "  mathsolver apart    \"(3x+2)/((x+1)(x+2))\" [x]\n"
+               "  mathsolver laplace  \"e^(-t) sin(2t)\" [t]\n"
+               "  mathsolver ilaplace \"1/(s^2 + 2s + 5)\" [s]\n"
+               "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
+               "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
+               "  mathsolver stirling x [3]\n"
+               "  mathsolver seq      0 1 1 2 3 5 8\n"
+               "  mathsolver limit    \"sin(x)/x\" x 0\n"
+               "  mathsolver mlimit   \"x*y/(x^2+y^2)\" x 0 y 0\n"
+               "  mathsolver sum      \"k^2\" k 1 n\n"
+               "  mathsolver rsolve   \"a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1\"\n"
+               "  mathsolver grad     \"x^2 + y^2\" x y\n"
+               "  mathsolver curl     \"x*y; y*z; z*x\" x y z\n"
                "  mathsolver eval     \"x^2 + y\" x=3 y=0.5\n"
                "  mathsolver latex    \"sqrt(x)/2\"\n"
                "  mathsolver --help | --version\n"
@@ -652,7 +1012,12 @@ void print_usage(std::FILE* out) {
 bool is_known_subcommand(std::string_view s) {
     return s == "simplify" || s == "expand" || s == "factor" || s == "solve" ||
            s == "diff" || s == "integrate" || s == "eval" || s == "latex" ||
-           s == "subs" || s == "collect";
+           s == "subs" || s == "collect" || s == "laplace" || s == "ilaplace" ||
+           s == "apart" || s == "dsolve" || s == "series" || s == "grad" ||
+           s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
+           s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
+           s == "rsolve" || s == "mlimit" || s == "stirling" ||
+           s == "seq";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -741,7 +1106,8 @@ int run_one_shot(const std::vector<std::string>& args) {
                                                 positionals.end());
             run_solve_system(input, vars, style);
         } else if (sub == "solve" || sub == "diff" || sub == "integrate" ||
-                   sub == "collect") {
+                   sub == "collect" || sub == "laplace" || sub == "ilaplace" ||
+                   sub == "apart") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (usage: mathsolver {} \"<input>\" [var])",
@@ -754,9 +1120,67 @@ int run_one_shot(const std::vector<std::string>& args) {
                 run_diff(input, var, style);
             } else if (sub == "collect") {
                 run_collect(input, var, style);
+            } else if (sub == "apart") {
+                run_apart(input, var, style);
+            } else if (sub == "laplace") {
+                run_laplace(input, var, style);
+            } else if (sub == "ilaplace") {
+                run_ilaplace(input, var, style);
             } else {
                 run_integrate(input, var, from_text, to_text, style);
             }
+        } else if (sub == "grad" || sub == "div" || sub == "curl" ||
+                   sub == "laplacian" || sub == "jacobian" || sub == "hessian") {
+            run_vector(sub, positionals, style);
+        } else if (sub == "limit") {
+            if (positionals.size() < 3 || positionals.size() > 4) {
+                throw UsageError{
+                    "usage: mathsolver limit \"<expr>\" <var> <point> "
+                    "[left|right]"};
+            }
+            run_limit(input, positionals[1], positionals[2],
+                      positionals.size() > 3 ? positionals[3] : "", style);
+        } else if (sub == "mlimit") {
+            run_mlimit(input, positionals, style);
+        } else if (sub == "sum" || sub == "product") {
+            run_sum(input, positionals, sub == "product", style);
+        } else if (sub == "rsolve") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the recurrence and its "
+                    "conditions in one quoted argument)",
+                    positionals[1])};
+            }
+            run_rsolve(input, style);
+        } else if (sub == "series") {
+            if (positionals.size() > 4) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver series "
+                    "\"<expr>\" [var] [center] [order])",
+                    positionals[4])};
+            }
+            run_series(input, positionals.size() > 1 ? positionals[1] : "",
+                       positionals.size() > 2 ? positionals[2] : "",
+                       positionals.size() > 3 ? positionals[3] : "", style);
+        } else if (sub == "seq") {
+            run_seq(positionals, style);
+        } else if (sub == "stirling") {
+            if (positionals.size() > 2) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver stirling "
+                    "<var> [terms])",
+                    positionals[2])};
+            }
+            run_stirling(input, positionals.size() > 1 ? positionals[1] : "",
+                         style);
+        } else if (sub == "dsolve") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the ODE and its conditions "
+                    "in one quoted argument)",
+                    positionals[1])};
+            }
+            run_dsolve(input, style);
         } else if (sub == "eval") {
             Bindings bindings;
             for (std::size_t i = 1; i < positionals.size(); ++i) {
@@ -815,6 +1239,23 @@ void print_repl_help() {
         "  eval <expression>, x=1[, y=2 ...]\n"
         "  subs <expression>, x=y+1[, z=2 ...]\n"
         "  collect <expression>[, <variable>]\n"
+        "  apart <expression>[, <variable>]       partial fractions\n"
+        "  laplace <expression>[, <time var>]     f(t) -> F(s)\n"
+        "  ilaplace <expression>[, <freq var>]    F(s) -> f(t)\n"
+        "  dsolve <ode>[, y(0)=v, y'(0)=v, ...]   solve an IVP, e.g.\n"
+        "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
+        "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
+        "  stirling [<var>[, <terms>]]            ln Gamma asymptotics\n"
+        "  seq <a0>, <a1>, <a2>, <a3>[, ...]      recognize the pattern\n"
+        "  limit <expression>, <variable>, <point>[, left|right]\n"
+        "         (point accepts numbers, inf, -inf)\n"
+        "  mlimit <expr>, <x>, <a>, <y>, <b>      2-D limit by path sampling\n"
+        "  sum <term>, <var>, <lo>, <hi>          closed forms (hi may be inf)\n"
+        "  product <term>, <var>, <lo>, <hi>\n"
+        "  rsolve <recurrence>[, a(0)=v, ...]     e.g.\n"
+        "         rsolve a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1\n"
+        "  grad <f>, <vars...>       div/curl <F1;F2;..>, <vars...>\n"
+        "  laplacian <f>, <vars...>  jacobian <F1;..>, <vars...>  hessian <f>, <vars...>\n"
         "  simplify <expression>      expand <expression>\n"
         "  factor <expression>        latex <expression>\n"
         "  debug <expression>         (s-expression dump)\n"
@@ -837,7 +1278,13 @@ bool is_repl_command(std::string_view word) {
     return word == "simplify" || word == "expand" || word == "factor" ||
            word == "solve" || word == "diff" || word == "integrate" ||
            word == "eval" || word == "latex" || word == "debug" ||
-           word == "subs" || word == "collect";
+           word == "subs" || word == "collect" || word == "laplace" ||
+           word == "ilaplace" || word == "apart" || word == "dsolve" ||
+           word == "series" || word == "grad" || word == "div" ||
+           word == "curl" || word == "laplacian" || word == "jacobian" ||
+           word == "hessian" || word == "limit" || word == "sum" ||
+           word == "product" || word == "rsolve" || word == "mlimit" ||
+           word == "stirling" || word == "seq";
 }
 
 // ---------------------------------------------------------------------------
@@ -1294,6 +1741,85 @@ void repl_bare_equation(const Equation& eq, const Environment& env) {
 
 void repl_command(const std::string& command, const std::string& rest,
                   const Environment& env) {
+    if (command == "grad" || command == "div" || command == "curl" ||
+        command == "laplacian" || command == "jacobian" || command == "hessian") {
+        // Field/scalar + variable list; resolve the session environment into
+        // each field component and each variable is excluded from resolution.
+        const std::vector<std::string> parts = split_top_level_commas(rest);
+        if (parts.size() < 2) {
+            throw UsageError{std::format(
+                "usage: {} <field>, <var>[, <var> ...]   (a vector field is "
+                "';'-separated, e.g. \"x*y; y*z; z*x\")",
+                command)};
+        }
+        std::set<std::string> excluded(parts.begin() + 1, parts.end());
+        std::vector<std::string> positionals;
+        std::string resolved_field;
+        for (const std::string& comp : split_top_level(parts[0], ';')) {
+            if (!resolved_field.empty()) resolved_field += ";";
+            resolved_field += to_string(
+                resolve_expr(parse_expression_diag(comp), env, excluded),
+                PrintStyle::Plain);
+        }
+        positionals.push_back(resolved_field);
+        positionals.insert(positionals.end(), parts.begin() + 1, parts.end());
+        run_vector(command, positionals, PrintStyle::Plain);
+        return;
+    }
+    if (command == "rsolve") {
+        if (trim(rest).empty()) {
+            throw UsageError{
+                "usage: rsolve <recurrence>[, a(0)=v, ...]   e.g. "
+                "rsolve a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1"};
+        }
+        run_rsolve(rest, PrintStyle::Plain);
+        return;
+    }
+    if (command == "sum" || command == "product") {
+        const std::vector<std::string> parts = split_top_level_commas(rest);
+        if (parts.size() != 4) {
+            throw UsageError{std::format(
+                "usage: {} <term>, <variable>, <lo>, <hi>", command)};
+        }
+        std::set<std::string> excluded{parts[1]};
+        std::vector<std::string> args = parts;
+        args[0] = to_string(
+            resolve_expr(parse_expression_diag(parts[0]), env, excluded),
+            PrintStyle::Plain);
+        run_sum(args[0], args, command == "product", PrintStyle::Plain);
+        warn_assigned_variable(parts[1], env);
+        return;
+    }
+    if (command == "seq") {
+        const std::vector<std::string> sparts = split_top_level_commas(rest);
+        if (sparts.size() < 4) {
+            throw UsageError{
+                "usage: seq <a0>, <a1>, <a2>, <a3>[, ...]   (at least 4 terms)"};
+        }
+        run_seq(sparts, PrintStyle::Plain);
+        return;
+    }
+    if (command == "stirling") {
+        // No expression input: just an optional variable name and term count.
+        const std::vector<std::string> sparts = split_top_level_commas(rest);
+        if (sparts.size() > 2) {
+            throw UsageError{"usage: stirling [<variable>[, <terms>]]"};
+        }
+        run_stirling(sparts.empty() ? "" : sparts[0],
+                     sparts.size() > 1 ? sparts[1] : "", PrintStyle::Plain);
+        return;
+    }
+    if (command == "dsolve") {
+        // The ODE grammar (primes, y(0)=...) is handled by dsolve itself;
+        // the session environment does not apply to ODE text.
+        if (trim(rest).empty()) {
+            throw UsageError{
+                "usage: dsolve <ode>[, y(0)=v, y'(0)=v, ...]   e.g. "
+                "dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0"};
+        }
+        run_dsolve(rest, PrintStyle::Plain);
+        return;
+    }
     const std::vector<std::string> parts = split_top_level_commas(rest);
     if (parts.empty() || parts[0].empty()) {
         const std::string_view suffix =
@@ -1312,7 +1838,7 @@ void repl_command(const std::string& command, const std::string& rest,
         // The first comma segment holds the equation(s) (';'-separated for a
         // system), the remaining segments are the variables.
         repl_solve(input, {parts.begin() + 1, parts.end()}, env);
-    } else if (command == "diff" || command == "collect") {
+    } else if (command == "diff" || command == "collect" || command == "apart") {
         if (parts.size() > 2) {
             throw UsageError{std::format(
                 "too many arguments: usage: {} <input>[, <variable>]", command)};
@@ -1327,6 +1853,8 @@ void repl_command(const std::string& command, const std::string& rest,
             PrintStyle::Plain);
         if (command == "diff") {
             run_diff(resolved, var, PrintStyle::Plain);
+        } else if (command == "apart") {
+            run_apart(resolved, var, PrintStyle::Plain);
         } else {
             run_collect(resolved, var, PrintStyle::Plain);
         }
@@ -1366,6 +1894,67 @@ void repl_command(const std::string& command, const std::string& rest,
             }
         }
         run_integrate(resolved, var, from_text, to_text, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "mlimit") {
+        const std::vector<std::string> parts2 = split_top_level_commas(rest);
+        if (parts2.size() != 5) {
+            throw UsageError{
+                "usage: mlimit <expression>, <x var>, <a>, <y var>, <b>"};
+        }
+        std::set<std::string> excluded{parts2[1], parts2[3]};
+        std::vector<std::string> args = parts2;
+        args[0] = to_string(
+            resolve_expr(parse_expression_diag(parts2[0]), env, excluded),
+            PrintStyle::Plain);
+        run_mlimit(args[0], args, PrintStyle::Plain);
+    } else if (command == "limit") {
+        // limit <expr>, <var>, <point>[, left|right]
+        if (parts.size() < 3 || parts.size() > 4) {
+            throw UsageError{
+                "usage: limit <expression>, <variable>, <point>[, left|right]"};
+        }
+        std::set<std::string> excluded{parts[1]};
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
+        run_limit(resolved, parts[1], parts[2],
+                  parts.size() > 3 ? parts[3] : "", PrintStyle::Plain);
+        warn_assigned_variable(parts[1], env);
+    } else if (command == "series") {
+        // series <expr>[, <var>[, <center>[, <order>]]]
+        if (parts.size() > 4) {
+            throw UsageError{
+                "usage: series <expression>[, <variable>[, <center>[, <order>]]]"};
+        }
+        const std::string var = parts.size() > 1 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
+        run_series(resolved, var, parts.size() > 2 ? parts[2] : "",
+                   parts.size() > 3 ? parts[3] : "", PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "laplace" || command == "ilaplace") {
+        if (parts.size() > 2) {
+            throw UsageError{std::format(
+                "too many arguments: usage: {} <input>[, <variable>]", command)};
+        }
+        const std::string var = parts.size() > 1 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
+        if (command == "laplace") {
+            run_laplace(resolved, var, PrintStyle::Plain);
+        } else {
+            run_ilaplace(resolved, var, PrintStyle::Plain);
+        }
         warn_assigned_variable(var, env);
     } else if (command == "eval") {
         Bindings bindings;

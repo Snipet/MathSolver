@@ -51,8 +51,15 @@ add_library(mathsolver_core STATIC
     src/evaluator.cpp
     src/simplify.cpp
     src/derivative.cpp
+    src/discrete.cpp
     src/integrate.cpp
+    src/limit.cpp
+    src/apart.cpp
+    src/ode.cpp
+    src/series.cpp
+    src/vector_calculus.cpp
     src/solver.cpp
+    src/transform.cpp
     src/plugin.cpp
 )
 target_include_directories(mathsolver_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -67,6 +74,16 @@ add_library(mathsolver_plugins STATIC
     plugins/dsp/dsp_design.cpp
     plugins/sys/sys.cpp
     plugins/sys/sys_lti.cpp
+    plugins/linalg/linalg.cpp
+    plugins/linalg/linalg_core.cpp
+    plugins/pde/pde.cpp
+    plugins/pde/pde_core.cpp
+    plugins/ie/ie.cpp
+    plugins/ie/ie_core.cpp
+    plugins/hyb/hyb.cpp
+    plugins/hyb/hyb_core.cpp
+    plugins/fem/fem.cpp
+    plugins/fem/fem_core.cpp
 )
 target_link_libraries(mathsolver_plugins PUBLIC mathsolver_core PRIVATE mathsolver_warnings)
 

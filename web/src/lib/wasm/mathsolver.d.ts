@@ -10,7 +10,31 @@ export interface MathSolverModule {
   latex(input: string): string;
   subs(input: string, assignments: string, simplifyResult: boolean): string;
   collect(input: string, variable: string): string;
+  apart(input: string, variable: string): string;
+  dsolve(ode: string, conditionsCsv: string): string;
+  series(input: string, variable: string, center: string, order: number): string;
+  vectorOp(op: string, fieldSemi: string, varsCsv: string): string;
+  limit(input: string, variable: string, point: string, direction: string): string;
+  mlimit(input: string, xVar: string, a: string, yVar: string, b: string): string;
+  stirling(variable: string, terms: number): string;
+  seq(termsCsv: string): string;
+  sum(term: string, variable: string, lo: string, hi: string): string;
+  product(term: string, variable: string, lo: string, hi: string): string;
+  rsolve(recurrence: string, conditionsCsv: string): string;
+  sampleField(
+    fx: string,
+    fy: string,
+    xVar: string,
+    yVar: string,
+    xlo: number,
+    xhi: number,
+    ylo: number,
+    yhi: number,
+    n: number,
+  ): string;
   derivative(input: string, variable: string): string;
+  laplace(input: string, timeVar: string): string;
+  ilaplace(input: string, freqVar: string): string;
   integrate(input: string, variable: string): string;
   integrateDefinite(input: string, variable: string, lo: string, hi: string): string;
   solve(input: string, variable: string, lo: number, hi: number, useRange: boolean): string;

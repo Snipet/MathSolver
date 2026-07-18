@@ -46,7 +46,9 @@ class Plugin {
   std::string_view name();      // namespace, e.g. "dsp"
   std::string_view version();
   std::string_view summary();
-  std::vector<CommandInfo> commands();   // name + summary + usage line
+  std::vector<CommandInfo> commands();   // name + summary + usage + a concrete
+                                         // runnable example (shown click-to-run
+                                         // in the console reference panel)
   std::string invoke(std::string_view command,
                      const std::vector<std::string>& args);  // → JSON
 };
@@ -114,6 +116,7 @@ types take two edges and double the effective order.
 | `dsp.cheby2 <type>, <order 1-12>, <atten dB>, <fc>[, <f2>], <fs>` | Chebyshev II (equiripple stopband; cutoff = stop edge). |
 | `dsp.ellip <type>, <order 1-12>, <ripple dB>, <atten dB>, <fc>[, <f2>], <fs>` | Elliptic/Cauer (equiripple both bands — the sharpest transition per order). Jacobi elliptic functions by Landen recursion. |
 | `dsp.fir <type>, <taps 5-255>, <fc>[, <f2>], <fs>[, <window>[, <beta>]]` | Linear-phase windowed-sinc FIR (`rect`, `hann`, `hamming` default, `blackman`, `kaiser` with optional beta), response normalized to exactly unity at the band's reference frequency; odd taps required for high/band-stop. |
+| `dsp.remez <type>, <taps 5-255 odd>, <edges…>, <fs>[, <stop weight>]` | Optimal equiripple FIR by the Parks–McClellan (Remez exchange) algorithm. Edges are the transition-band corners — `fpass, fstop` for low-pass, `fstop, fpass` for high-pass, `fstop1, fpass1, fpass2, fstop2` for band-pass, `fpass1, fstop1, fstop2, fpass2` for band-stop. The optional stop weight (default 1) trades passband ripple for a deeper stopband. |
 | `dsp.freqz <fs Hz>, <b0>,<b1>,<b2>,<a1>,<a2> [, …groups of 5]` | Magnitude, phase, group delay, and time response of an arbitrary biquad cascade. |
 
 IIR design results carry: a summary (with the **measured** gain at each
@@ -146,7 +149,74 @@ substeps chosen from the fastest pole).
 | `sys.ode <LTI ODE in y and u>` | Convert `y'' + 3y' + 2y = u' + u` (zero initial conditions; decimal coefficients, primes for derivatives, input on either side) to H(s), then the same analysis. |
 | `sys.feedback <num>, <den>[, <K>]` | Closed loop K·G/(1 + K·G) under unity feedback, run through the full analysis. |
 | `sys.rlocus <num>, <den>[, <K max>]` | Root locus: closed-loop pole sweep (160 gains over four decades) as a scatter, with open-loop poles/zeros marked and the smallest destabilizing K reported. |
+| `sys.tfz <num>, <den>, <fs Hz>` | Analyze a **discrete** transfer function H(z) (positive powers of z): poles/zeros with \|z\|/angle, stability by \|pole\| < 1, pole-zero map with the **unit circle** (equal-aspect), magnitude/phase response, and step + impulse from the difference equation. |
 | `sys.c2d <num>, <den>, <fs Hz>` | Discretize via the bilinear transform into digital biquads — reusing the dsp plugin's public `Zpk`/`bilinear_zpk`/`zpk_to_biquads` machinery — with the digital-vs-analog magnitude overlay. |
+| `sys.dde <f(t, x, x_d)>, <tau>, <phi(t)>, <T>` | **Delay differential equation** x′(t) = f(t, x, x(t−τ)) by the method of steps: RK4 with the delayed value interpolated from the stored solution (history φ before t = 0). The chart shows the history segment and the response. `x_d` is the delayed value (a subscripted symbol). |
+
+The **pde** plugin solves the classic 1-D boundary-value problems on
+`[0, L]` with homogeneous Dirichlet conditions by separation of variables —
+initial data expands in the sine eigenbasis with coefficients from the CAS
+integrator (exact where its rules reach, numeric otherwise):
+
+| Command | What it does |
+| --- | --- |
+| `pde.heat <L>, <alpha>, <f(x)>[, <T>]` | u_t = α u_xx with u(x,0) = f(x): b_n table, mode-1 time constant, and temperature profiles at t = 0, T/16, T/4, T. |
+| `pde.wave <L>, <c>, <f(x)>[, <g(x)>[, <T>]]` | u_tt = c² u_xx with displacement f and optional velocity g: displacement profiles across the fundamental period 2L/c. |
+| `pde.simulate <L>, <alpha>, <f(u)>, <u0(x)>, <T>[, <steps>]` | **Nonlinear** reaction–diffusion u_t = α u_xx + f(u) by the method of lines: central differences + Crank–Nicolson with a full Newton solve per step whose Jacobian uses the **exact symbolic f′(u)** (every update is one tridiagonal Thomas solve). Stalled steps retry at half the step size; finite-time blow-up (f = u², large data) stops the run with an honest note. Fisher–KPP: `pde.simulate 10, 1, u*(1-u), 0.5*sin(pi*x/10), 8`. |
+
+The **ie** plugin solves second-kind integral equations with symbolic
+kernels K(x, t) and forcing f(x), evaluated pointwise by the CAS. Every
+solve repeats at **half resolution** and reports the largest disagreement as
+an error estimate, so the curve carries its own accuracy check:
+
+| Command | What it does |
+| --- | --- |
+| `ie.fredholm <K(x,t)>, <f(x)>, <lambda>, <a>, <b>` | u(x) = f(x) + λ∫ₐᵇ K(x,t) u(t) dt by the **Nyström method**: 31-node composite-Simpson quadrature turns the equation into (I − λKW)u = f, solved by the linalg LU; off-node chart values use the Nyström interpolation formula. λ at a characteristic value fails with a specific message. |
+| `ie.volterra <K(x,t)>, <f(x)>, <lambda>, <a>, <b>` | u(x) = f(x) + λ∫ₐˣ K(x,t) u(t) dt by **trapezoidal marching** (200 steps), each step solving its scalar implicit equation. `ie.volterra x - t, x, -1, 0, 3` reproduces u = sin x. |
+
+The **hyb** plugin simulates hybrid systems — a two-state RK4 flow
+x′ = f_x(t,x,v), v′ = f_v(t,x,v) with an event surface. When the guard
+crosses from positive to non-positive inside a step, the event time is
+refined by bisection, the reset map is applied at the pre-event state, and
+integration restarts; resets that land *on* the guard surface (a bouncing
+ball resets to x = 0) don't re-fire because crossings require a strictly
+positive step start. Inter-event gaps below the step resolution stop the run
+with a **Zeno** note that extrapolates the accumulation time geometrically,
+and solution blow-ups stop with a note instead of nonsense:
+
+| Command | What it does |
+| --- | --- |
+| `hyb.sim <x'>; <v'>, <guard>, <reset x>; <reset v>, <x0>, <v0>, <T>` | Event-driven simulation: events table (times, impact/rebound states), trajectory chart with event markers. Bouncing ball: `hyb.sim v; -9.81, x, x; -0.8*v, 1, 0, 3`. On a horizon past the accumulation (`T = 5`), the Zeno note reports the estimated accumulation time ≈ 9√(2/g) ≈ 4.06. |
+
+The **fem** plugin does 1-D finite elements for the Sturm–Liouville
+operator −(p(x)u′)′ + q(x)u with symbolic coefficients, P1 or P2 Lagrange
+elements, and 3-point Gauss quadrature. Every solve runs at n, 2n, and 4n
+elements and reports the **observed convergence order** log₂(e_n/e_2n) —
+measured off-node, since P1 nodal values superconverge — so each result
+carries evidence that the method converges at its textbook rate:
+
+| Command | What it does |
+| --- | --- |
+| `fem.bvp <p(x)>, <q(x)>, <f(x)>, <a>, <b>, <u=v\|u'=v>, <u=v\|u'=v>[, <p1\|p2>[, <elements>]]` | Two-point boundary-value problem with a Dirichlet value (`u=v`) or natural flux (`u'=v`, meaning p u′ = v) at each end. The singular pure-Neumann case is reported, not divided by. |
+| `fem.modes <p(x)>, <q(x)>, <w(x)>, <a>, <b>[, <count>[, <p1\|p2>[, <elements>]]]` | Smallest eigenpairs of −(p u′)′ + q u = λ w u with u = 0 at both ends: stiffness and mass assembly, then inverse iteration with M-orthogonal deflation (K factored once). The string on [0, π] returns λₙ = n². |
+
+The **linalg** plugin does dense linear algebra. Matrices are written
+`[1 2; 3 4]` (rows by `;`, entries by spaces or commas); entries are full
+expressions, and a matrix with symbolic entries routes to exact machinery
+where supported:
+
+| Command | What it does |
+| --- | --- |
+| `linalg.solve [A], [b]` | LU with partial pivoting; reports the residual max\|Ax − b\|. |
+| `linalg.det [A]` | Numeric LU determinant, or **exact Bareiss** for symbolic entries (≤ 5×5): `linalg.det [a b; c d]` → `a*d - b*c`. |
+| `linalg.inv [A]` | Inverse with the 2-norm condition number. |
+| `linalg.eig [A]` | **Exact eigendecomposition** for n ≤ 4: characteristic polynomial by Bareiss over Expr, roots through the core solver (exact surds — `[1 1; 1 0]` → golden ratio — complex pairs, and symbolic matrices: `[a 1; 1 a]` → a ± 1), eigenvectors from an exact rational null space (multi-dimensional eigenspaces included) or the 2×2 closed form. Anything the exact machinery can't factor, and everything larger, falls back to Hessenberg + shifted QR (≤ 16×16) with spectral radius and a trace cross-check. |
+| `linalg.svd [A]` | One-sided Jacobi SVD: singular values, rank, cond, U and V tables. |
+| `linalg.rank [A]` | Numeric rank via the SVD tolerance. |
+| `linalg.lstsq [A], [b]` | Least squares via the SVD pseudoinverse, with the residual norm. |
+| `linalg.trisolve [sub], [diag], [super], [b]` | **Structured**: tridiagonal solve by the O(n) Thomas algorithm (n up to 4096), zero pivots reported instead of divided by. |
+| `linalg.toeplitz [first column], [b]` | **Structured**: symmetric Toeplitz solve by the O(n²) Levinson recursion; singular leading principal minors are reported (the recursion needs strong nonsingularity). |
+| `linalg.circulant [first column], [b]` | **Structured**: circulant solve by DFT diagonalization; a vanishing eigenvalue (DFT coefficient of the first column) is reported as singular. Every structured command prints the residual against a structured matvec. |
 
 Every analysis additionally reports **classical stability margins** (gain
 margin at the −180° crossing, phase margin at the 0 dB crossing, refined by

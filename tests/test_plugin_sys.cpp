@@ -308,6 +308,69 @@ TEST_CASE("sys: rlocus command renders the sweep") {
     CHECK_THAT(crit, ContainsSubstring("unstable near K"));
 }
 
+// ---------------------------------------------------------------------------
+// Discrete-time systems (z-domain)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("sys: make_tfz reads polynomials in z and stays proper") {
+    const RationalTF tf = sys::make_tfz("z", "z^2 - 0.5z + 0.06");
+    REQUIRE(tf.den.size() == 3);
+    CHECK(std::abs(tf.den[2] - 1.0) < 1e-12); // monic in highest power
+    CHECK(std::abs(tf.den[1] + 0.5) < 1e-12);
+    CHECK(std::abs(tf.den[0] - 0.06) < 1e-12);
+    CHECK_THROWS_AS(sys::make_tfz("z^3", "z^2 + 1"), sys::SysError); // improper
+    CHECK_THROWS_AS(sys::make_tfz("s + 1", "z + 1"), sys::SysError); // wrong var
+}
+
+TEST_CASE("sys: discrete first-order impulse/step match the closed forms") {
+    // H(z) = z/(z - a): impulse h[n] = a^n, step s[n] = (1 - a^{n+1})/(1 - a).
+    const double a = 0.8;
+    const RationalTF tf = sys::make_tfz("z", "z - 0.8");
+    const sys::DiscreteSim sim = sys::simulate_discrete(tf, 20);
+    for (int n = 0; n < 20; ++n) {
+        CHECK(std::abs(sim.impulse[static_cast<std::size_t>(n)] -
+                       std::pow(a, n)) < 1e-9);
+        const double step = (1.0 - std::pow(a, n + 1)) / (1.0 - a);
+        CHECK(std::abs(sim.step[static_cast<std::size_t>(n)] - step) < 1e-9);
+    }
+}
+
+TEST_CASE("sys: discrete moving-average impulse is the tap set") {
+    // H(z) = (z^2 + z + 1)/(3 z^2): a 3-tap averager, h = [1/3, 1/3, 1/3].
+    const RationalTF tf = sys::make_tfz("z^2 + z + 1", "3z^2");
+    const sys::DiscreteSim sim = sys::simulate_discrete(tf, 6);
+    CHECK(std::abs(sim.impulse[0] - 1.0 / 3.0) < 1e-12);
+    CHECK(std::abs(sim.impulse[1] - 1.0 / 3.0) < 1e-12);
+    CHECK(std::abs(sim.impulse[2] - 1.0 / 3.0) < 1e-12);
+    CHECK(std::abs(sim.impulse[3]) < 1e-12); // FIR: dies after 3 taps
+    // DC gain (z = 1) is 1.
+    CHECK(std::abs(sys::tfz_eval(tf, 0.0, 8000.0).real() - 1.0) < 1e-12);
+}
+
+TEST_CASE("sys: discrete stability is |pole| < 1") {
+    // Poles inside the circle.
+    const auto stable = sys::poly_roots(sys::make_tfz("z", "z^2 - 0.5z + 0.06").den);
+    for (const cd& p : stable) CHECK(std::abs(p) < 1.0);
+    // A pole at z = 1.2 is unstable.
+    const auto unstable = sys::poly_roots(sys::make_tfz("1", "z - 1.2").den);
+    CHECK(std::abs(unstable.front()) > 1.0);
+}
+
+TEST_CASE("sys: tfz command renders the z-plane analysis") {
+    const std::string out =
+        sys_plugin().invoke("tfz", {"z", "z^2 - 0.5z + 0.06", "8000"});
+    CHECK_THAT(out, ContainsSubstring("\"ok\":true"));
+    CHECK_THAT(out, ContainsSubstring("Pole-zero map (z-plane)"));
+    CHECK_THAT(out, ContainsSubstring("unit circle"));
+    CHECK_THAT(out, ContainsSubstring("\"equal\":true"));
+    CHECK_THAT(out, ContainsSubstring("inside |z| = 1"));
+    CHECK_THAT(out, ContainsSubstring("Max |pole|"));
+    CHECK_THAT(sys_plugin().invoke("tfz", {"1", "z - 1.2", "8000"}),
+               ContainsSubstring("unstable (pole outside"));
+    CHECK_THAT(sys_plugin().invoke("tfz", {"z", "z + 1"}),
+               ContainsSubstring("usage: sys.tfz"));
+}
+
 TEST_CASE("sys: c2d discretizes through the dsp zpk machinery") {
     const std::string out = sys_plugin().invoke("c2d", {"1", "s + 1", "100"});
     CHECK_THAT(out, ContainsSubstring("\"ok\":true"));
@@ -326,4 +389,56 @@ TEST_CASE("sys: command errors are reported, not thrown") {
     CHECK_THAT(p.invoke("c2d", {"1", "s+1", "-5"}),
                ContainsSubstring("positive number"));
     CHECK_THAT(p.invoke("nope", {}), ContainsSubstring("no command 'nope'"));
+}
+
+// ---------------------------------------------------------------------------
+// Delay differential equations (method of steps)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("sys: dde matches the exactly-known x' = -x(t-1) solution") {
+    // With phi = 1: x(t) = 1 - t on [0,1], so x(1) = 0; integrating the
+    // next step gives x(2) = -1/2.
+    const sys::DdeResult r = sys::solve_dde("-x_d", 1.0, "1", 4.0);
+    REQUIRE(r.steps > 0);
+    const auto at = [&](double t) {
+        // Locate the closest sample.
+        double best = 1e300;
+        double val = 0.0;
+        for (std::size_t i = 0; i < r.t.size(); ++i) {
+            if (std::abs(r.t[i] - t) < best) {
+                best = std::abs(r.t[i] - t);
+                val = r.x[i];
+            }
+        }
+        return val;
+    };
+    CHECK(std::abs(at(0.5) - 0.5) < 1e-6);   // 1 - t
+    CHECK(std::abs(at(1.0) - 0.0) < 1e-6);
+    CHECK(std::abs(at(2.0) + 0.5) < 1e-5);   // -1/2
+    // History segment is included and equals phi.
+    CHECK(std::abs(r.x.front() - 1.0) < 1e-12);
+    CHECK(r.t.front() < 0.0);
+}
+
+TEST_CASE("sys: dde with state feedback and specific errors") {
+    // x' = -x (no delay dependence): plain exponential decay.
+    const sys::DdeResult r = sys::solve_dde("-x", 0.5, "1", 3.0);
+    double x3 = r.x.back();
+    CHECK(std::abs(x3 - std::exp(-3.0)) < 1e-6);
+
+    CHECK_THROWS_WITH(sys::solve_dde("-x_d + y", 1.0, "1", 5.0),
+                      ContainsSubstring("found 'y'"));
+    CHECK_THROWS_AS(sys::solve_dde("-x_d", -1.0, "1", 5.0), sys::SysError);
+    CHECK_THROWS_WITH(sys::solve_dde("-x_d", 1.0, "x", 5.0),
+                      ContainsSubstring("t only"));
+}
+
+TEST_CASE("sys: dde command envelope") {
+    const std::string out =
+        sys_plugin().invoke("dde", {"-x_d", "1", "1", "20"});
+    CHECK_THAT(out, ContainsSubstring("\"ok\":true"));
+    CHECK_THAT(out, ContainsSubstring("Delay response"));
+    CHECK_THAT(out, ContainsSubstring("Delay tau"));
+    CHECK_THAT(sys_plugin().invoke("dde", {"-x_d", "abc", "1", "20"}),
+               ContainsSubstring("must be numbers"));
 }

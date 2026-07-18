@@ -10,6 +10,7 @@
 #include "mathsolver/evaluator.hpp"
 #include "mathsolver/expr.hpp"
 #include "mathsolver/parser.hpp"
+#include "mathsolver/printer.hpp"
 #include "mathsolver/simplify.hpp"
 
 using namespace mathsolver;
@@ -667,4 +668,22 @@ TEST_CASE("simplify: nested expressions simplify recursively") {
     expect_simplifies("(2*x + 3*x)^2", "25*x^2");
     expect_simplifies("ln(e^(x + x))", "2*x");
     expect_simplifies("abs(-sin(-x))", "abs(sin(x))");
+}
+
+TEST_CASE("simplify: inverse hyperbolic special values and round-trips") {
+    const auto S = [](std::string_view s) {
+        return to_string(simplify(parse_expression(s)), PrintStyle::Plain);
+    };
+    CHECK(S("asinh(0)") == "0");
+    CHECK(S("atanh(0)") == "0");
+    CHECK(S("acosh(1)") == "0");
+    CHECK(S("sinh(asinh(x))") == "x");
+    CHECK(S("tanh(atanh(x))") == "x");
+    CHECK(S("cosh(acosh(x))") == "x");
+    CHECK(S("asinh(sinh(x))") == "x");
+    CHECK(S("atanh(tanh(x))") == "x");
+    CHECK(S("asinh(-x)") == "-asinh(x)");
+    CHECK(S("atanh(-x)") == "-atanh(x)");
+    // acosh(cosh(x)) is NOT x for negative x; must stay put.
+    CHECK(S("acosh(cosh(x))") == "acosh(cosh(x))");
 }

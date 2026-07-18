@@ -152,6 +152,9 @@ function solveText(r, v) {
     }
   } else if (r.status === "noRealSolution") {
     lines.push("no real solutions");
+  } else if (r.status === "complex") {
+    lines.push("no real solutions; complex roots:");
+    for (const s of r.solutions) lines.push(`${v} = ${s.plain}`);
   } else if (r.status === "allReals") {
     lines.push(`true for all ${v}`);
   } else {

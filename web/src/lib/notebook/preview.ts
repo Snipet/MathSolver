@@ -126,6 +126,116 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
         note: args[1] ? `collect in ${args[1]}` : "collect",
       };
     }
+    case "dsolve":
+      // The ODE prime grammar (y'' …) is not an expression; no live preview.
+      return NONE;
+    case "sum":
+    case "product": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      const v = args[1] ?? "k";
+      const lo = args[2] ?? "?";
+      const hi =
+        args[3] === "inf" || args[3] === "oo" ? "\\infty" : (args[3] ?? "?");
+      const op = verb === "sum" ? "\\sum" : "\\prod";
+      return {
+        kind: "math",
+        latex: `${op}_{${v}=${lo}}^{${hi}} ${f.latex}`,
+      };
+    }
+    case "rsolve":
+      // The a(n+k) grammar is not an expression; no live preview.
+      return NONE;
+    case "seq": {
+      if (!expr) return NONE;
+      return {
+        kind: "math",
+        latex: `${args.slice(0, 6).join(",\\; ")}${args.length > 6 ? ",\\; \\dots" : ",\\; \\dots"}`,
+        note: "sequence recognition",
+      };
+    }
+    case "stirling": {
+      const v = args[0] || "x";
+      const terms = args[1] ?? "3";
+      return {
+        kind: "math",
+        latex: `\\ln \\Gamma(${v})`,
+        note: `Stirling series, ${terms} correction terms`,
+      };
+    }
+    case "mlimit": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      const x = args[1] ?? "x";
+      const y = args[3] ?? "y";
+      const a = args[2] ?? "?";
+      const b = args[4] ?? "?";
+      return {
+        kind: "math",
+        latex: `\\lim_{(${x},${y}) \\to (${a},${b})} ${f.latex}`,
+      };
+    }
+    case "limit": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      const v = args[1] ?? "x";
+      const pt =
+        args[2] === "inf" || args[2] === "oo"
+          ? "\\infty"
+          : args[2] === "-inf" || args[2] === "-oo"
+            ? "-\\infty"
+            : (args[2] ?? "?");
+      const side = args[3] === "left" ? "^-" : args[3] === "right" ? "^+" : "";
+      return {
+        kind: "math",
+        latex: `\\lim_{${v} \\to ${pt}${side}} ${f.latex}`,
+      };
+    }
+    case "grad":
+    case "div":
+    case "curl":
+    case "laplacian":
+    case "jacobian":
+    case "hessian":
+    case "vecfield": {
+      // Preview the first field component (';'-separated fields aren't a
+      // single expression); the note names the operator.
+      const first = (expr.split(";")[0] ?? "").trim();
+      if (!first) return NONE;
+      const f = await fragment(first);
+      if (!("latex" in f)) return NONE;
+      const vars = args.slice(1).join(", ");
+      return {
+        kind: "math",
+        latex: f.latex,
+        note: vars ? `${verb} · vars ${vars}` : verb,
+      };
+    }
+    case "series": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      const about = args[2] ?? "0";
+      const ord = args[3] ?? "6";
+      return {
+        kind: "math",
+        latex: f.latex,
+        note: `Taylor about ${about}, order ${ord}`,
+      };
+    }
+    case "apart": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      return {
+        kind: "math",
+        latex: f.latex,
+        note: args[1] ? `partial fractions in ${args[1]}` : "partial fractions",
+      };
+    }
     case "plot": {
       if (!expr) return NONE;
       const f = await fragment(expr);
@@ -143,6 +253,26 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
       return {
         kind: "math",
         latex: `\\frac{d}{d${v}}\\left(${f.latex}\\right)`,
+      };
+    }
+    case "laplace": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      return {
+        kind: "math",
+        latex: `\\mathcal{L}\\left\\{${f.latex}\\right\\}`,
+        note: args[1] ? `in ${args[1]}` : undefined,
+      };
+    }
+    case "ilaplace": {
+      if (!expr) return NONE;
+      const f = await fragment(expr);
+      if (!("latex" in f)) return wrap(f, expr);
+      return {
+        kind: "math",
+        latex: `\\mathcal{L}^{-1}\\left\\{${f.latex}\\right\\}`,
+        note: args[1] ? `in ${args[1]}` : undefined,
       };
     }
     case "integrate": {

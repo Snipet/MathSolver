@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <limits>
 #include <format>
 #include <optional>
 #include <set>
@@ -140,10 +141,15 @@ std::string trim(std::string_view s) {
 }
 
 std::vector<std::string> split_csv(std::string_view s) {
+    // Top-level commas only: commas nested in (), [], {} stay inside their
+    // argument (matrix literals like "[1,2;3,4]" arrive intact).
     std::vector<std::string> out;
     std::size_t start = 0;
+    int depth = 0;
     for (std::size_t i = 0; i <= s.size(); ++i) {
-        if (i == s.size() || s[i] == ',') {
+        if (i < s.size() && (s[i] == '(' || s[i] == '[' || s[i] == '{')) ++depth;
+        if (i < s.size() && (s[i] == ')' || s[i] == ']' || s[i] == '}')) --depth;
+        if (i == s.size() || (s[i] == ',' && depth <= 0)) {
             const std::string item = trim(s.substr(start, i - start));
             if (!item.empty()) out.push_back(item);
             start = i + 1;
@@ -305,6 +311,449 @@ std::string ms_derivative(std::string input, std::string var) {
     return guarded([&]() -> std::string {
         const Expr d = differentiate(parse_expression(input), var);
         return std::format("{{\"ok\":true,{}}}", rendered_fields(d));
+    });
+}
+
+/// apart(expr, variable): partial-fraction expansion. An empty variable
+/// infers the single free symbol, mirroring collect.
+std::string ms_apart(std::string input, std::string variable) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string var = trim(variable);
+        if (var.empty()) {
+            const std::set<std::string> syms = free_symbols(e);
+            if (syms.size() != 1) {
+                std::string list;
+                for (const auto& s : syms) {
+                    if (!list.empty()) list += ", ";
+                    list += s;
+                }
+                return err_json(
+                    syms.empty()
+                        ? "cannot infer the variable: the input has no free symbols"
+                        : "cannot infer the variable: candidates are " + list);
+            }
+            var = *syms.begin();
+        }
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(apart(e, var)));
+    });
+}
+
+/// Split on ';' (vector-field component separator), trimming blanks.
+std::vector<std::string> split_semi(std::string_view s) {
+    std::vector<std::string> out;
+    std::size_t start = 0;
+    for (std::size_t i = 0; i <= s.size(); ++i) {
+        if (i == s.size() || s[i] == ';') {
+            const std::string item = trim(s.substr(start, i - start));
+            if (!item.empty()) out.push_back(item);
+            start = i + 1;
+        }
+    }
+    return out;
+}
+
+/// vectorOp(op, fieldSemi, varsCsv): grad/div/curl/laplacian/jacobian/hessian.
+/// `fieldSemi` is a ';'-separated field (a single expression for the scalar
+/// operators); `varsCsv` is the comma-separated variable list. Returns the
+/// result rendered plain and LaTeX.
+std::string ms_vector_op(std::string op, std::string field_semi,
+                         std::string vars_csv) {
+    return guarded([&]() -> std::string {
+        const std::vector<std::string> vars = split_csv(vars_csv);
+        ExprVec field;
+        for (const std::string& c : split_semi(field_semi)) {
+            field.push_back(parse_expression(c));
+        }
+        if (field.empty()) {
+            return err_json("no field expression given");
+        }
+        if ((op == "grad" || op == "laplacian" || op == "hessian") &&
+            field.size() != 1) {
+            return err_json(op + " takes a single scalar field, not " +
+                            std::to_string(field.size()) +
+                            " ';'-separated components");
+        }
+        const Expr scalar = field.front();
+        auto render_vec = [](const ExprVec& v) {
+            return std::format("\"plain\":{},\"latex\":{}",
+                               jstr(vec_to_string(v, PrintStyle::Plain)),
+                               jstr(vec_to_string(v, PrintStyle::LaTeX)));
+        };
+        auto render_mat = [](const ExprMat& m) {
+            return std::format("\"plain\":{},\"latex\":{}",
+                               jstr(mat_to_string(m, PrintStyle::Plain)),
+                               jstr(mat_to_string(m, PrintStyle::LaTeX)));
+        };
+        std::string fields;
+        if (op == "grad") {
+            fields = render_vec(gradient(scalar, vars));
+        } else if (op == "div") {
+            fields = rendered_fields(divergence(field, vars));
+        } else if (op == "curl") {
+            if (field.size() == 2 && vars.size() == 2) {
+                fields = rendered_fields(curl2d(field, vars));
+            } else {
+                fields = render_vec(curl(field, vars));
+            }
+        } else if (op == "laplacian") {
+            fields = rendered_fields(laplacian(scalar, vars));
+        } else if (op == "jacobian") {
+            fields = render_mat(jacobian(field, vars));
+        } else if (op == "hessian") {
+            fields = render_mat(hessian(scalar, vars));
+        } else {
+            return err_json("unknown vector operator '" + op + "'");
+        }
+        return std::format("{{\"ok\":true,{}}}", fields);
+    });
+}
+
+/// sampleField(fx, fy, xVar, yVar, xlo, xhi, ylo, yhi, n): evaluate a planar
+/// vector field on an n×n grid for a quiver plot. Returns flat x/y position
+/// arrays and u/v component arrays (null where a sample is non-finite).
+std::string ms_sample_field(std::string fx, std::string fy, std::string xvar,
+                            std::string yvar, double xlo, double xhi, double ylo,
+                            double yhi, int n) {
+    return guarded([&]() -> std::string {
+        if (n < 2 || n > 40) {
+            return err_json("grid size must be in [2, 40]");
+        }
+        const Expr u = parse_expression(fx);
+        const Expr v = parse_expression(fy);
+        const std::string xv = trim(xvar).empty() ? "x" : trim(xvar);
+        const std::string yv = trim(yvar).empty() ? "y" : trim(yvar);
+        // Unknown symbols would silently blank every sample; reject upfront.
+        std::set<std::string> extras = free_symbols(u);
+        const std::set<std::string> vsyms = free_symbols(v);
+        extras.insert(vsyms.begin(), vsyms.end());
+        extras.erase(xv);
+        extras.erase(yv);
+        if (!extras.empty()) {
+            std::string list;
+            for (const std::string& s : extras) {
+                if (!list.empty()) list += ", ";
+                list += s;
+            }
+            return err_json("the field contains symbols other than " + xv +
+                            " and " + yv + ": " + list);
+        }
+        std::vector<double> xs, ys, us, vs;
+        for (int j = 0; j < n; ++j) {
+            for (int i = 0; i < n; ++i) {
+                const double x = xlo + (xhi - xlo) * i / (n - 1);
+                const double y = ylo + (yhi - ylo) * j / (n - 1);
+                double uu = std::numeric_limits<double>::quiet_NaN();
+                double vv = std::numeric_limits<double>::quiet_NaN();
+                try {
+                    uu = evaluate(u, Bindings{{xv, x}, {yv, y}});
+                    vv = evaluate(v, Bindings{{xv, x}, {yv, y}});
+                } catch (const Error&) {
+                }
+                xs.push_back(x);
+                ys.push_back(y);
+                us.push_back(uu);
+                vs.push_back(vv);
+            }
+        }
+        auto arr = [](const std::vector<double>& a) {
+            std::string out = "[";
+            for (std::size_t i = 0; i < a.size(); ++i) {
+                if (i > 0) out += ",";
+                out += jnum(a[i]);
+            }
+            return out + "]";
+        };
+        return std::format(
+            "{{\"ok\":true,\"n\":{},\"x\":{},\"y\":{},\"u\":{},\"v\":{}}}", n,
+            arr(xs), arr(ys), arr(us), arr(vs));
+    });
+}
+
+std::string sum_result_json(const SumResult& r) {
+    const char* status = r.status == SumResult::Status::Exact ? "exact"
+                         : r.status == SumResult::Status::Diverges
+                             ? "diverges"
+                             : "unsolved";
+    std::string out = std::format("{{\"ok\":true,\"status\":{}", jstr(status));
+    if (r.status == SumResult::Status::Exact) {
+        out += "," + rendered_fields(r.value);
+    }
+    out += std::format(",\"method\":{},\"warnings\":{}}}", jstr(r.method),
+                       jarr_str(r.warnings));
+    return out;
+}
+
+/// sum(term, var, lo, hi): closed-form summation; hi accepts "inf".
+std::string ms_sum(std::string term, std::string var, std::string lo,
+                   std::string hi) {
+    return guarded([&]() -> std::string {
+        const Expr t = parse_expression(term);
+        const Expr l = parse_expression(lo);
+        const std::string h = trim(hi);
+        if (h == "inf" || h == "oo") {
+            return sum_result_json(sum_infinite(t, trim(var), l));
+        }
+        return sum_result_json(sum_finite(t, trim(var), l, parse_expression(h)));
+    });
+}
+
+/// product(term, var, lo, hi): closed-form product (numeric or geometric).
+std::string ms_product(std::string term, std::string var, std::string lo,
+                       std::string hi) {
+    return guarded([&]() -> std::string {
+        return sum_result_json(product_finite(parse_expression(term), trim(var),
+                                              parse_expression(lo),
+                                              parse_expression(hi)));
+    });
+}
+
+/// rsolve(recurrence, conditionsCsv): closed form of a linear recurrence.
+std::string ms_rsolve(std::string recurrence, std::string conditions_csv) {
+    return guarded([&]() -> std::string {
+        const RsolveResult r = rsolve(recurrence, split_csv(conditions_csv));
+        return std::format(
+            "{{\"ok\":true,{},\"order\":{},\"method\":{},\"warnings\":{}}}",
+            rendered_fields(r.solution), r.order, jstr(r.method),
+            jarr_str(r.warnings));
+    });
+}
+
+/// limit(expr, variable, point, direction): direction is "left", "right",
+/// or "" (two-sided); point accepts inf/-inf/oo. Returns status plus the
+/// rendered value where one exists.
+std::string ms_limit(std::string input, std::string variable, std::string point,
+                     std::string direction) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        const std::string var = trim(variable);
+        const std::string pt = trim(point);
+        const std::string dir_text = trim(direction);
+        const int dir = dir_text == "left" ? -1 : dir_text == "right" ? +1 : 0;
+        LimitResult r;
+        if (pt == "inf" || pt == "+inf" || pt == "oo") {
+            r = limit_at_infinity(e, var, true);
+        } else if (pt == "-inf" || pt == "-oo") {
+            r = limit_at_infinity(e, var, false);
+        } else {
+            r = limit(e, var, parse_expression(pt), dir);
+        }
+        const char* status =
+            r.status == LimitResult::Status::Exact        ? "exact"
+            : r.status == LimitResult::Status::Numeric    ? "numeric"
+            : r.status == LimitResult::Status::Diverges   ? "diverges"
+            : r.status == LimitResult::Status::DoesNotExist ? "doesNotExist"
+                                                            : "unsolved";
+        std::string out = std::format("{{\"ok\":true,\"status\":{},\"sign\":{}",
+                                      jstr(status), r.sign);
+        if (r.status == LimitResult::Status::Exact) {
+            out += "," + rendered_fields(r.value);
+        } else if (r.status == LimitResult::Status::Numeric) {
+            out += std::format(",\"approx\":{}",
+                               jnum(evaluate(r.value, Bindings{})));
+        }
+        out += std::format(",\"method\":{},\"warnings\":{}}}", jstr(r.method),
+                           jarr_str(r.warnings));
+        return out;
+    });
+}
+
+/// series(expr, variable, center, order): Taylor expansion. Empty variable
+/// infers the single free symbol; empty center means 0.
+std::string ms_series(std::string input, std::string variable,
+                      std::string center, int order) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string var = trim(variable);
+        if (var.empty()) {
+            const std::set<std::string> syms = free_symbols(e);
+            if (syms.size() != 1) {
+                return err_json(
+                    syms.empty()
+                        ? "cannot infer the variable: the input has no free symbols"
+                        : "give the series variable explicitly: series <expr>, "
+                          "<var>[, <center>[, <order>]]");
+            }
+            var = *syms.begin();
+        }
+        const std::string ct = trim(center);
+        if (ct == "inf" || ct == "oo") {
+            return std::format(
+                "{{\"ok\":true,{}}}",
+                rendered_fields(series_at_infinity(e, var, order)));
+        }
+        const Expr c = ct.empty() ? make_num(0) : parse_expression(ct);
+        return std::format("{{\"ok\":true,{}}}",
+                           rendered_fields(series(e, var, c, order)));
+    });
+}
+
+/// stirling(variable, terms): the Stirling asymptotic series for
+/// ln Gamma(variable) with exact Bernoulli coefficients; the lgamma
+/// accuracy check rides along as warnings.
+std::string ms_stirling(std::string variable, int terms) {
+    return guarded([&]() -> std::string {
+        std::string var = trim(variable);
+        if (var.empty()) {
+            var = "x";
+        }
+        const Expr ve = parse_expression(var);
+        if (ve->kind() != Kind::Symbol) {
+            return err_json("stirling: the variable must be a symbol name");
+        }
+        const StirlingResult r =
+            stirling_series(to_string(ve, PrintStyle::Plain), terms);
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}",
+                           rendered_fields(r.series), jarr_str(r.checks));
+    });
+}
+
+/// seq(termsCsv): recognize the pattern behind a list of exact terms.
+std::string ms_seq(std::string terms_csv) {
+    return guarded([&]() -> std::string {
+        std::vector<Rational> terms;
+        for (const std::string& t : split_csv(terms_csv)) {
+            const Expr e = simplify(parse_expression(t));
+            if (e->kind() != Kind::Number) {
+                return err_json(std::format(
+                    "seq terms must be exact numbers, got '{}'", t));
+            }
+            terms.push_back(e->number());
+        }
+        const SeqResult r = recognize_sequence(terms);
+        const char* kind =
+            r.kind == SeqResult::Kind::Arithmetic   ? "arithmetic"
+            : r.kind == SeqResult::Kind::Geometric  ? "geometric"
+            : r.kind == SeqResult::Kind::Polynomial ? "polynomial"
+            : r.kind == SeqResult::Kind::Recurrence ? "recurrence"
+                                                    : "unknown";
+        std::string out = std::format(
+            "{{\"ok\":true,\"kind\":{},\"description\":{}", jstr(kind),
+            jstr(r.description));
+        if (r.formula) {
+            out += "," + rendered_fields(r.formula);
+        }
+        if (!r.recurrence.empty()) {
+            out += std::format(",\"recurrence\":{}", jstr(r.recurrence));
+        }
+        std::vector<std::string> next;
+        for (const Rational& v : r.next) {
+            next.push_back(v.to_string());
+        }
+        out += std::format(",\"next\":{},\"warnings\":{}}}", jarr_str(next),
+                           jarr_str(r.warnings));
+        return out;
+    });
+}
+
+/// mlimit(expr, xVar, a, yVar, b): two-variable limit by path sampling.
+std::string ms_mlimit(std::string input, std::string xvar, std::string a,
+                      std::string yvar, std::string b) {
+    return guarded([&]() -> std::string {
+        const LimitResult r =
+            limit_multi(parse_expression(input), trim(xvar),
+                        parse_expression(a), trim(yvar), parse_expression(b));
+        const char* status =
+            r.status == LimitResult::Status::Exact          ? "exact"
+            : r.status == LimitResult::Status::Numeric      ? "numeric"
+            : r.status == LimitResult::Status::Diverges     ? "diverges"
+            : r.status == LimitResult::Status::DoesNotExist ? "doesNotExist"
+                                                            : "unsolved";
+        std::string out = std::format("{{\"ok\":true,\"status\":{},\"sign\":{}",
+                                      jstr(status), r.sign);
+        if (r.status == LimitResult::Status::Exact) {
+            out += "," + rendered_fields(r.value);
+        } else if (r.status == LimitResult::Status::Numeric) {
+            out += std::format(",\"approx\":{}",
+                               jnum(evaluate(r.value, Bindings{})));
+        }
+        out += std::format(",\"method\":{},\"warnings\":{}}}", jstr(r.method),
+                           jarr_str(r.warnings));
+        return out;
+    });
+}
+
+/// dsolve(ode, conditionsCsv): solve a linear constant-coefficient IVP.
+/// Returns the solution as plain/latex plus the partial-fraction Y(s) and
+/// any assumed-zero-IC warnings.
+std::string ms_dsolve(std::string ode, std::string conditions_csv) {
+    return guarded([&]() -> std::string {
+        std::vector<std::string> conditions;
+        std::size_t start = 0;
+        while (start <= conditions_csv.size()) {
+            const std::size_t comma = conditions_csv.find(',', start);
+            const std::string part = trim(conditions_csv.substr(
+                start, comma == std::string::npos ? std::string::npos
+                                                  : comma - start));
+            if (!part.empty()) {
+                conditions.push_back(part);
+            }
+            if (comma == std::string::npos) {
+                break;
+            }
+            start = comma + 1;
+        }
+        // A ';' selects the first-order-system path; the components render
+        // as one aligned block through the ordinary dsolve result card.
+        std::vector<std::string> sys_eqs;
+        {
+            std::size_t start = 0;
+            for (std::size_t i = 0; i <= ode.size(); ++i) {
+                if (i == ode.size() || ode[i] == ';') {
+                    const std::string piece = trim(ode.substr(start, i - start));
+                    if (!piece.empty()) sys_eqs.push_back(piece);
+                    start = i + 1;
+                }
+            }
+        }
+        if (sys_eqs.size() > 1) {
+            const DsolveSystemResult r = dsolve_system(sys_eqs, conditions);
+            std::string plain;
+            std::string latex = "\\begin{aligned}";
+            for (std::size_t i = 0; i < r.names.size(); ++i) {
+                if (i > 0) {
+                    plain += "\n";
+                    latex += " \\\\ ";
+                }
+                plain += r.names[i] + "(t) = " +
+                         to_string(r.solutions[i], PrintStyle::Plain);
+                latex += r.names[i] + "(t) &= " +
+                         to_string(r.solutions[i], PrintStyle::LaTeX);
+            }
+            latex += "\\end{aligned}";
+            return std::format(
+                "{{\"ok\":true,\"plain\":{},\"latex\":{},"
+                "\"transformPlain\":\"\",\"transformLatex\":\"\","
+                "\"implicit\":false,\"method\":{},\"warnings\":{}}}",
+                jstr(plain), jstr(latex), jstr(r.method), jarr_str(r.warnings));
+        }
+        const DsolveResult r = dsolve(ode, conditions);
+        return std::format(
+            "{{\"ok\":true,{},\"transformPlain\":{},\"transformLatex\":{},"
+            "\"implicit\":{},\"method\":{},\"warnings\":{}}}",
+            rendered_fields(r.solution),
+            jstr(r.transform ? to_string(r.transform, PrintStyle::Plain) : ""),
+            jstr(r.transform ? to_string(r.transform, PrintStyle::LaTeX) : ""),
+            r.implicit ? "true" : "false", jstr(r.method),
+            jarr_str(r.warnings));
+    });
+}
+
+/// laplace(expr, timeVar): f(t) -> F(s). Empty timeVar defaults to t.
+std::string ms_laplace(std::string input, std::string time) {
+    return guarded([&]() -> std::string {
+        const std::string t = trim(time).empty() ? "t" : trim(time);
+        const Expr F = laplace(parse_expression(input), t);
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(F));
+    });
+}
+
+/// ilaplace(expr, freqVar): F(s) -> f(t). Empty freqVar defaults to s.
+std::string ms_ilaplace(std::string input, std::string svar) {
+    return guarded([&]() -> std::string {
+        const std::string s = trim(svar).empty() ? "s" : trim(svar);
+        const Expr f = inverse_laplace(parse_expression(input), s);
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(f));
     });
 }
 
@@ -511,8 +960,10 @@ std::string ms_plugins() {
             for (const auto& c : p->commands()) {
                 if (!first_cmd) out += ",";
                 first_cmd = false;
-                out += std::format("{{\"name\":{},\"summary\":{},\"usage\":{}}}",
-                                   jstr(c.name), jstr(c.summary), jstr(c.usage));
+                out += std::format(
+                    "{{\"name\":{},\"summary\":{},\"usage\":{},\"example\":{}}}",
+                    jstr(c.name), jstr(c.summary), jstr(c.usage),
+                    jstr(c.example));
             }
             out += "]}";
         }
@@ -546,6 +997,20 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("subs", &ms_subs);
     emscripten::function("collect", &ms_collect);
     emscripten::function("derivative", &ms_derivative);
+    emscripten::function("apart", &ms_apart);
+    emscripten::function("dsolve", &ms_dsolve);
+    emscripten::function("series", &ms_series);
+    emscripten::function("vectorOp", &ms_vector_op);
+    emscripten::function("limit", &ms_limit);
+    emscripten::function("mlimit", &ms_mlimit);
+    emscripten::function("stirling", &ms_stirling);
+    emscripten::function("seq", &ms_seq);
+    emscripten::function("sum", &ms_sum);
+    emscripten::function("product", &ms_product);
+    emscripten::function("rsolve", &ms_rsolve);
+    emscripten::function("sampleField", &ms_sample_field);
+    emscripten::function("laplace", &ms_laplace);
+    emscripten::function("ilaplace", &ms_ilaplace);
     emscripten::function("integrate", &ms_integrate);
     emscripten::function("integrateDefinite", &ms_integrate_definite);
     emscripten::function("solve", &ms_solve);

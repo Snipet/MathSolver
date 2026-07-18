@@ -315,12 +315,21 @@ TEST_CASE("integrate_definite: FTC exact values") {
 }
 
 TEST_CASE("integrate_definite: numeric fallback when the indefinite is Unsolved") {
+    // sin(x)/x has no elementary antiderivative; Si is not implemented.
     const auto res =
-        integrate_definite(parse("e^(-x^2)"), "x", make_num(0), make_num(1));
+        integrate_definite(parse("sin(x)/x"), "x", make_num(1), make_num(2));
     REQUIRE(res.status == DefiniteIntegralResult::Status::Numeric);
     CHECK(res.method == "numeric (adaptive Simpson)");
     REQUIRE(res.value->kind() == Kind::Number);
-    CHECK_THAT(res.value->number().to_double(), WithinAbs(0.7468241328, 1e-9));
+    // Si(2) - Si(1) = 0.65932977...
+    CHECK_THAT(res.value->number().to_double(), WithinAbs(0.6593299064, 1e-8));
+}
+
+TEST_CASE("integrate_definite: the gaussian is now exact through erf") {
+    const auto res =
+        integrate_definite(parse("e^(-x^2)"), "x", make_num(0), make_num(1));
+    REQUIRE(res.status == DefiniteIntegralResult::Status::Exact);
+    CHECK_THAT(evaluate(res.value, Bindings{}), WithinAbs(0.7468241328, 1e-9));
 }
 
 TEST_CASE("integrate_definite: 1/x over [-1,1] is never a bogus 0") {

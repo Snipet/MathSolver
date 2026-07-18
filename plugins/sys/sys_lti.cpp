@@ -28,7 +28,8 @@ void trim_leading(std::vector<double>& c) {
 
 } // namespace
 
-std::vector<double> poly_from_expr(const std::string& text, int max_degree) {
+std::vector<double> poly_from_expr(const std::string& text, const std::string& var,
+                                   int max_degree) {
     Expr e;
     try {
         e = simplify(parse_expression(text));
@@ -36,11 +37,11 @@ std::vector<double> poly_from_expr(const std::string& text, int max_degree) {
         throw SysError(std::format("cannot parse '{}': {}", text, err.what()));
     }
     for (const std::string& sym : free_symbols(e)) {
-        if (sym != "s") {
+        if (sym != var) {
             throw SysError(std::format(
-                "'{}' contains the symbol '{}' — polynomials must be in s with "
+                "'{}' contains the symbol '{}' — polynomials must be in {} with "
                 "numeric coefficients",
-                text, sym));
+                text, sym, var));
         }
     }
     std::vector<double> coeffs;
@@ -50,7 +51,7 @@ std::vector<double> poly_from_expr(const std::string& text, int max_degree) {
         if (k > 0) {
             factorial *= k;
             try {
-                d = simplify(differentiate(d, "s"));
+                d = simplify(differentiate(d, var));
             } catch (const Error& err) {
                 throw SysError(std::format("cannot differentiate '{}': {}", text,
                                            err.what()));
@@ -61,21 +62,21 @@ std::vector<double> poly_from_expr(const std::string& text, int max_degree) {
         }
         double value = 0.0;
         try {
-            value = evaluate(d, Bindings{{"s", 0.0}});
+            value = evaluate(d, Bindings{{var, 0.0}});
         } catch (const Error&) {
             throw SysError(std::format(
-                "'{}' is not a polynomial in s (degree <= {}) with numeric "
+                "'{}' is not a polynomial in {} (degree <= {}) with numeric "
                 "coefficients",
-                text, max_degree));
+                text, var, max_degree));
         }
         coeffs.push_back(value / factorial);
         // Termination check happens on the NEXT round via the derivative; a
         // non-polynomial (sin, exp, 1/s) never reaches the zero expression.
         if (k == max_degree) {
-            const Expr next = simplify(differentiate(d, "s"));
+            const Expr next = simplify(differentiate(d, var));
             if (!(next->kind() == Kind::Number && next->number().is_zero())) {
                 throw SysError(std::format(
-                    "'{}' is not a polynomial in s of degree <= {}", text,
+                    "'{}' is not a polynomial in {} of degree <= {}", text, var,
                     max_degree));
             }
         }
@@ -87,22 +88,35 @@ std::vector<double> poly_from_expr(const std::string& text, int max_degree) {
     return coeffs;
 }
 
-RationalTF make_tf(const std::string& num_text, const std::string& den_text) {
+namespace {
+
+RationalTF make_tf_in(const std::string& num_text, const std::string& den_text,
+                      const std::string& var, const char* domain) {
     RationalTF tf;
-    tf.num = poly_from_expr(num_text);
-    tf.den = poly_from_expr(den_text);
+    tf.num = poly_from_expr(num_text, var);
+    tf.den = poly_from_expr(den_text, var);
     if (tf.den.size() == 1 && near_zero(tf.den[0])) {
         throw SysError("the denominator is identically zero");
     }
     if (tf.num.size() > tf.den.size()) {
         throw SysError(std::format(
-            "H(s) must be proper: numerator degree {} exceeds denominator degree {}",
-            tf.num.size() - 1, tf.den.size() - 1));
+            "{} must be proper: numerator degree {} exceeds denominator degree {}",
+            domain, tf.num.size() - 1, tf.den.size() - 1));
     }
     const double lead = tf.den.back();
     for (double& c : tf.den) c /= lead;
     for (double& c : tf.num) c /= lead;
     return tf;
+}
+
+} // namespace
+
+RationalTF make_tf(const std::string& num_text, const std::string& den_text) {
+    return make_tf_in(num_text, den_text, "s", "H(s)");
+}
+
+RationalTF make_tfz(const std::string& num_text, const std::string& den_text) {
+    return make_tf_in(num_text, den_text, "z", "H(z)");
 }
 
 // --- ODE parsing ------------------------------------------------------------
@@ -525,6 +539,159 @@ TimeSim simulate(const RationalTF& tf, double horizon, int points) {
             rk4(xi, 0.0);
         }
     }
+    return out;
+}
+
+// --- discrete-time ----------------------------------------------------------
+
+DiscreteSim simulate_discrete(const RationalTF& tf, int points) {
+    // Positive-power coefficients -> difference-equation taps. With den monic
+    // of degree N, multiply through by z^-N:
+    //   b[i] = num[N-i]  (num zero-padded),  a[i] = den[N-i],  a[0] = 1.
+    const std::size_t N = tf.den.size() - 1;
+    std::vector<double> b(N + 1, 0.0);
+    std::vector<double> a(N + 1, 0.0);
+    for (std::size_t i = 0; i <= N; ++i) {
+        a[i] = tf.den[N - i];
+        const std::size_t src = N - i;
+        b[i] = src < tf.num.size() ? tf.num[src] : 0.0;
+    }
+    const double a0 = a[0] == 0.0 ? 1.0 : a[0];
+
+    DiscreteSim sim;
+    const auto run = [&](bool step) {
+        std::vector<double> x(N + 1, 0.0);
+        std::vector<double> y(N + 1, 0.0);
+        std::vector<double> out;
+        for (int n = 0; n < points; ++n) {
+            // Shift histories.
+            for (std::size_t k = N; k > 0; --k) {
+                x[k] = x[k - 1];
+                y[k] = y[k - 1];
+            }
+            x[0] = step ? 1.0 : (n == 0 ? 1.0 : 0.0);
+            double acc = 0.0;
+            for (std::size_t i = 0; i <= N; ++i) {
+                acc += b[i] * x[i];
+            }
+            for (std::size_t i = 1; i <= N; ++i) {
+                acc -= a[i] * y[i];
+            }
+            y[0] = acc / a0;
+            out.push_back(y[0]);
+        }
+        return out;
+    };
+    sim.impulse = run(false);
+    sim.step = run(true);
+    for (int n = 0; n < points; ++n) {
+        sim.n.push_back(static_cast<double>(n));
+    }
+    return sim;
+}
+
+cd tfz_eval(const RationalTF& tf, double f, double fs) {
+    const cd z = std::polar(1.0, 2.0 * std::numbers::pi * f / fs);
+    return tf_eval(tf, z);
+}
+
+// --- delay differential equations -------------------------------------------
+
+DdeResult solve_dde(const std::string& rhs_text, double tau,
+                    const std::string& history_text, double horizon) {
+    if (!(tau > 0.0)) {
+        throw SysError("the delay tau must be positive");
+    }
+    if (!(horizon > 0.0)) {
+        throw SysError("the horizon T must be positive");
+    }
+    Expr rhs;
+    Expr history;
+    try {
+        rhs = simplify(parse_expression(rhs_text));
+        history = simplify(parse_expression(history_text));
+    } catch (const Error& e) {
+        throw SysError(std::format("cannot read the DDE: {}", e.what()));
+    }
+    for (const std::string& s : free_symbols(rhs)) {
+        if (s != "t" && s != "x" && s != "x_d") {
+            throw SysError(std::format(
+                "the right side may use t, x, and x_d only (found '{}')", s));
+        }
+    }
+    for (const std::string& s : free_symbols(history)) {
+        if (s != "t") {
+            throw SysError(std::format(
+                "the history phi may use t only (found '{}')", s));
+        }
+    }
+
+    // Uniform grid: at least 8 points per delay, at most 20000 steps total.
+    double h = std::min(tau / 8.0, horizon / 400.0);
+    int steps = static_cast<int>(std::ceil(horizon / h));
+    if (steps > 20000) {
+        steps = 20000;
+    }
+    h = horizon / steps;
+
+    const auto phi = [&](double t) {
+        return evaluate(history, Bindings{{"t", t}});
+    };
+    DdeResult out;
+    // Stored solution samples x_i at t_i = i h, i = 0..steps.
+    std::vector<double> xs(static_cast<std::size_t>(steps) + 1);
+    try {
+        xs[0] = phi(0.0);
+        const auto delayed = [&](double t, int front) -> double {
+            const double tq = t - tau;
+            if (tq <= 0.0) {
+                return phi(tq);
+            }
+            const double pos = tq / h;
+            int i0 = static_cast<int>(std::floor(pos));
+            if (i0 >= front) {
+                i0 = front - 1; // clamp to known samples (tau >= 8h)
+            }
+            const int i1 = std::min(i0 + 1, front - 1);
+            const double frac = std::clamp(pos - i0, 0.0, 1.0);
+            return xs[static_cast<std::size_t>(i0)] * (1.0 - frac) +
+                   xs[static_cast<std::size_t>(i1)] * frac;
+        };
+        const auto f = [&](double t, double x, int front) {
+            return evaluate(
+                rhs, Bindings{{"t", t}, {"x", x}, {"x_d", delayed(t, front)}});
+        };
+        for (int i = 0; i < steps; ++i) {
+            const double t = i * h;
+            const double x = xs[static_cast<std::size_t>(i)];
+            // Classic RK4; the delayed argument is frozen per stage time.
+            const double k1 = f(t, x, i + 1);
+            const double k2 = f(t + h / 2, x + h / 2 * k1, i + 1);
+            const double k3 = f(t + h / 2, x + h / 2 * k2, i + 1);
+            const double k4 = f(t + h, x + h * k3, i + 1);
+            const double next = x + h / 6 * (k1 + 2 * k2 + 2 * k3 + k4);
+            if (!std::isfinite(next)) {
+                throw SysError(std::format(
+                    "the solution blew up near t = {:.4g}", t + h));
+            }
+            xs[static_cast<std::size_t>(i) + 1] = next;
+        }
+    } catch (const Error& e) {
+        throw SysError(std::format("evaluation failed: {}", e.what()));
+    }
+
+    // Output: history segment on [-tau, 0] (sampled) then the solution.
+    const int hist_pts = 40;
+    for (int i = 0; i <= hist_pts; ++i) {
+        const double t = -tau + tau * i / hist_pts;
+        out.t.push_back(t);
+        out.x.push_back(phi(t));
+    }
+    for (int i = 1; i <= steps; ++i) {
+        out.t.push_back(i * h);
+        out.x.push_back(xs[static_cast<std::size_t>(i)]);
+    }
+    out.steps = steps;
     return out;
 }
 

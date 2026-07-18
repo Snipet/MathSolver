@@ -200,11 +200,18 @@ TEST_CASE("cli: integrate definite prints value = / value ≈") {
     CHECK(contains(exact.output, "value = 2\n"));
     CHECK(contains(exact.output, "method: FTC"));
 
-    const RunResult numeric =
+    // e^(-x^2) is exact now (erf); sin(x)/x still needs the numeric path.
+    const RunResult gauss =
         run_cli({"integrate", "e^(-x^2)", "x", "--from", "0", "--to", "1"});
+    INFO(gauss.output);
+    CHECK(gauss.exit_code == 0);
+    CHECK(contains(gauss.output, "value = sqrt(pi)*erf(1)/2"));
+
+    const RunResult numeric =
+        run_cli({"integrate", "sin(x)/x", "x", "--from", "1", "--to", "2"});
     INFO(numeric.output);
     CHECK(numeric.exit_code == 0);
-    CHECK(contains(numeric.output, "value ≈ 0.7468241328"));
+    CHECK(contains(numeric.output, "value ≈ 0.65932"));
     CHECK(contains(numeric.output, "method: numeric (adaptive Simpson)"));
 }
 
@@ -1229,4 +1236,35 @@ TEST_CASE("cli: '--' ends option parsing so '--x' can be passed as input") {
     const RunResult rejected = run_cli({"simplify", "--x"}, "2>&1 1>/dev/null");
     CHECK(rejected.exit_code == 2);
     CHECK(contains(rejected.output, "unknown option"));
+}
+
+TEST_CASE("cli: stirling prints the classic series with accuracy notes") {
+    const RunResult r = run_cli({"stirling", "x", "3"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "1/(12*x)"));
+    CHECK(contains(r.output, "1/(360*x^3)"));
+    CHECK(contains(r.output, "1/(1260*x^5)"));
+    CHECK(contains(r.output, "ln Gamma(10)"));
+
+    const RunResult bad = run_cli({"stirling", "x+1"}, "2>&1 1>/dev/null");
+    CHECK(bad.exit_code == 2);
+    CHECK(contains(bad.output, "variable name"));
+}
+
+TEST_CASE("cli: seq recognizes patterns and predicts terms") {
+    const RunResult fib = run_cli({"seq", "0", "1", "1", "2", "3", "5", "8"});
+    INFO(fib.output);
+    CHECK(fib.exit_code == 0);
+    CHECK(contains(fib.output, "Fibonacci"));
+    CHECK(contains(fib.output, "a(n+2) = a(n+1) + a(n)"));
+    CHECK(contains(fib.output, "next: 13, 21, 34"));
+    CHECK(contains(fib.output, "sqrt(5)"));
+
+    const RunResult sq = run_cli({"seq", "1", "4", "9", "16", "25"});
+    CHECK(contains(sq.output, "n^2 + 2*n + 1"));
+
+    const RunResult bad = run_cli({"seq", "1", "2", "x", "4"}, "2>&1 1>/dev/null");
+    CHECK(bad.exit_code == 2);
+    CHECK(contains(bad.output, "exact numbers"));
 }

@@ -133,6 +133,160 @@ try {
     "indefinite integral verb",
     (await run("integrate x*sin(x), x")).includes("-x*cos(x)"),
   );
+  check(
+    "apart verb",
+    (await run("apart (3x+2)/((x+1)(x+2))")).includes("4/(x + 2)"),
+  );
+  check(
+    "laplace verb",
+    (await run("laplace e^(-t) sin(2t)")).includes("(s + 1)^2 + 4"),
+  );
+  check(
+    "ilaplace verb",
+    (await run("ilaplace s/(s^2 + 9)")).includes("cos(3*t)"),
+  );
+  const dsolveOut = await run("dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0");
+  check(
+    "dsolve verb solves an IVP",
+    dsolveOut.includes("t*e^(-t)") && dsolveOut.includes("Y(s)"),
+    dsolveOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "series verb expands",
+    (await run("series sin(x), x, 0, 5")).includes("x^5/120"),
+  );
+  check(
+    "grad verb",
+    (await run("grad x^2 + y^2, x, y")).includes("(2*x, 2*y)"),
+  );
+  check("limit verb exact", (await run("limit sin(x)/x, x, 0")).includes("1"));
+  check(
+    "limit verb divergence message",
+    (await run("limit 1/x, x, 0, right")).includes("+∞"),
+  );
+  check(
+    "sum verb Faulhaber",
+    (await run("sum k^2, k, 1, n")).includes("n^3/3"),
+  );
+  check(
+    "rsolve verb Binet",
+    (await run("rsolve a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1")).includes(
+      "sqrt(5)",
+    ),
+  );
+  const laOut = await run("linalg.solve [2 1; 1 3], [3 5]");
+  check(
+    "linalg.solve renders",
+    laOut.includes("(0.8, 1.4)"),
+    laOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "linalg symbolic det",
+    (await run("linalg.det [a b; c d]")).includes("a*d"),
+  );
+  const pdeOut = await run("pde.heat 1, 1, x*(1-x)");
+  check(
+    "pde.heat renders profiles",
+    pdeOut.includes("heat equation") && pdeOut.includes("Temperature profiles"),
+    pdeOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "series at infinity",
+    (await run("series (x+1)/(x-1), x, inf, 3")).includes("2/x"),
+  );
+  const mlOut = await run("mlimit x*y/(x^2+y^2), x, 0, y, 0");
+  check(
+    "mlimit reports nonexistence with witnesses",
+    mlOut.includes("does not exist") && mlOut.includes("diagonal"),
+    mlOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const eigOut = await run("linalg.eig [2 1; 1 2]");
+  check(
+    "exact eigendecomposition renders",
+    eigOut.includes("Characteristic polynomial") && eigOut.includes("(1, 1)"),
+    eigOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "structured trisolve renders",
+    (await run("linalg.trisolve [-1], [2 2], [-1], [1 1]")).includes("Thomas"),
+  );
+  check(
+    "gamma folds exactly in console",
+    (await run("simplify gamma(5) + gamma(1/2)")).includes("24"),
+  );
+  check(
+    "gaussian integral gives erf",
+    (await run("integrate e^(-x^2), x")).includes("erf"),
+  );
+  check(
+    "binomial folds through gamma",
+    (await run("binomial(10, 5)")).includes("252"),
+  );
+  const seqOut = await run("seq 0, 1, 1, 2, 3, 5, 8");
+  check(
+    "seq recognizes Fibonacci",
+    seqOut.includes("Fibonacci") && seqOut.includes("13, 21, 34"),
+    seqOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const stirOut = await run("stirling x, 3");
+  check(
+    "stirling series with notes",
+    stirOut.includes("Gamma") && stirOut.includes("ln Gamma(10)"),
+    stirOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const femOut = await run("fem.bvp 1, 0, pi^2*sin(pi*x), 0, 1, u=0, u=0");
+  check(
+    "fem.bvp renders with convergence order",
+    femOut.includes("Observed convergence order") &&
+      femOut.includes("Solution u(x)"),
+    femOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "fem.modes renders eigenvalues",
+    (await run("fem.modes 1, 0, 1, 0, pi")).includes("Eigenvalues"),
+  );
+  const simOut = await run("pde.simulate 10, 1, u*(1-u), 0.5*sin(pi*x/10), 8");
+  check(
+    "pde.simulate renders profiles",
+    simOut.includes("reaction") && simOut.includes("Concentration profiles"),
+    simOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const ieOut = await run("ie.fredholm x*t, x, 1, 0, 1");
+  check(
+    "ie.fredholm renders the solution",
+    ieOut.includes("Fredholm integral equation") && ieOut.includes("1.5"),
+    ieOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "ie.volterra renders",
+    (await run("ie.volterra 1, 1, 1, 0, 1")).includes("trapezoidal marching"),
+  );
+  const hybOut = await run("hyb.sim v; -9.81, x, x; -0.8*v, 1, 0, 2");
+  check(
+    "hyb.sim renders events",
+    hybOut.includes("hybrid simulation") && hybOut.includes("Events"),
+    hybOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "hyb.sim Zeno note",
+    (await run("hyb.sim v; -9.81, x, x; -0.8*v, 1, 0, 5")).includes("Zeno"),
+  );
+  const dsysOut = await run("dsolve x' = y; y' = -x, x(0)=1, y(0)=0");
+  check(
+    "dsolve system in console",
+    dsysOut.includes("cos") && dsysOut.includes("sin"),
+    dsysOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  check(
+    "curl verb",
+    (await run("curl -y; x; 0, x, y, z")).includes("(0, 0, 2)"),
+  );
+  const vfOut = await run("vecfield -y; x");
+  const vfCanvas = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => el.querySelectorAll("svg").length,
+  );
+  check("vecfield renders an svg quiver", vfCanvas >= 1, `svgs: ${vfCanvas}`);
 
   const solveOut = await run("solve x^2 = 4, x");
   check("solve equation", solveOut.includes("x = -2; x = 2"), solveOut.replace(/\n/g, " ").slice(0, 60));
@@ -204,6 +358,14 @@ try {
     ellipOut.replace(/\n/g, " ").slice(0, 80),
   );
 
+  const remezOut = await run("dsp.remez lowpass, 31, 1000, 1500, 8000");
+  check(
+    "dsp.remez renders",
+    remezOut.includes("Parks") && remezOut.includes("Passband ripple") &&
+      remezOut.includes("Time response"),
+    remezOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
   await run("dsp.butter lowpass, 4, 30000, 48000");
   const pluginErr = await page.$eval(
     ".cells .cell:last-child",
@@ -252,6 +414,13 @@ try {
     "sys.rlocus renders and finds critical gain",
     rlOut.includes("Root locus") && rlOut.includes("unstable near K"),
     rlOut.replace(/\n/g, " ").slice(0, 80),
+  );
+
+  const tfzOut = await run("sys.tfz z, z^2 - 0.5z + 0.06, 8000");
+  check(
+    "sys.tfz renders z-plane analysis",
+    tfzOut.includes("|z| = 1") && tfzOut.includes("Pole-zero map"),
+    tfzOut.replace(/\n/g, " ").slice(0, 80),
   );
 
   const plotOut = await run("plot sin(x)/x, -20, 20");
@@ -351,6 +520,63 @@ try {
     el.value = "";
     el.dispatchEvent(new Event("input", { bubbles: true }));
   });
+
+  // Every reference entry — builtin and plugin — carries a runnable example.
+  const exampleAudit = await page.evaluate(() => {
+    const entries = [...document.querySelectorAll(".sidebar .cmd-ref .ref-entry")];
+    const missing = entries
+      .filter((li) => !li.querySelector(".ref-example code")?.textContent?.trim())
+      .map((li) => li.querySelector(".ref-usage")?.textContent ?? "?");
+    return { total: entries.length, missing };
+  });
+  check(
+    "every reference entry has an example",
+    exampleAudit.total > 50 && exampleAudit.missing.length === 0,
+    `total ${exampleAudit.total}, missing: ${exampleAudit.missing.join("; ")}`,
+  );
+
+  // Clicking an example inserts the full runnable line, and it runs. The
+  // helper submits an already-inserted prompt and waits for the new cell.
+  const submitPrompt = async () => {
+    const before = await page.$$eval(".cells .cell", (els) => els.length);
+    await page.click(TA);
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(
+      (n) => {
+        const cells = document.querySelectorAll(".cells .cell");
+        if (cells.length !== n + 1) return false;
+        const last = cells[cells.length - 1];
+        return last && !(last.textContent || "").includes("computing…");
+      },
+      { timeout: 20000 },
+      before,
+    );
+    return page.$eval(".cells .cell:last-child", (el) => el.innerText);
+  };
+  await page.evaluate(() => {
+    const egs = [...document.querySelectorAll(".sidebar .cmd-ref .ref-example")];
+    egs.find((b) => b.textContent.includes("factor x^2 - 5x + 6")).click();
+  });
+  const egInserted = await page.$eval(TA, (el) => el.value);
+  check(
+    "example click inserts the runnable line",
+    egInserted === "factor x^2 - 5x + 6",
+    JSON.stringify(egInserted),
+  );
+  const egOut = await submitPrompt();
+  check("inserted example runs to a result", egOut.includes("(x - 3)"), egOut.slice(0, 60));
+
+  // A plugin example works end to end the same way.
+  await page.evaluate(() => {
+    const egs = [...document.querySelectorAll(".sidebar .cmd-ref .ref-example")];
+    egs.find((b) => b.textContent.includes("pde.heat 1, 1, x*(1-x)")).click();
+  });
+  const egPlugin = await submitPrompt();
+  check(
+    "plugin example runs to a result",
+    egPlugin.includes("Temperature profiles"),
+    egPlugin.slice(0, 60),
+  );
 
   await page.click(TA);
   await page.type(TA, "integ");

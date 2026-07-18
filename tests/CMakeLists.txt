@@ -20,12 +20,25 @@ add_executable(mathsolver_tests
     test_simplify_review.cpp
     test_derivative.cpp
     test_integrate.cpp
+    test_apart.cpp
     test_solver.cpp
     test_solver_review.cpp
+    test_transform.cpp
+    test_ode.cpp
+    test_series.cpp
+    test_special.cpp
+    test_limit.cpp
+    test_discrete.cpp
+    test_vector_calculus.cpp
     test_system.cpp
     test_cli.cpp
     test_plugin_dsp.cpp
     test_plugin_sys.cpp
+    test_plugin_linalg.cpp
+    test_plugin_pde.cpp
+    test_plugin_ie.cpp
+    test_plugin_hyb.cpp
+    test_plugin_fem.cpp
 )
 target_link_libraries(mathsolver_tests PRIVATE mathsolver_core mathsolver_plugins Catch2::Catch2WithMain)
 
