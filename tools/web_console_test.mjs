@@ -534,6 +534,32 @@ try {
   );
   await clearPrompt();
 
+  // --- ghost argument hints at the caret -----------------------------------
+  const ghostText = () =>
+    page
+      .$eval("[data-testid='ghost-hint'] .ghost-text", (el) => el.textContent)
+      .catch(() => null);
+  await page.click(TA);
+  await page.type(TA, "integrate ");
+  check("ghost hints <expr> after the verb", (await ghostText()) === "<expr>");
+  await page.type(TA, "x*sin(x)");
+  check("ghost hidden while typing an argument", (await ghostText()) === null);
+  await page.type(TA, ", ");
+  check(
+    "ghost hints <var> after the comma",
+    (await ghostText()) === "<var>",
+    JSON.stringify(await ghostText()),
+  );
+  await clearPrompt();
+  await page.type(TA, "solve ");
+  const solveGhost = await ghostText();
+  check(
+    "ghost joins alternatives with |",
+    !!solveGhost && solveGhost.includes(" | "),
+    JSON.stringify(solveGhost),
+  );
+  await clearPrompt();
+
   // --- console UX overhaul: reference panel, autocomplete, cell actions ----
   await page.waitForFunction(
     () =>

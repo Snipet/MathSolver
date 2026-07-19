@@ -9,6 +9,8 @@
     ready?: boolean;
     computing?: boolean;
     placeholder?: string;
+    /** Ghost text shown at the caret: what can come next (e.g. "<var> | <lo>"). */
+    hint?: string;
     onrun: () => void;
     /** Optional pre-handler (history recall, completions); may preventDefault. */
     onkeydownextra?: (e: KeyboardEvent) => void;
@@ -20,13 +22,31 @@
     ready = true,
     computing = false,
     placeholder = "",
+    hint = "",
     onrun,
     onkeydownextra,
   }: Props = $props();
 
   let ta: HTMLTextAreaElement | undefined = $state();
+  let ghostEl: HTMLDivElement | undefined = $state();
 
   const canRun = $derived(ready && !computing && value.trim().length > 0);
+
+  // The ghost renders only while the caret sits at the end of the line — a
+  // hint mid-edit would point at the wrong place.
+  let focused = $state(false);
+  let caretEnd = $state(true);
+  function syncCaret() {
+    const el = ta;
+    if (!el) return;
+    caretEnd =
+      el.selectionStart === el.selectionEnd &&
+      el.selectionEnd === el.value.length;
+  }
+  function syncScroll() {
+    if (ghostEl && ta) ghostEl.scrollTop = ta.scrollTop;
+  }
+  const showGhost = $derived(!!hint && focused && caretEnd && !computing);
 
   /** Focus the textarea and place the cursor at the end of its content. */
   export function focusEnd() {
@@ -79,17 +99,35 @@
 
 <div class="prompt-line" class:computing>
   <span class="in-label" aria-hidden="true">In[{index}]:=</span>
-  <textarea
-    bind:this={ta}
-    bind:value
-    rows="1"
-    {placeholder}
-    spellcheck="false"
-    autocapitalize="off"
-    autocomplete="off"
-    aria-label="Console input, line {index}"
-    {onkeydown}
-  ></textarea>
+  <div class="ta-wrap">
+    <textarea
+      bind:this={ta}
+      bind:value
+      rows="1"
+      {placeholder}
+      spellcheck="false"
+      autocapitalize="off"
+      autocomplete="off"
+      aria-label="Console input, line {index}"
+      {onkeydown}
+      onfocus={() => {
+        focused = true;
+        syncCaret();
+      }}
+      onblur={() => (focused = false)}
+      onkeyup={syncCaret}
+      onclick={syncCaret}
+      oninput={syncCaret}
+      onscroll={syncScroll}
+    ></textarea>
+    {#if showGhost}
+      <!-- Mirror overlay: invisible copy of the text positions the ghost
+           exactly at the caret, wrapping like the textarea does. -->
+      <div class="ghost" bind:this={ghostEl} aria-hidden="true" data-testid="ghost-hint">
+        <span class="ghost-pre">{value}</span><span class="ghost-text">{hint}</span>
+      </div>
+    {/if}
+  </div>
   <span class="gutter">
     {#if computing}
       <span class="spinner" role="status" aria-label="computing"></span>
@@ -147,7 +185,12 @@
     font-weight: 600;
   }
 
+  .ta-wrap {
+    position: relative;
+    min-width: 0;
+  }
   textarea {
+    display: block;
     min-width: 0;
     width: 100%;
     resize: none;
@@ -161,6 +204,25 @@
     margin: 0;
     overflow-y: auto;
     caret-color: var(--accent);
+    overflow-wrap: break-word;
+  }
+  .ghost {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+  .ghost-pre {
+    visibility: hidden;
+  }
+  .ghost-text {
+    color: var(--fg-muted);
+    opacity: 0.55;
   }
   /* The row tint + accent In-label are the focus indicator; the boxed outline
      would re-introduce the form-field look. */
