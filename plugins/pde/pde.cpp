@@ -57,26 +57,10 @@ std::string error_json(std::string_view message) {
 }
 
 std::optional<double> parse_double(const std::string& s) {
-    try {
-        std::size_t pos = 0;
-        const double v = std::stod(s, &pos);
-        while (pos < s.size() &&
-               std::isspace(static_cast<unsigned char>(s[pos])) != 0) {
-            ++pos;
-        }
-        if (pos != s.size()) {
-            return std::nullopt;
-        }
-        // "inf"/"nan" parse as finite doubles through stod but are not valid
-        // numeric arguments (an infinite L/alpha/T would sail past the > 0
-        // checks and produce an all-null chart or a false blow-up).
-        if (!std::isfinite(v)) {
-            return std::nullopt;
-        }
-        return v;
-    } catch (const std::exception&) {
-        return std::nullopt;
-    }
+    // CAS-backed (plugin.hpp): accepts decimals, exact rationals
+    // ("150187/100" — how session variables resolve), and constants ("pi");
+    // rejects non-finite values.
+    return parse_number(s);
 }
 
 std::string jarr(const std::vector<double>& v) {

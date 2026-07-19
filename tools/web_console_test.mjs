@@ -651,6 +651,16 @@ try {
     ),
   );
 
+  // Fractional session values resolve to exact-rational text ("150187/100");
+  // plugin numeric args must accept that spelling (regression).
+  await run("k_f := 1501.87");
+  const fracOut = await run("dsp.butter lowpass, 4, k_f, 48000");
+  check(
+    "fractional session variable feeds a plugin arg",
+    fracOut.includes("Butterworth") && fracOut.includes("1501.87"),
+    fracOut.replace(/\s+/g, " ").slice(0, 90),
+  );
+
   // --- console UX overhaul: reference panel, autocomplete, cell actions ----
   await page.waitForFunction(
     () =>

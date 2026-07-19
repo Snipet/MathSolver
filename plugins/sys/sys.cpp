@@ -364,16 +364,12 @@ std::string cmd_feedback(const std::vector<std::string>& args) {
     }
     double k = 1.0;
     if (args.size() == 3) {
-        try {
-            std::size_t pos = 0;
-            k = std::stod(args[2], &pos);
-            if (pos != args[2].size()) {
-                throw std::invalid_argument("k");
-            }
-        } catch (const std::exception&) {
+        const auto kv = parse_number(args[2]);
+        if (!kv) {
             return error_json(
                 std::format("gain K must be a number, got '{}'", args[2]));
         }
+        k = *kv;
     }
     try {
         const RationalTF g = sys::make_tf(args[0], args[1]);
@@ -396,16 +392,12 @@ std::string cmd_rlocus(const std::vector<std::string>& args) {
     }
     double kmax = 100.0;
     if (args.size() == 3) {
-        try {
-            std::size_t pos = 0;
-            kmax = std::stod(args[2], &pos);
-            if (pos != args[2].size() || !(kmax > 0.0)) {
-                throw std::invalid_argument("kmax");
-            }
-        } catch (const std::exception&) {
+        const auto kv = parse_number(args[2]);
+        if (!kv || !(*kv > 0.0)) {
             return error_json(
                 std::format("K max must be a positive number, got '{}'", args[2]));
         }
+        kmax = *kv;
     }
     try {
         const RationalTF g = sys::make_tf(args[0], args[1]);
@@ -628,17 +620,12 @@ std::string cmd_tfz(const std::vector<std::string>& args) {
             "usage: sys.tfz <num poly in z>, <den poly in z>, <fs Hz>   "
             "(positive powers of z)");
     }
-    double fs = 0.0;
-    try {
-        std::size_t pos = 0;
-        fs = std::stod(args[2], &pos);
-        if (pos != args[2].size() || !(fs > 0.0)) {
-            throw std::invalid_argument("fs");
-        }
-    } catch (const std::exception&) {
+    const auto fsv = parse_number(args[2]);
+    if (!fsv || !(*fsv > 0.0)) {
         return error_json(
             std::format("sample rate must be a positive number, got '{}'", args[2]));
     }
+    const double fs = *fsv;
     try {
         const RationalTF tf = sys::make_tfz(args[0], args[1]);
         Analysis a;
@@ -675,17 +662,12 @@ std::string cmd_c2d(const std::vector<std::string>& args) {
     if (args.size() != 3) {
         return error_json("usage: sys.c2d <num poly in s>, <den poly in s>, <fs Hz>");
     }
-    double fs = 0.0;
-    try {
-        std::size_t pos = 0;
-        fs = std::stod(args[2], &pos);
-        if (pos != args[2].size() || !(fs > 0.0)) {
-            throw std::invalid_argument("fs");
-        }
-    } catch (const std::exception&) {
+    const auto fsv = parse_number(args[2]);
+    if (!fsv || !(*fsv > 0.0)) {
         return error_json(
             std::format("sample rate must be a positive number, got '{}'", args[2]));
     }
+    const double fs = *fsv;
     try {
         const RationalTF tf = sys::make_tf(args[0], args[1]);
         const Analysis a = analyze(tf);
@@ -766,18 +748,13 @@ std::string cmd_dde(const std::vector<std::string>& args) {
             "usage: sys.dde <x' = f(t, x, x_d)>, <tau>, <phi(t)>, <T>   "
             "(x_d is x(t - tau); e.g. sys.dde -x_d, 1, 1, 20)");
     }
-    double tau = 0.0;
-    double horizon = 0.0;
-    try {
-        std::size_t pos = 0;
-        tau = std::stod(args[1], &pos);
-        if (pos != args[1].size()) throw std::invalid_argument("tau");
-        pos = 0;
-        horizon = std::stod(args[3], &pos);
-        if (pos != args[3].size()) throw std::invalid_argument("T");
-    } catch (const std::exception&) {
+    const auto tauv = parse_number(args[1]);
+    const auto horizonv = parse_number(args[3]);
+    if (!tauv || !horizonv) {
         return error_json("tau and T must be numbers");
     }
+    const double tau = *tauv;
+    const double horizon = *horizonv;
     try {
         const sys::DdeResult r = sys::solve_dde(args[0], tau, args[2], horizon);
         const std::string kv = std::format(

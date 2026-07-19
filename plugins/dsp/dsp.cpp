@@ -41,19 +41,9 @@ constexpr int k_max_freqz_sections = 16;
 constexpr int k_response_points = 300;
 
 std::optional<double> parse_double(const std::string& s) {
-    try {
-        std::size_t pos = 0;
-        const double v = std::stod(s, &pos);
-        while (pos < s.size() && std::isspace(static_cast<unsigned char>(s[pos])) != 0) {
-            ++pos;
-        }
-        if (pos != s.size()) {
-            return std::nullopt;
-        }
-        return v;
-    } catch (const std::exception&) {
-        return std::nullopt;
-    }
+    // CAS-backed (plugin.hpp): accepts decimals, exact rationals
+    // ("150187/100" — how session variables resolve), and constants ("pi").
+    return parse_number(s);
 }
 
 std::optional<int> parse_int(const std::string& s) {

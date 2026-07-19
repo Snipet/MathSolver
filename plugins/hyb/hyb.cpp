@@ -28,15 +28,7 @@ constexpr std::size_t k_chart_points = 601;
 
 /// Numeric argument through the CAS, so "pi", "1/2", "-3/4" all work.
 std::optional<double> parse_number(const std::string& s) {
-    try {
-        const double v = evaluate(simplify(parse_expression(s)), Bindings{});
-        if (!std::isfinite(v)) {
-            return std::nullopt;
-        }
-        return v;
-    } catch (const std::exception&) {
-        return std::nullopt;
-    }
+    return mathsolver::plugins::parse_number(s); // shared impl (plugin.hpp)
 }
 
 /// "a; b" → the two trimmed halves (exactly one ';').
