@@ -2,7 +2,7 @@
   import type { Ok } from "../outcome";
   import type { TransformResult } from "../engine/types";
   import Katex from "./Katex.svelte";
-  import CopyField from "./CopyField.svelte";
+  import SourceFields from "./SourceFields.svelte";
 
   let { result }: { result: Ok<TransformResult> } = $props();
 </script>
@@ -15,17 +15,14 @@
     {/each}
   </ul>
 {/if}
-<div class="sources">
-  <CopyField label="Plain" text={result.plain} />
-  <CopyField label="LaTeX" text={result.latex} />
-</div>
+<SourceFields
+  fields={[
+    { label: "Plain", text: result.plain },
+    { label: "LaTeX", text: result.latex },
+  ]}
+/>
 
 <style>
-  .sources {
-    margin-top: 0.75rem;
-    display: grid;
-    gap: 0.4rem;
-  }
   .notes {
     margin: 0.5rem 0 0;
     padding-left: 1.1rem;

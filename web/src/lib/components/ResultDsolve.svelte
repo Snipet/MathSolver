@@ -2,7 +2,7 @@
   import type { Ok } from "../outcome";
   import type { DsolveResult } from "../engine/types";
   import Katex from "./Katex.svelte";
-  import CopyField from "./CopyField.svelte";
+  import SourceFields from "./SourceFields.svelte";
 
   let { result }: { result: Ok<DsolveResult> } = $props();
 </script>
@@ -26,10 +26,12 @@
 {#each result.warnings as w (w)}
   <p class="warning">{w}</p>
 {/each}
-<div class="sources">
-  <CopyField label="Plain" text={result.plain} />
-  <CopyField label="LaTeX" text={result.latex} />
-</div>
+<SourceFields
+  fields={[
+    { label: "Plain", text: result.plain },
+    { label: "LaTeX", text: result.latex },
+  ]}
+/>
 
 <style>
   .transform {
@@ -44,10 +46,5 @@
     margin: 0.3rem 0 0;
     color: var(--warn, #b58900);
     font-size: 0.8rem;
-  }
-  .sources {
-    margin-top: 0.75rem;
-    display: grid;
-    gap: 0.4rem;
   }
 </style>

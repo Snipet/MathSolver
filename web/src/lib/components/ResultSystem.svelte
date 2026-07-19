@@ -4,7 +4,7 @@
   import { varLatex } from "../format";
   import Katex from "./Katex.svelte";
   import MethodMeta from "./MethodMeta.svelte";
-  import CopyField from "./CopyField.svelte";
+  import SourceFields from "./SourceFields.svelte";
   import CopyButton from "./CopyButton.svelte";
 
   let { result }: { result: Ok<SystemResult> } = $props();
@@ -34,10 +34,12 @@
     {/each}
   </ul>
   {#if result.values.length > 0}
-    <div class="sources">
-      <CopyField label="Plain" text={allPlain} />
-      <CopyField label="LaTeX" text={allLatex} />
-    </div>
+    <SourceFields
+      fields={[
+        { label: "Plain", text: allPlain },
+        { label: "LaTeX", text: allLatex },
+      ]}
+    />
   {/if}
   {#if result.free.length}
     <div class="free-row">
@@ -72,11 +74,6 @@
     gap: 0.6rem;
     font-size: 1.1rem;
     overflow-x: auto;
-  }
-  .sources {
-    margin-top: 0.75rem;
-    display: grid;
-    gap: 0.4rem;
   }
   .free-row {
     margin-top: 0.6rem;

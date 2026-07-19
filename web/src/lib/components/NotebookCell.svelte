@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Cell } from "../notebook/notebook.svelte";
+  import Katex from "./Katex.svelte";
   import ResultCard from "./ResultCard.svelte";
 
   interface Props {
@@ -40,6 +41,15 @@
     </div>
   </div>
 
+  {#if cell.inputLatex}
+    <div class="line typeset-line" data-testid="cell-input-typeset">
+      <span class="label" aria-hidden="true"></span>
+      <div class="typeset">
+        <Katex latex={cell.inputLatex} />
+      </div>
+    </div>
+  {/if}
+
   <div class="line out-line">
     <span class="label out-label">Out[{index}]=</span>
     <div class="out-body">
@@ -78,8 +88,20 @@
     gap: 0.6rem;
     align-items: start;
   }
-  .out-line {
+  .out-line,
+  .typeset-line {
     grid-template-columns: 4.8rem minmax(0, 1fr);
+  }
+  /* The input as the engine parsed it, typeset under the raw echo. */
+  .typeset-line {
+    margin-top: -0.15rem;
+  }
+  .typeset {
+    min-width: 0;
+    overflow-x: auto;
+    font-size: 0.98rem;
+    padding: 0.1rem 0 0.05rem 0.6rem;
+    border-left: 2px solid var(--border);
   }
   .label {
     font-family: var(--font-mono);

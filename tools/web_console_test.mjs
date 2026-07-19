@@ -104,7 +104,9 @@ async function run(cmd) {
     { timeout: 20000 },
     before,
   );
-  return page.$eval(".cells .cell:last-child", (el) => el.innerText);
+  // textContent, not innerText: the Plain/LaTeX source rows live inside a
+  // collapsed <details> and must stay assertable without expanding it.
+  return page.$eval(".cells .cell:last-child", (el) => el.textContent);
 }
 
 try {
@@ -132,6 +134,38 @@ try {
   check(
     "indefinite integral verb",
     (await run("integrate x*sin(x), x")).includes("-x*cos(x)"),
+  );
+
+  // New cell chrome: the typeset input line and the collapsed source rows.
+  check(
+    "cell typesets its input (∫ … dx)",
+    await page
+      .$eval(
+        ".cells .cell:last-child [data-testid='cell-input-typeset'] annotation",
+        (el) => /\\int/.test(el.textContent || ""),
+      )
+      .catch(() => false),
+  );
+  const srcState = await page
+    .$eval(".cells .cell:last-child details.sources", (d) => ({
+      open: d.open,
+      fields: d.querySelectorAll(".copy-field").length,
+    }))
+    .catch(() => null);
+  check(
+    "source rows collapsed by default",
+    !!srcState && !srcState.open && srcState.fields === 2,
+    JSON.stringify(srcState),
+  );
+  await page.click(".cells .cell:last-child details.sources summary");
+  check(
+    "source rows expand on click",
+    await page
+      .$eval(
+        ".cells .cell:last-child details.sources",
+        (d) => d.open && d.querySelectorAll(".copy-field").length === 2,
+      )
+      .catch(() => false),
   );
   check(
     "apart verb",
@@ -551,7 +585,7 @@ try {
       { timeout: 20000 },
       before,
     );
-    return page.$eval(".cells .cell:last-child", (el) => el.innerText);
+    return page.$eval(".cells .cell:last-child", (el) => el.textContent);
   };
   await page.evaluate(() => {
     const egs = [...document.querySelectorAll(".sidebar .cmd-ref .ref-example")];

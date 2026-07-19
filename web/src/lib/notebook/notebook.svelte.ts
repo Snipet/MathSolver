@@ -5,11 +5,15 @@
 // double-commit `:=` assignments, which the shared `vars` store already
 // persists on its own).
 import { runLine, type CellResult } from "./run";
+import { buildConsolePreview } from "./preview";
 
 export interface Cell {
   id: number;
   /** The raw line as entered (echoed as the In[] prompt). */
   input: string;
+  /** Typeset (LaTeX) rendering of the parsed input; null when the line has
+   *  no math form (help, vars, plugin calls, parse errors). */
+  inputLatex: string | null;
   /** null while the engine is working; set once evaluated. */
   result: CellResult | null;
   ts: number;
@@ -38,6 +42,7 @@ function load(): Cell[] {
       cells.push({
         id: nextId++,
         input: o.input,
+        inputLatex: typeof o.inputLatex === "string" ? o.inputLatex : null,
         result: o.result as CellResult,
         ts: typeof o.ts === "number" ? o.ts : Date.now(),
       });
@@ -59,13 +64,25 @@ class NotebookStore {
   async run(raw: string): Promise<void> {
     const input = raw.trim();
     if (!input) return;
-    const cell: Cell = { id: nextId++, input, result: null, ts: Date.now() };
+    const cell: Cell = {
+      id: nextId++,
+      input,
+      inputLatex: null,
+      result: null,
+      ts: Date.now(),
+    };
     this.cells.push(cell);
     if (this.cells.length > CAP) this.cells = this.cells.slice(-CAP);
 
-    const result = await runLine(input);
+    // Typeset the input as parsed (∫ … dx, d/dx …, lim …) alongside the
+    // evaluation; lines with no math form (help, plugins) stay text-only.
+    const latexPromise = buildConsolePreview(input)
+      .then((p) => (p.kind === "math" ? p.latex : null))
+      .catch(() => null);
+    const [inputLatex, result] = await Promise.all([latexPromise, runLine(input)]);
     const c = this.cells.find((x) => x.id === cell.id);
     if (!c) return; // cleared mid-flight
+    c.inputLatex = inputLatex;
     c.result = result;
     this.#persist();
   }
@@ -80,7 +97,12 @@ class NotebookStore {
       const cells = this.cells
         .filter((c) => c.result !== null)
         .slice(-CAP)
-        .map((c) => ({ input: c.input, result: c.result, ts: c.ts }));
+        .map((c) => ({
+          input: c.input,
+          inputLatex: c.inputLatex,
+          result: c.result,
+          ts: c.ts,
+        }));
       localStorage.setItem(KEY, JSON.stringify({ v: 1, cells }));
     } catch {
       /* storage unavailable or quota exceeded */
