@@ -371,11 +371,26 @@ try {
       chebyOut.includes("Phase response"),
     chebyOut.replace(/\n/g, " ").slice(0, 80),
   );
-  const chartCount = await page.$eval(
-    ".cells .cell:last-child",
-    (el) => el.querySelectorAll("canvas").length,
+  // Multiple charts group into a tab strip: one visible canvas, one tab each.
+  const chartTabs = await page.$eval(".cells .cell:last-child", (el) => ({
+    tabs: el.querySelectorAll(".chart-tabs .chart-tab").length,
+    canvases: el.querySelectorAll("canvas").length,
+  }));
+  check(
+    "magnitude + phase + time charts grouped in tabs",
+    chartTabs.tabs === 3 && chartTabs.canvases === 1,
+    JSON.stringify(chartTabs),
   );
-  check("magnitude + phase + time charts", chartCount === 3, `canvases: ${chartCount}`);
+  await page.click(".cells .cell:last-child .chart-tab:nth-child(2)");
+  check(
+    "chart tab switches the visible chart",
+    await page.$eval(
+      ".cells .cell:last-child .chart-tabs",
+      (el) =>
+        el.querySelectorAll(".chart-tab")[1].classList.contains("active") &&
+        el.querySelectorAll("canvas").length === 1,
+    ),
+  );
 
   const firOut = await run("dsp.fir lowpass, 63, 1000, 48000");
   check(
@@ -422,11 +437,15 @@ try {
       tfOut.includes("Bode magnitude") && tfOut.includes("Time response"),
     tfOut.replace(/\n/g, " ").slice(0, 80),
   );
-  const sysCharts = await page.$eval(
-    ".cells .cell:last-child",
-    (el) => el.querySelectorAll("canvas").length,
+  const sysCharts = await page.$eval(".cells .cell:last-child", (el) => ({
+    tabs: el.querySelectorAll(".chart-tabs .chart-tab").length,
+    canvases: el.querySelectorAll("canvas").length,
+  }));
+  check(
+    "sys.tf has 4 charts grouped in tabs",
+    sysCharts.tabs === 4 && sysCharts.canvases === 1,
+    JSON.stringify(sysCharts),
   );
-  check("sys.tf has 4 charts", sysCharts === 4, `canvases: ${sysCharts}`);
 
   const odeOut = await run("sys.ode y'' + 3y' + 2y = u' + u");
   check(
@@ -615,10 +634,30 @@ try {
     { timeout: 10000 },
   );
   check("panel edit moves the slider and re-runs the cell", true);
+  // Fractional values plain-print as exact rationals ("5/2"): the slider
+  // must survive the store's re-validation (regression: it used to vanish).
+  await page.$eval(".cells .cell:last-child .s-range", (el) => {
+    el.value = "2.5";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector(".cells .cell:last-child")
+        ?.textContent?.includes("5*x/2"),
+    { timeout: 10000 },
+  );
+  await new Promise((r) => setTimeout(r, 800)); // re-validation window
+  check(
+    "fractional slider survives re-validation",
+    await page.evaluate(
+      () => !!document.querySelector(".cells .cell:last-child .s-range"),
+    ),
+  );
   const varsOut = await run("vars");
   check(
     "session binding reflects the linked slider",
-    varsOut.includes("k_a := 5"),
+    varsOut.includes("k_a := 5/2"),
     varsOut.replace(/\s+/g, " ").slice(0, 80),
   );
 

@@ -122,6 +122,23 @@ function defaultRange(v: number): { lo: number; hi: number } {
 }
 
 /**
+ * Numeric value of a binding's plain-printed value. The engine prints any
+ * non-integer exactly — 1501.87 is "150187/100" — so a bare Number() sees
+ * NaN and a freshly-dragged fractional slider would read as "not numeric"
+ * and be dropped.
+ */
+function numericValue(text: string): number | null {
+  const direct = Number(text);
+  if (Number.isFinite(direct)) return direct;
+  const m = /^\s*(-?\d+)\s*\/\s*(\d+)\s*$/.exec(text);
+  if (!m) return null;
+  const q = Number(m[2]);
+  if (q === 0) return null;
+  const v = Number(m[1]) / q;
+  return Number.isFinite(v) ? v : null;
+}
+
+/**
  * Which session variables this cell can manipulate: numeric expression
  * bindings whose name appears in the input, minus variables-of-operation
  * (bare-identifier arguments after the first — `x` in `solve …, x`, `k` in
@@ -156,8 +173,8 @@ function sliderCandidates(input: string, result: CellResult | null): CellSlider[
   const out: CellSlider[] = [];
   for (const b of vars.active) {
     if (b.kind !== "expression") continue;
-    const v = Number(b.value);
-    if (!Number.isFinite(v)) continue;
+    const v = numericValue(b.value);
+    if (v === null) continue;
     if (!tokens.has(b.name) || opVars.has(b.name)) continue;
     out.push({ name: b.name, value: v, ...defaultRange(v) });
   }
@@ -279,8 +296,8 @@ class NotebookStore {
     for (const b of vars.active) {
       if (b.kind !== "expression") continue;
       bound.add(b.name);
-      const v = Number(b.value);
-      if (Number.isFinite(v)) numeric.set(b.name, v);
+      const v = numericValue(b.value);
+      if (v !== null) numeric.set(b.name, v);
     }
     for (const c of this.cells) {
       if (c.sliders.length === 0) continue;
