@@ -602,6 +602,35 @@ try {
     varsOut.replace(/\s+/g, " ").slice(0, 80),
   );
 
+  // --- tall-output folding -------------------------------------------------
+  await run("dsp.butter lowpass, 4, 1000, 48000");
+  await page.waitForFunction(
+    () => !!document.querySelector(".cells .cell:last-child .fold"),
+    { timeout: 10000 },
+  );
+  check("tall output offers a collapse control", true);
+  await page.click(".cells .cell:last-child .fold");
+  check(
+    "collapse clips the output",
+    await page.$eval(".cells .cell:last-child .out-body", (el) =>
+      el.classList.contains("clipped"),
+    ),
+  );
+  check(
+    "collapsed content stays in the DOM",
+    await page.$eval(".cells .cell:last-child", (el) =>
+      (el.textContent || "").includes("Butterworth"),
+    ),
+  );
+  await page.click(".cells .cell:last-child .unfold");
+  check(
+    "show-all expands again",
+    await page.$eval(
+      ".cells .cell:last-child .out-body",
+      (el) => !el.classList.contains("clipped"),
+    ),
+  );
+
   // --- console UX overhaul: reference panel, autocomplete, cell actions ----
   await page.waitForFunction(
     () =>

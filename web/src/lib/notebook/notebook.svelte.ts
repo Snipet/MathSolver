@@ -34,6 +34,11 @@ export interface Cell {
   result: CellResult | null;
   /** Slider-manipulable variables this cell references (may be empty). */
   sliders: CellSlider[];
+  /** Tall-output fold state: explicit user choice, or null = automatic
+   *  (fresh runs render expanded; restored cells render collapsed). */
+  collapsed: boolean | null;
+  /** True when this cell came from localStorage, not a live run. */
+  restored: boolean;
   ts: number;
 }
 
@@ -63,6 +68,8 @@ function load(): Cell[] {
         inputLatex: typeof o.inputLatex === "string" ? o.inputLatex : null,
         result: o.result as CellResult,
         sliders: loadSliders(o.sliders),
+        collapsed: typeof o.collapsed === "boolean" ? o.collapsed : null,
+        restored: true,
         ts: typeof o.ts === "number" ? o.ts : Date.now(),
       });
     }
@@ -171,6 +178,8 @@ class NotebookStore {
       inputLatex: null,
       result: null,
       sliders: [],
+      collapsed: null,
+      restored: false,
       ts: Date.now(),
     };
     this.cells.push(cell);
@@ -255,6 +264,14 @@ class NotebookStore {
     this.recompute(id);
   }
 
+  /** Fold or unfold a tall output (explicit choice persists). */
+  setCollapsed(id: number, v: boolean): void {
+    const c = this.cells.find((x) => x.id === id);
+    if (!c) return;
+    c.collapsed = v;
+    this.#persist();
+  }
+
   clear(): void {
     this.cells = [];
     this.#persist();
@@ -270,6 +287,7 @@ class NotebookStore {
           inputLatex: c.inputLatex,
           result: c.result,
           sliders: c.sliders,
+          collapsed: c.collapsed,
           ts: c.ts,
         }));
       localStorage.setItem(KEY, JSON.stringify({ v: 1, cells }));

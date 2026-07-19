@@ -20,6 +20,19 @@
   function num(e: Event): number {
     return Number((e.currentTarget as HTMLInputElement).value);
   }
+
+  // --- tall-output folding --------------------------------------------------
+  // Outputs taller than TALL can collapse to a CLIP-height preview. Fresh
+  // runs stay expanded; restored cells start folded; explicit toggles persist.
+  const TALL = 480;
+  const CLIP = 300;
+  let outH = $state(0);
+  const tall = $derived(outH > TALL);
+  const isCollapsed = $derived(tall && (cell.collapsed ?? cell.restored));
+
+  function setCollapsed(v: boolean) {
+    notebook.setCollapsed(cell.id, v);
+  }
 </script>
 
 <article class="cell">
@@ -27,6 +40,16 @@
     <span class="label in-label">In[{index}]:=</span>
     <code class="src">{cell.input}</code>
     <div class="actions">
+      {#if tall}
+        <button
+          class="action"
+          onclick={() => setCollapsed(!isCollapsed)}
+          aria-expanded={!isCollapsed}
+          aria-label="{isCollapsed ? 'Expand' : 'Collapse'} output {index}"
+        >
+          {isCollapsed ? "expand" : "collapse"}
+        </button>
+      {/if}
       <button
         class="action"
         onclick={() => onedit?.(cell.input)}
@@ -113,23 +136,49 @@
 
   <div class="line out-line">
     <span class="label out-label">Out[{index}]=</span>
-    <div class="out-body">
-      {#if result === null}
-        <span class="pending">computing…</span>
-      {:else if result.kind === "message"}
-        <div class="message" class:muted={result.tone === "muted"}>
-          {#if result.title}
-            <p class="message-title">{result.title}</p>
-          {/if}
-          {#each result.lines as ln (ln)}
-            <p class="message-line">{ln}</p>
-          {/each}
-        </div>
-      {:else}
-        <ResultCard outcome={result} flat />
+    <div class="out-body" class:clipped={isCollapsed} style:--clip="{CLIP}px">
+      <div class="out-inner" bind:clientHeight={outH}>
+        {#if result === null}
+          <span class="pending">computing…</span>
+        {:else if result.kind === "message"}
+          <div class="message" class:muted={result.tone === "muted"}>
+            {#if result.title}
+              <p class="message-title">{result.title}</p>
+            {/if}
+            {#each result.lines as ln (ln)}
+              <p class="message-line">{ln}</p>
+            {/each}
+          </div>
+        {:else}
+          <ResultCard outcome={result} flat />
+        {/if}
+      </div>
+      {#if isCollapsed}
+        <button
+          class="unfold"
+          onclick={() => setCollapsed(false)}
+          aria-expanded="false"
+          aria-label="Show all of output {index}"
+        >
+          show all ▾
+        </button>
       {/if}
     </div>
   </div>
+
+  {#if tall && !isCollapsed}
+    <div class="line out-line fold-line">
+      <span class="label" aria-hidden="true"></span>
+      <button
+        class="fold"
+        onclick={() => setCollapsed(true)}
+        aria-expanded="true"
+        aria-label="Collapse output {index}"
+      >
+        collapse ▴
+      </button>
+    </div>
+  {/if}
 </article>
 
 <style>
@@ -281,6 +330,64 @@
   }
   .out-body {
     min-width: 0;
+  }
+  /* Tall-output fold: clip to a preview with a fade, content stays in the
+     DOM (charts keep their state; text stays findable/assertable). */
+  .out-body.clipped {
+    position: relative;
+    max-height: var(--clip);
+    overflow: hidden;
+  }
+  .out-body.clipped::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 72px;
+    background: linear-gradient(transparent, var(--bg));
+    pointer-events: none;
+  }
+  .out-inner {
+    min-width: 0;
+  }
+  .unfold {
+    position: absolute;
+    bottom: 0.45rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1;
+    font: inherit;
+    font-size: 0.76rem;
+    color: var(--fg-muted);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.15rem 0.75rem;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .unfold:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .fold-line {
+    margin-top: 0.3rem;
+  }
+  .fold {
+    justify-self: start;
+    font: inherit;
+    font-size: 0.76rem;
+    color: var(--fg-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.12rem 0.75rem;
+    cursor: pointer;
+  }
+  .fold:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
   .pending {
     font-size: 0.9rem;
