@@ -6,13 +6,22 @@
 // persists on its own).
 import { runLine, type CellResult } from "./run";
 import { buildConsolePreview } from "./preview";
+import { docs, NAME_RE } from "./docs.svelte";
 import { splitTopLevelCommas } from "../format";
 import { vars } from "../vars.svelte";
 import {
   overrideValue,
   splitAssignment,
   type EnvOverrides,
+  type ScopeEnv,
 } from "../vars/session";
+
+/** Console verbs that manage notebook documents (never saved into one). */
+const DOC_VERBS = new Set(["save", "open", "run", "notebooks"]);
+
+function headOf(line: string): string {
+  return (/^\s*(\S+)/.exec(line)?.[1] ?? "").toLowerCase();
+}
 
 /**
  * One manipulable variable of a cell: a session binding with a numeric value
@@ -189,9 +198,13 @@ class NotebookStore {
   }
 
   /** Evaluate a line, appending a cell and filling its result in place. */
-  async run(raw: string): Promise<void> {
+  async run(raw: string, opts?: { scope?: ScopeEnv }): Promise<void> {
     const input = raw.trim();
     if (!input) return;
+    if (!opts?.scope && DOC_VERBS.has(headOf(input))) {
+      await this.#docCommand(input);
+      return;
+    }
     const cell: Cell = {
       id: nextId++,
       input,
@@ -210,13 +223,160 @@ class NotebookStore {
     const latexPromise = buildConsolePreview(input)
       .then((p) => (p.kind === "math" ? p.latex : null))
       .catch(() => null);
-    const [inputLatex, result] = await Promise.all([latexPromise, runLine(input)]);
+    const [inputLatex, result] = await Promise.all([
+      latexPromise,
+      runLine(input, undefined, opts?.scope),
+    ]);
     const c = this.cells.find((x) => x.id === cell.id);
     if (!c) return; // cleared mid-flight
     c.inputLatex = inputLatex;
     c.result = result;
-    c.sliders = sliderCandidates(input, result);
+    // Scoped cells get no sliders: their variables live in the run's scope,
+    // which is discarded — a slider would have nothing to bind to.
+    c.sliders = opts?.scope ? [] : sliderCandidates(input, result);
     this.#persist();
+  }
+
+  // --- notebook documents (save / open / run / notebooks) ------------------
+
+  /** Append an informational cell (doc-command feedback). */
+  #message(input: string, tone: "info" | "muted", lines: string[], title?: string) {
+    this.cells.push({
+      id: nextId++,
+      input,
+      inputLatex: null,
+      result: { kind: "message", tone, title, lines },
+      sliders: [],
+      collapsed: null,
+      restored: false,
+      ts: Date.now(),
+    });
+    if (this.cells.length > CAP) this.cells = this.cells.slice(-CAP);
+    this.#persist();
+  }
+
+  /** Save the session's commands (minus doc verbs) as notebook `name`. */
+  saveDoc(name: string): void {
+    const lines = this.cells
+      .map((c) => c.input)
+      .filter((l) => !DOC_VERBS.has(headOf(l)));
+    const err = docs.save(name, lines);
+    this.#message(
+      `save ${name}`,
+      err ? "info" : "muted",
+      err
+        ? [err]
+        : [`saved notebook '${name}' (${lines.length} command${lines.length === 1 ? "" : "s"})`],
+    );
+  }
+
+  /** Replace the console with a notebook's commands, unevaluated. */
+  async openDoc(name: string): Promise<void> {
+    const doc = docs.get(name);
+    if (!doc) {
+      this.#message(`open ${name}`, "info", [
+        `no notebook named '${name}' — notebooks lists what is saved`,
+      ]);
+      return;
+    }
+    const latexes = await Promise.all(
+      doc.lines.map((l) =>
+        buildConsolePreview(l)
+          .then((p) => (p.kind === "math" ? p.latex : null))
+          .catch(() => null),
+      ),
+    );
+    this.cells = doc.lines.map((l, i) => ({
+      id: nextId++,
+      input: l,
+      inputLatex: latexes[i],
+      result: {
+        kind: "message",
+        tone: "muted",
+        lines: [`loaded from '${name}' — run ${name} executes it in a fresh scope`],
+      } as CellResult,
+      sliders: [],
+      collapsed: null,
+      restored: false,
+      ts: Date.now(),
+    }));
+    this.#persist();
+  }
+
+  /** Run a notebook's commands top-to-bottom in a fresh, isolated scope. */
+  async runDoc(name: string): Promise<void> {
+    const doc = docs.get(name);
+    if (!doc) {
+      this.#message(`run ${name}`, "info", [
+        `no notebook named '${name}' — notebooks lists what is saved`,
+      ]);
+      return;
+    }
+    this.#message(`run ${name}`, "info", [
+      `running notebook '${name}' — ${doc.lines.length} command${doc.lines.length === 1 ? "" : "s"}, fresh scope (session variables untouched)`,
+    ]);
+    const scope: ScopeEnv = { bindings: [] };
+    for (const line of doc.lines) {
+      if (DOC_VERBS.has(headOf(line))) {
+        this.#message(line, "muted", [
+          "notebook commands cannot run inside a notebook — skipped",
+        ]);
+        continue;
+      }
+      await this.run(line, { scope });
+    }
+  }
+
+  async #docCommand(input: string): Promise<void> {
+    const m = /^\s*(\S+)\s*([\s\S]*)$/.exec(input);
+    const verb = (m?.[1] ?? "").toLowerCase();
+    const arg = (m?.[2] ?? "").trim();
+    switch (verb) {
+      case "notebooks": {
+        if (docs.docs.length === 0) {
+          this.#message(input, "muted", [
+            "no notebooks saved — save <name> stores this session's commands",
+          ]);
+          return;
+        }
+        this.#message(
+          input,
+          "info",
+          docs.docs.map(
+            (d) =>
+              `${d.name} — ${d.lines.length} command${d.lines.length === 1 ? "" : "s"}`,
+          ),
+          "Notebooks",
+        );
+        return;
+      }
+      case "save": {
+        if (!NAME_RE.test(arg)) {
+          this.#message(input, "info", [
+            "usage: save <name>   (1-40 letters, digits, '_' or '-')",
+          ]);
+          return;
+        }
+        this.saveDoc(arg);
+        return;
+      }
+      case "open": {
+        if (!arg) {
+          this.#message(input, "info", ["usage: open <name>"]);
+          return;
+        }
+        await this.openDoc(arg);
+        return;
+      }
+      case "run": {
+        if (!arg) {
+          this.#message(input, "info", ["usage: run <name>"]);
+          return;
+        }
+        await this.runDoc(arg);
+        return;
+      }
+    }
   }
 
   // --- cell sliders (Manipulate-style re-runs) -----------------------------

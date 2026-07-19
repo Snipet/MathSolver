@@ -60,6 +60,7 @@ export function splitAssignment(text: string): AssignParts | null {
 
 export async function buildAssignPreview(
   parts: AssignParts,
+  env?: VarBinding[],
 ): Promise<AssignPreview> {
   const name = normalizeTypedName(parts.name);
   const nv = nameVerdict(name, await call("analyze", [name]));
@@ -70,7 +71,7 @@ export async function buildAssignPreview(
     return { ...parts, error: vv.error, span: { begin: vv.begin, end: vv.end } };
   // Definition-time cycle check (§5.2) against the environment as it would
   // become; redefinition replaces, so the old binding of this name is out.
-  const others = vars.active.filter((b) => b.name !== nv.symbol);
+  const others = (env ?? vars.active).filter((b) => b.name !== nv.symbol);
   const path = findCycle(nv.symbol, vv.symbols, others);
   if (path) return { ...parts, error: cycleMessage(path) };
   return {
@@ -94,8 +95,11 @@ export async function buildAssignPreview(
  * plain-printed values (round-trip-safe, §5) and happens before the engine
  * ever sees the text — `analyze`/`solveSystem` require an `=` in every segment.
  */
-export function swapEqSegments(text: string): { text: string; swapped: boolean } {
-  const act = vars.active;
+export function swapEqSegments(
+  text: string,
+  env?: VarBinding[],
+): { text: string; swapped: boolean } {
+  const act = env ?? vars.active;
   let swapped = false;
   const segments = splitTopLevel(text).map((seg) => {
     const b = act.find((x) => x.kind === "equation" && x.name === seg);
@@ -116,6 +120,15 @@ export interface Applied {
 
 /** Numeric value overrides (cell sliders): shadow expression bindings. */
 export type EnvOverrides = Record<string, number>;
+
+/**
+ * An isolated variable scope for a notebook run: starts empty, `:=` lines
+ * bind into it, later lines resolve against it, and it is discarded when the
+ * run ends — the session environment is neither visible nor modified.
+ */
+export interface ScopeEnv {
+  bindings: VarBinding[];
+}
 
 /** Plain-printed override value the engine can re-parse. */
 export function overrideValue(v: number): string {
@@ -161,13 +174,14 @@ export async function applyEnv(
   excluded: string[],
   mode: "expr" | "solve",
   overrides?: EnvOverrides,
+  scope?: ScopeEnv,
 ): Promise<Applied> {
-  const act = withOverrides(vars.active, overrides);
+  const act = withOverrides(scope ? scope.bindings : vars.active, overrides);
   if (act.length === 0) return { text, computedFrom: null };
   let segments = [text];
   let swapped = false;
   if (mode === "solve") {
-    const sw = swapEqSegments(text);
+    const sw = swapEqSegments(text, act);
     swapped = sw.swapped;
     segments = splitTopLevel(sw.text);
     if (segments.length === 0) segments = [sw.text];

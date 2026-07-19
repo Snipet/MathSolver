@@ -19,6 +19,7 @@ import {
   splitAssignment,
   swapEqSegments,
   type EnvOverrides,
+  type ScopeEnv,
 } from "../vars/session";
 
 /** A console-only informational line (help, vars listing, unset/clear echo). */
@@ -121,6 +122,7 @@ async function runPluginCommand(
   rest: string,
   line: string,
   ov?: EnvOverrides,
+  scope?: ScopeEnv,
 ): Promise<CellResult> {
   const catalog = await getCatalog();
   const meta = catalog.find((p) => p.name === plugin);
@@ -144,7 +146,7 @@ async function runPluginCommand(
     rawArgs.map(async (arg) => {
       if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(arg)) return arg;
       try {
-        const env = await applyEnv(arg, [], "expr", ov);
+        const env = await applyEnv(arg, [], "expr", ov, scope);
         if (env.text === arg) return arg;
         const a = await call("analyze", [env.text]);
         if (a.ok && "symbols" in a && a.symbols.length === 0) return env.text;
@@ -204,6 +206,10 @@ function helpMessage(): NotebookMessage {
       "vecfield <Fx>; <Fy>[, <xlo>, <xhi>, <ylo>, <yhi>]   quiver plot",
       "plot <expr>[, <lo>, <hi>]           chart an expression",
       "<name> := <value>      bind a variable (applies to later lines)",
+      "save <name>    save this session's commands as a notebook",
+      "open <name>    load a notebook's commands (without running)",
+      "run <name>     run a notebook top-to-bottom in a fresh scope",
+      "notebooks      list saved notebooks",
       "<plugin>.<command> …   call a plugin (run plugins for the catalog),",
       "                       e.g. dsp.butter lowpass, 4, 1000, 48000",
       "vars      unset <name>      clear      plugins      help",
@@ -211,19 +217,28 @@ function helpMessage(): NotebookMessage {
   };
 }
 
-function varsMessage(): NotebookMessage {
-  const act = vars.active;
+function varsMessage(scope?: ScopeEnv): NotebookMessage {
+  const act = scope ? scope.bindings : vars.active;
   if (act.length === 0)
     return { kind: "message", tone: "muted", lines: ["no variables set"] };
   return {
     kind: "message",
     tone: "info",
-    title: "Variables",
+    title: scope ? "Variables (notebook scope)" : "Variables",
     lines: act.map((b) => `${symbolToTyped(b.name)} := ${b.value}`),
   };
 }
 
-function clearVars(): NotebookMessage {
+function clearVars(scope?: ScopeEnv): NotebookMessage {
+  if (scope) {
+    const n = scope.bindings.length;
+    scope.bindings.length = 0;
+    return {
+      kind: "message",
+      tone: "muted",
+      lines: [`cleared ${n} scope assignment${n === 1 ? "" : "s"}`],
+    };
+  }
   const n = vars.active.length;
   vars.clearAll();
   return {
@@ -233,10 +248,17 @@ function clearVars(): NotebookMessage {
   };
 }
 
-function unsetVar(rest: string): CellResult {
+function unsetVar(rest: string, scope?: ScopeEnv): CellResult {
   const name = rest.trim();
   if (!name) return usage("unset needs a variable name, e.g. unset a");
   const target = normalizeTypedName(name);
+  if (scope) {
+    const i = scope.bindings.findIndex((b) => b.name === target);
+    if (i < 0)
+      return { kind: "message", tone: "muted", lines: [`no variable '${name}'`] };
+    scope.bindings.splice(i, 1);
+    return { kind: "message", tone: "muted", lines: [`unset ${target}`] };
+  }
   const row = vars.rows.find(
     (r) => r.status.symbol === target || r.name === name,
   );
@@ -248,9 +270,12 @@ function unsetVar(rest: string): CellResult {
 
 // --- assignment ------------------------------------------------------------
 
-async function runAssignment(line: string): Promise<CellResult> {
+async function runAssignment(
+  line: string,
+  scope?: ScopeEnv,
+): Promise<CellResult> {
   const parts = splitAssignment(line)!;
-  const st = await buildAssignPreview(parts);
+  const st = await buildAssignPreview(parts, scope?.bindings);
   if (st.error || !st.commit)
     return {
       kind: "error",
@@ -259,8 +284,21 @@ async function runAssignment(line: string): Promise<CellResult> {
       begin: st.span?.begin,
       end: st.span?.end,
     };
-  const res = vars.commitAssignment(st.commit);
-  if (!res.ok) return { kind: "error", message: res.error, input: line };
+  if (scope) {
+    // Bind into the run's scope; the session store is untouched.
+    const b = {
+      name: st.commit.symbol,
+      value: st.commit.valuePlain,
+      symbols: st.commit.symbols,
+      kind: st.commit.kind,
+    };
+    const i = scope.bindings.findIndex((x) => x.name === b.name);
+    if (i >= 0) scope.bindings[i] = b;
+    else scope.bindings.push(b);
+  } else {
+    const res = vars.commitAssignment(st.commit);
+    if (!res.ok) return { kind: "error", message: res.error, input: line };
+  }
   return {
     kind: "assignment",
     name: st.commit.symbol,
@@ -275,6 +313,7 @@ async function runVerb(
   verb: string,
   rest: string,
   ov?: EnvOverrides,
+  scope?: ScopeEnv,
 ): Promise<CellResult> {
   const args = splitTopLevelCommas(rest);
   const expr = args[0] ?? "";
@@ -284,7 +323,7 @@ async function runVerb(
     case "simplify":
     case "expand":
     case "factor": {
-      const env = await applyEnv(expr, [], "expr", ov);
+      const env = await applyEnv(expr, [], "expr", ov, scope);
       const r = await call(verb, [env.text]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
@@ -298,21 +337,21 @@ async function runVerb(
     case "diff":
     case "derivative": {
       const v = args[1] ?? (await inferVar(expr));
-      const env = await applyEnv(expr, [v], "expr", ov);
+      const env = await applyEnv(expr, [v], "expr", ov, scope);
       const r = await call("derivative", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }
     case "collect": {
       const v = args[1] ?? (await inferVar(expr));
-      const env = await applyEnv(expr, [v], "expr", ov);
+      const env = await applyEnv(expr, [v], "expr", ov, scope);
       const r = await call("collect", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }
     case "apart": {
       const v = args[1] ?? (await inferVar(expr));
-      const env = await applyEnv(expr, [v], "expr", ov);
+      const env = await applyEnv(expr, [v], "expr", ov, scope);
       const r = await call("apart", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
@@ -331,7 +370,7 @@ async function runVerb(
       const order = args[3] ? Number.parseInt(args[3], 10) : 6;
       if (Number.isNaN(order))
         return usage(`series order must be an integer, got '${args[3]}'`);
-      const env = await applyEnv(expr, [v], "expr", ov);
+      const env = await applyEnv(expr, [v], "expr", ov, scope);
       const r = await call("series", [env.text, v, args[2] ?? "", order]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
@@ -384,7 +423,7 @@ async function runVerb(
       if (args.length < 3 || args.length > 4)
         return usage("usage: limit <expr>, <var>, <point>[, left|right]");
       const v = args[1];
-      const env = await applyEnv(expr, [v], "expr", ov);
+      const env = await applyEnv(expr, [v], "expr", ov, scope);
       const r = await call("limit", [env.text, v, args[2], args[3] ?? ""]);
       if (!r.ok) return err(env.text, r);
       if (r.status === "exact" && r.plain && r.latex) {
@@ -407,7 +446,7 @@ async function runVerb(
     case "mlimit": {
       if (args.length !== 5)
         return usage("usage: mlimit <expr>, <x>, <a>, <y>, <b>");
-      const env = await applyEnv(expr, [args[1], args[3]], "expr", ov);
+      const env = await applyEnv(expr, [args[1], args[3]], "expr", ov, scope);
       const r = await call("mlimit", [env.text, args[1], args[2], args[3], args[4]]);
       if (!r.ok) return err(env.text, r);
       if (r.status === "exact" && r.plain && r.latex) {
@@ -435,7 +474,7 @@ async function runVerb(
             (verb === "sum" ? "   (hi may be inf)" : ""),
         );
       const v = args[1];
-      const env = await applyEnv(expr, [v], "expr", ov);
+      const env = await applyEnv(expr, [v], "expr", ov, scope);
       const r = await call(verb, [env.text, v, args[2], args[3]]);
       if (!r.ok) return err(env.text, r);
       if (r.status === "exact" && r.plain && r.latex) {
@@ -479,7 +518,7 @@ async function runVerb(
       const comps = args[0].split(";").map((c) => c.trim());
       const resolved: string[] = [];
       for (const c of comps) {
-        resolved.push((await applyEnv(c, vars, "expr", ov)).text);
+        resolved.push((await applyEnv(c, vars, "expr", ov, scope)).text);
       }
       const r = await call("vectorOp", [verb, resolved.join(";"), vars.join(",")]);
       if (!r.ok) return err(args[0], r);
@@ -514,8 +553,8 @@ async function runVerb(
           );
         [xlo, xhi, ylo, yhi] = b;
       }
-      const fx = (await applyEnv(comps[0], ["x", "y"], "expr", ov)).text;
-      const fy = (await applyEnv(comps[1], ["x", "y"], "expr", ov)).text;
+      const fx = (await applyEnv(comps[0], ["x", "y"], "expr", ov, scope)).text;
+      const fy = (await applyEnv(comps[1], ["x", "y"], "expr", ov, scope)).text;
       const r = await call("sampleField", [
         fx,
         fy,
@@ -533,7 +572,7 @@ async function runVerb(
     case "laplace": {
       // Time variable defaults to t (not inferred): L{f(t)} = F(s).
       const v = args[1] ?? "t";
-      const env = await applyEnv(expr, [v], "expr", ov);
+      const env = await applyEnv(expr, [v], "expr", ov, scope);
       const r = await call("laplace", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
@@ -541,7 +580,7 @@ async function runVerb(
     case "ilaplace": {
       // Frequency variable defaults to s: L^-1{F(s)} = f(t).
       const v = args[1] ?? "s";
-      const env = await applyEnv(expr, [v], "expr", ov);
+      const env = await applyEnv(expr, [v], "expr", ov, scope);
       const r = await call("ilaplace", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
@@ -552,10 +591,10 @@ async function runVerb(
           "a definite integral needs both bounds: integrate <expr>, <var>, <lo>, <hi>",
         );
       const v = args[1] ?? (await inferVar(expr));
-      const env = await applyEnv(expr, [v], "expr", ov);
+      const env = await applyEnv(expr, [v], "expr", ov, scope);
       if (args.length >= 4) {
-        const from = (await applyEnv(args[2], [], "expr", ov)).text;
-        const to = (await applyEnv(args[3], [], "expr", ov)).text;
+        const from = (await applyEnv(args[2], [], "expr", ov, scope)).text;
+        const to = (await applyEnv(args[3], [], "expr", ov, scope)).text;
         const r = await call("integrateDefinite", [env.text, v, from, to]);
         if (!r.ok) return err(env.text, r);
         return {
@@ -578,7 +617,7 @@ async function runVerb(
     case "eval":
     case "evaluate": {
       const pairs = args.slice(1);
-      const env = await applyEnv(expr, boundNames(pairs), "expr", ov);
+      const env = await applyEnv(expr, boundNames(pairs), "expr", ov, scope);
       const r = await call("evaluate", [env.text, pairs.join(",")]);
       if (!r.ok) return err(env.text, r);
       return { kind: "evaluate", result: r, computedFrom: env.computedFrom };
@@ -587,13 +626,13 @@ async function runVerb(
       const pairs = args.slice(1);
       if (pairs.length === 0)
         return usage("subs needs at least one substitution, e.g. subs a*x + 3, a=2");
-      const env = await applyEnv(expr, boundNames(pairs), "expr", ov);
+      const env = await applyEnv(expr, boundNames(pairs), "expr", ov, scope);
       const r = await call("subs", [env.text, pairs.join(","), true]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }
     case "solve":
-      return runSolve(rest, args, ov);
+      return runSolve(rest, args, ov, scope);
     default:
       return usage(`unknown command '${verb}'`);
   }
@@ -608,7 +647,11 @@ async function evalBound(text: string, fallback: number): Promise<number | null>
   return r.ok && r.value !== null && Number.isFinite(r.value) ? r.value : null;
 }
 
-async function runPlot(rest: string, ov?: EnvOverrides): Promise<CellResult> {
+async function runPlot(
+  rest: string,
+  ov?: EnvOverrides,
+  scope?: ScopeEnv,
+): Promise<CellResult> {
   const args = splitTopLevelCommas(rest);
   const expr = args[0] ?? "";
   if (!expr) return usage("plot needs an expression, e.g. plot sin(x)/x, -20, 20");
@@ -616,7 +659,7 @@ async function runPlot(rest: string, ov?: EnvOverrides): Promise<CellResult> {
   const hi = await evalBound(args[2] ?? "", 10);
   if (lo === null || hi === null || !(hi > lo))
     return usage("plot bounds must be numbers (or constants like 2pi) with lo < hi");
-  const env = await applyEnv(expr, [], "expr", ov);
+  const env = await applyEnv(expr, [], "expr", ov, scope);
   const a = await call("analyze", [env.text]);
   if (!a.ok) return err(env.text, a);
   if (a.kind !== "expression")
@@ -644,21 +687,22 @@ async function runSolve(
   rest: string,
   args: string[],
   ov?: EnvOverrides,
+  scope?: ScopeEnv,
 ): Promise<CellResult> {
   const target = args[0] ?? "";
   if (hasTopLevelSemicolon(target)) {
     let sv = args.slice(1);
     if (sv.length === 0) {
-      const a = await call("analyze", [swapEqSegments(target).text]);
+      const a = await call("analyze", [swapEqSegments(target, scope?.bindings).text]);
       sv = a.ok && "symbols" in a ? a.symbols : [];
     }
-    const env = await applyEnv(target, sv, "solve", ov);
+    const env = await applyEnv(target, sv, "solve", ov, scope);
     const r = await call("solveSystem", [env.text, sv.join(",")]);
     if (!r.ok) return err(env.text, r);
     return { kind: "system", result: r, computedFrom: env.computedFrom };
   }
   const v = args[1] ?? (await inferVar(target));
-  const env = await applyEnv(target, [v], "solve", ov);
+  const env = await applyEnv(target, [v], "solve", ov, scope);
   const r = await call("solve", [env.text, v, -100, 100, false]);
   if (!r.ok) return err(env.text, r);
   return { kind: "solve", variable: v, result: r, computedFrom: env.computedFrom };
@@ -666,19 +710,23 @@ async function runSolve(
 
 // --- bare input ------------------------------------------------------------
 
-async function runBare(line: string, ov?: EnvOverrides): Promise<CellResult> {
+async function runBare(
+  line: string,
+  ov?: EnvOverrides,
+  scope?: ScopeEnv,
+): Promise<CellResult> {
   const a = await call("analyze", [line]);
   if (!a.ok) return err(line, a);
-  if (a.kind === "system") return runSolve(line, [line], ov);
+  if (a.kind === "system") return runSolve(line, [line], ov, scope);
   if (a.kind === "equation") {
     if (a.symbols.length !== 1)
       return usage(
         `this equation has ${a.symbols.length} variables — say which to solve for, e.g. solve ${line}, ${a.symbols[0] ?? "x"}`,
       );
-    return runSolve(line, [line], ov);
+    return runSolve(line, [line], ov, scope);
   }
   // expression: simplify
-  const env = await applyEnv(line, [], "expr", ov);
+  const env = await applyEnv(line, [], "expr", ov, scope);
   const r = await call("simplify", [env.text]);
   if (!r.ok) return err(env.text, r);
   return { kind: "transform", result: r, computedFrom: env.computedFrom };
@@ -692,11 +740,12 @@ async function runBare(line: string, ov?: EnvOverrides): Promise<CellResult> {
 export async function runLine(
   raw: string,
   ov?: EnvOverrides,
+  scope?: ScopeEnv,
 ): Promise<CellResult> {
   const line = raw.trim();
   if (!line) return { kind: "message", tone: "muted", lines: ["(empty)"] };
   try {
-    if (splitAssignment(line)) return await runAssignment(line);
+    if (splitAssignment(line)) return await runAssignment(line, scope);
 
     const { head, rest } = splitHead(line);
     const pluginHead = splitPluginHead(head);
@@ -707,6 +756,7 @@ export async function runLine(
         rest,
         line,
         ov,
+        scope,
       );
     const verb = head.toLowerCase();
     switch (verb) {
@@ -715,11 +765,11 @@ export async function runLine(
       case "plugins":
         return await pluginsMessage();
       case "vars":
-        return varsMessage();
+        return varsMessage(scope);
       case "clear":
-        return clearVars();
+        return clearVars(scope);
       case "unset":
-        return unsetVar(rest);
+        return unsetVar(rest, scope);
       case "quit":
       case "exit":
         return {
@@ -730,13 +780,13 @@ export async function runLine(
     }
     if (verb === "plot") {
       if (!rest) return usage("plot needs an expression, e.g. plot sin(x)/x, -20, 20");
-      return await runPlot(rest, ov);
+      return await runPlot(rest, ov, scope);
     }
     if (MATH_VERBS.has(verb)) {
       if (!rest) return usage(`${verb} needs an expression`);
-      return await runVerb(verb, rest, ov);
+      return await runVerb(verb, rest, ov, scope);
     }
-    return await runBare(line, ov);
+    return await runBare(line, ov, scope);
   } catch (e) {
     return {
       kind: "error",

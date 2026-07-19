@@ -31,6 +31,10 @@ const SESSION_WORDS = new Set([
   "plugins",
   "quit",
   "exit",
+  "save",
+  "open",
+  "run",
+  "notebooks",
 ]);
 
 function splitHead(line: string): { head: string; rest: string } {

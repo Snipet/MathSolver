@@ -713,6 +713,73 @@ try {
     fracOut.replace(/\s+/g, " ").slice(0, 90),
   );
 
+  // --- notebook documents: save / open / run in a fresh scope --------------
+  await page.click(".console-head .clear-btn");
+  await page.waitForFunction(
+    () => document.querySelectorAll(".cells .cell").length === 0,
+    { timeout: 5000 },
+  );
+  await run("s_a := 7");
+  check("scoped setup computes", (await run("s_a*x + 1")).includes("7*x + 1"));
+  const savedOut = await run("save demo");
+  check(
+    "save stores the session as a notebook",
+    savedOut.includes("saved notebook 'demo' (2 commands)"),
+    savedOut.replace(/\s+/g, " ").slice(0, 80),
+  );
+  check("notebooks lists the saved notebook", (await run("notebooks")).includes("demo"));
+  // Remove the session binding: the run must work from its own scope.
+  await run("unset s_a");
+  await page.click(TA);
+  await page.type(TA, "run demo");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    () => {
+      const cells = document.querySelectorAll(".cells .cell");
+      const last = cells[cells.length - 1];
+      return last && (last.textContent || "").includes("7*x + 1");
+    },
+    { timeout: 20000 },
+  );
+  const runText = await page.$eval(".cells", (el) => el.textContent);
+  check(
+    "run replays the notebook in a fresh scope",
+    runText.includes("fresh scope") && runText.includes("7*x + 1"),
+  );
+  check(
+    "notebook scope does not leak into the session",
+    !(await run("vars")).includes("s_a"),
+  );
+  await page.click(TA);
+  await page.type(TA, "open demo");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    () => {
+      const cells = document.querySelectorAll(".cells .cell");
+      return (
+        cells.length === 2 &&
+        (cells[0].textContent || "").includes("loaded from 'demo'")
+      );
+    },
+    { timeout: 10000 },
+  );
+  const opened = await page.$$eval(".cells .cell", (els) =>
+    els.map((e) => (e.textContent || "").replace(/\s+/g, " ")),
+  );
+  check(
+    "open loads the commands unevaluated",
+    opened[0].includes("s_a := 7") && opened[1].includes("s_a*x + 1"),
+    JSON.stringify(opened.map((t) => t.slice(0, 60))),
+  );
+  check(
+    "notebooks panel lists the saved notebook",
+    await page
+      .$eval("[data-testid='notebooks-panel']", (el) =>
+        (el.textContent || "").includes("demo"),
+      )
+      .catch(() => false),
+  );
+
   // --- console UX overhaul: reference panel, autocomplete, cell actions ----
   await page.waitForFunction(
     () =>

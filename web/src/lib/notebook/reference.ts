@@ -253,6 +253,35 @@ export const BUILTIN_GROUPS: RefGroup[] = [
     ],
   },
   {
+    title: "Notebooks",
+    items: [
+      {
+        insert: "save",
+        usage: "save <name>",
+        hint: "Save this session's commands as a notebook",
+        example: "save demo",
+      },
+      {
+        insert: "open",
+        usage: "open <name>",
+        hint: "Load a notebook's commands into the console (without running)",
+        example: "open demo",
+      },
+      {
+        insert: "run",
+        usage: "run <name>",
+        hint: "Run a notebook top-to-bottom in a fresh variable scope",
+        example: "run demo",
+      },
+      {
+        insert: "notebooks",
+        usage: "notebooks",
+        hint: "List saved notebooks",
+        example: "notebooks",
+      },
+    ],
+  },
+  {
     title: "Console",
     items: [
       {
