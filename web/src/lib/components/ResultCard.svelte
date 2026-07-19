@@ -107,6 +107,18 @@
     border-radius: 0;
     padding: 0;
   }
+  /* In the full-bleed console a centered display block floats a small
+     result in acres of empty space, far from its Out label — flat cells
+     read top-to-bottom, so the math sits left in the flow, tight. KaTeX
+     centers at two levels (.katex-display and its block-level .katex
+     child), so both need the override. */
+  .card.flat :global(.katex-display) {
+    text-align: left;
+    margin: 0.15em 0;
+  }
+  .card.flat :global(.katex-display > .katex) {
+    text-align: left;
+  }
   .card.flat.error-card {
     border-left: 3px solid var(--error);
     background: color-mix(in srgb, var(--error) 5%, transparent);
