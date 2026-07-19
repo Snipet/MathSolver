@@ -560,6 +560,48 @@ try {
   );
   await clearPrompt();
 
+  // --- cell sliders: Manipulate-style re-runs ------------------------------
+  await run("k_a := 2");
+  const sliderOut = await run("simplify k_a*x + k_a");
+  check(
+    "slider cell computes with the session value",
+    sliderOut.includes("2*x + 2"),
+    sliderOut.replace(/\s+/g, " ").slice(0, 60),
+  );
+  check(
+    "numeric binding gets a slider",
+    !!(await page.$(
+      ".cells .cell:last-child [data-testid='cell-sliders'] .s-range",
+    )),
+  );
+  await page.$eval(".cells .cell:last-child .s-range", (el) => {
+    el.value = "3";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector(".cells .cell:last-child")
+        ?.textContent?.includes("3*x + 3"),
+    { timeout: 10000 },
+  );
+  check("slider drag re-runs the cell in place", true);
+  await page.click(".cells .cell:last-child .s-reset");
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector(".cells .cell:last-child")
+        ?.textContent?.includes("2*x + 2"),
+    { timeout: 10000 },
+  );
+  check("slider reset restores the session value", true);
+  const varsOut = await run("vars");
+  check(
+    "slider override leaves the session binding alone",
+    varsOut.includes("k_a := 2"),
+    varsOut.replace(/\s+/g, " ").slice(0, 80),
+  );
+
   // --- console UX overhaul: reference panel, autocomplete, cell actions ----
   await page.waitForFunction(
     () =>

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Cell } from "../notebook/notebook.svelte";
+  import { notebook, type Cell } from "../notebook/notebook.svelte";
   import Katex from "./Katex.svelte";
   import ResultCard from "./ResultCard.svelte";
 
@@ -15,6 +15,11 @@
   let { cell, index, onrerun, onedit }: Props = $props();
 
   const result = $derived(cell.result);
+  const anyModified = $derived(cell.sliders.some((s) => s.value !== s.base));
+
+  function num(e: Event): number {
+    return Number((e.currentTarget as HTMLInputElement).value);
+  }
 </script>
 
 <article class="cell">
@@ -46,6 +51,62 @@
       <span class="label" aria-hidden="true"></span>
       <div class="typeset">
         <Katex latex={cell.inputLatex} />
+      </div>
+    </div>
+  {/if}
+
+  {#if cell.sliders.length > 0}
+    <div class="line sliders-line" data-testid="cell-sliders">
+      <span class="label" aria-hidden="true"></span>
+      <div class="sliders" role="group" aria-label="Variable sliders">
+        {#each cell.sliders as s (s.name)}
+          <div class="slider-row" class:modified={s.value !== s.base}>
+            <code class="s-name" title={`session value: ${s.base}`}>{s.name}</code>
+            <input
+              class="s-bound"
+              type="number"
+              step="any"
+              value={s.lo}
+              aria-label={`${s.name} minimum`}
+              onchange={(e) => notebook.setSliderBounds(cell.id, s.name, num(e), s.hi)}
+            />
+            <input
+              class="s-range"
+              type="range"
+              min={s.lo}
+              max={s.hi}
+              step={(s.hi - s.lo) / 200 || "any"}
+              value={s.value}
+              aria-label={`${s.name} value slider`}
+              oninput={(e) => notebook.setSlider(cell.id, s.name, num(e))}
+            />
+            <input
+              class="s-bound"
+              type="number"
+              step="any"
+              value={s.hi}
+              aria-label={`${s.name} maximum`}
+              onchange={(e) => notebook.setSliderBounds(cell.id, s.name, s.lo, num(e))}
+            />
+            <input
+              class="s-value"
+              type="number"
+              step="any"
+              value={s.value}
+              aria-label={`${s.name} value`}
+              onchange={(e) => notebook.setSlider(cell.id, s.name, num(e))}
+            />
+          </div>
+        {/each}
+        {#if anyModified}
+          <button
+            class="s-reset"
+            onclick={() => notebook.resetSliders(cell.id)}
+            title="Back to the session values"
+          >
+            reset
+          </button>
+        {/if}
       </div>
     </div>
   {/if}
@@ -102,6 +163,72 @@
     font-size: 0.98rem;
     padding: 0.1rem 0 0.05rem 0.6rem;
     border-left: 2px solid var(--border);
+  }
+
+  /* Manipulate-style variable sliders: re-run this cell with tweaked values. */
+  .sliders-line {
+    grid-template-columns: 4.8rem minmax(0, 1fr);
+    margin-top: 0.1rem;
+  }
+  .sliders {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    min-width: 0;
+    padding: 0.5rem 0.7rem;
+    border: 1px dashed var(--border);
+    border-radius: calc(var(--radius) / 2);
+    overflow-x: auto;
+  }
+  .slider-row {
+    display: grid;
+    grid-template-columns: minmax(1.6em, auto) 4.8em minmax(8rem, 22rem) 4.8em 5.4em;
+    gap: 0.45rem;
+    align-items: center;
+  }
+  .s-name {
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+    text-align: right;
+  }
+  .slider-row.modified .s-name {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .s-bound,
+  .s-value {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    width: 100%;
+    color: var(--fg-muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.12rem 0.35rem;
+  }
+  .s-value {
+    color: var(--fg);
+  }
+  .s-range {
+    accent-color: var(--accent);
+    min-width: 0;
+    margin: 0;
+  }
+  .s-reset {
+    font: inherit;
+    font-size: 0.72rem;
+    color: var(--fg-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.08rem 0.6rem;
+    cursor: pointer;
+  }
+  .s-reset:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
   .label {
     font-family: var(--font-mono);

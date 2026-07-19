@@ -15,6 +15,7 @@ import {
   findCycle,
   cycleMessage,
   equationRefMessage,
+  type VarBinding,
 } from "./resolve";
 import {
   nameVerdict,
@@ -113,6 +114,28 @@ export interface Applied {
   computedFrom: Rendered | null;
 }
 
+/** Numeric value overrides (cell sliders): shadow expression bindings. */
+export type EnvOverrides = Record<string, number>;
+
+/** Plain-printed override value the engine can re-parse. */
+export function overrideValue(v: number): string {
+  return String(Number(v.toPrecision(8)));
+}
+
+/**
+ * The environment with slider overrides applied: an overridden expression
+ * binding becomes the numeric literal (and loses its outgoing dependencies —
+ * overriding `b` in `b := a + 1` disconnects it from `a`).
+ */
+function withOverrides(act: VarBinding[], ov?: EnvOverrides): VarBinding[] {
+  if (!ov || Object.keys(ov).length === 0) return act;
+  return act.map((b) =>
+    b.kind === "expression" && b.name in ov
+      ? { ...b, value: overrideValue(ov[b.name]), symbols: [] }
+      : b,
+  );
+}
+
 /**
  * Apply the environment to `text` (§5 resolve + §8 one `subs` call per
  * equation segment), returning the resolved input for the operation and its
@@ -123,8 +146,9 @@ export async function applyEnv(
   text: string,
   excluded: string[],
   mode: "expr" | "solve",
+  overrides?: EnvOverrides,
 ): Promise<Applied> {
-  const act = vars.active;
+  const act = withOverrides(vars.active, overrides);
   if (act.length === 0) return { text, computedFrom: null };
   let segments = [text];
   let swapped = false;

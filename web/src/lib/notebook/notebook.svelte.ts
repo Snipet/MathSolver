@@ -6,6 +6,22 @@
 // persists on its own).
 import { runLine, type CellResult } from "./run";
 import { buildConsolePreview } from "./preview";
+import { splitTopLevelCommas } from "../format";
+import { vars } from "../vars.svelte";
+import { splitAssignment, type EnvOverrides } from "../vars/session";
+
+/**
+ * One manipulable variable of a cell: a session binding with a numeric value
+ * that the cell's computation resolves. Dragging re-runs the cell in place
+ * with the override; `base` is the session value at run time (reset target).
+ */
+export interface CellSlider {
+  name: string;
+  value: number;
+  lo: number;
+  hi: number;
+  base: number;
+}
 
 export interface Cell {
   id: number;
@@ -16,6 +32,8 @@ export interface Cell {
   inputLatex: string | null;
   /** null while the engine is working; set once evaluated. */
   result: CellResult | null;
+  /** Slider-manipulable variables this cell references (may be empty). */
+  sliders: CellSlider[];
   ts: number;
 }
 
@@ -44,6 +62,7 @@ function load(): Cell[] {
         input: o.input,
         inputLatex: typeof o.inputLatex === "string" ? o.inputLatex : null,
         result: o.result as CellResult,
+        sliders: loadSliders(o.sliders),
         ts: typeof o.ts === "number" ? o.ts : Date.now(),
       });
     }
@@ -51,6 +70,88 @@ function load(): Cell[] {
   } catch {
     return [];
   }
+}
+
+function loadSliders(raw: unknown): CellSlider[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CellSlider[] = [];
+  for (const s of raw) {
+    if (!s || typeof s !== "object") continue;
+    const o = s as Record<string, unknown>;
+    if (
+      typeof o.name === "string" &&
+      typeof o.value === "number" &&
+      typeof o.lo === "number" &&
+      typeof o.hi === "number" &&
+      typeof o.base === "number"
+    )
+      out.push({ name: o.name, value: o.value, lo: o.lo, hi: o.hi, base: o.base });
+  }
+  return out;
+}
+
+// Verbs that never resolve the session environment: no slider can affect them.
+const NO_ENV_VERBS = new Set([
+  "dsolve",
+  "latex",
+  "rsolve",
+  "seq",
+  "stirling",
+  "help",
+  "vars",
+  "clear",
+  "unset",
+  "plugins",
+  "quit",
+  "exit",
+]);
+
+function defaultRange(v: number): { lo: number; hi: number } {
+  if (v === 0) return { lo: -1, hi: 1 };
+  return { lo: Math.min(0, 2 * v), hi: Math.max(0, 2 * v) };
+}
+
+/**
+ * Which session variables this cell can manipulate: numeric expression
+ * bindings whose name appears in the input, minus variables-of-operation
+ * (bare-identifier arguments after the first — `x` in `solve …, x`, `k` in
+ * `sum …, k, 1, n` — which resolution excludes by design). `integrate`
+ * resolves its bound arguments, so only its variable slot is excluded.
+ */
+function sliderCandidates(input: string, result: CellResult | null): CellSlider[] {
+  if (
+    !result ||
+    result.kind === "message" ||
+    result.kind === "assignment" ||
+    result.kind === "error"
+  )
+    return [];
+  if (splitAssignment(input)) return [];
+  const m = /^\s*(\S+)\s*([\s\S]*)$/.exec(input);
+  const head = (m?.[1] ?? "").toLowerCase();
+  if (NO_ENV_VERBS.has(head)) return [];
+  const trailing = splitTopLevelCommas(m?.[2] ?? "")
+    .slice(1)
+    .map((t) => t.trim())
+    .filter((t) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(t));
+  // Plugin commands (dsp.butter …) resolve every argument — exclude nothing.
+  const opVars = new Set(
+    head.includes(".")
+      ? []
+      : head === "integrate"
+        ? trailing.slice(0, 1)
+        : trailing,
+  );
+  const tokens = new Set(input.match(/[A-Za-z_][A-Za-z0-9_]*/g) ?? []);
+  const out: CellSlider[] = [];
+  for (const b of vars.active) {
+    if (b.kind !== "expression") continue;
+    const v = Number(b.value);
+    if (!Number.isFinite(v)) continue;
+    if (!tokens.has(b.name) || opVars.has(b.name)) continue;
+    out.push({ name: b.name, value: v, base: v, ...defaultRange(v) });
+  }
+  return out;
 }
 
 class NotebookStore {
@@ -69,6 +170,7 @@ class NotebookStore {
       input,
       inputLatex: null,
       result: null,
+      sliders: [],
       ts: Date.now(),
     };
     this.cells.push(cell);
@@ -84,7 +186,73 @@ class NotebookStore {
     if (!c) return; // cleared mid-flight
     c.inputLatex = inputLatex;
     c.result = result;
+    c.sliders = sliderCandidates(input, result);
     this.#persist();
+  }
+
+  // --- cell sliders (Manipulate-style re-runs) -----------------------------
+
+  /** In-flight recompute per cell: latest slider position always wins. */
+  #pending = new Map<number, { running: boolean; dirty: boolean }>();
+
+  /** Re-evaluate a cell in place with its current slider overrides. */
+  recompute(id: number): void {
+    const st = this.#pending.get(id) ?? { running: false, dirty: false };
+    if (st.running) {
+      st.dirty = true;
+      this.#pending.set(id, st);
+      return;
+    }
+    st.running = true;
+    this.#pending.set(id, st);
+    void (async () => {
+      do {
+        st.dirty = false;
+        const c = this.cells.find((x) => x.id === id);
+        if (!c) break;
+        const ov: EnvOverrides = {};
+        for (const s of c.sliders) if (s.value !== s.base) ov[s.name] = s.value;
+        const result = await runLine(c.input, ov);
+        const cc = this.cells.find((x) => x.id === id);
+        if (!cc) break;
+        cc.result = result;
+      } while (st.dirty);
+      st.running = false;
+      this.#persist();
+    })();
+  }
+
+  setSlider(id: number, name: string, value: number): void {
+    const c = this.cells.find((x) => x.id === id);
+    const s = c?.sliders.find((x) => x.name === name);
+    if (!c || !s || !Number.isFinite(value)) return;
+    s.value = value;
+    // A typed value outside the range grows the range to keep it draggable.
+    if (value < s.lo) s.lo = value;
+    if (value > s.hi) s.hi = value;
+    this.recompute(id);
+  }
+
+  setSliderBounds(id: number, name: string, lo: number, hi: number): void {
+    const c = this.cells.find((x) => x.id === id);
+    const s = c?.sliders.find((x) => x.name === name);
+    if (!c || !s || !Number.isFinite(lo) || !Number.isFinite(hi) || lo >= hi)
+      return;
+    s.lo = lo;
+    s.hi = hi;
+    if (s.value < lo || s.value > hi) {
+      s.value = Math.min(Math.max(s.value, lo), hi);
+      this.recompute(id);
+    } else {
+      this.#persist();
+    }
+  }
+
+  resetSliders(id: number): void {
+    const c = this.cells.find((x) => x.id === id);
+    if (!c) return;
+    for (const s of c.sliders) s.value = s.base;
+    this.recompute(id);
   }
 
   clear(): void {
@@ -101,6 +269,7 @@ class NotebookStore {
           input: c.input,
           inputLatex: c.inputLatex,
           result: c.result,
+          sliders: c.sliders,
           ts: c.ts,
         }));
       localStorage.setItem(KEY, JSON.stringify({ v: 1, cells }));
