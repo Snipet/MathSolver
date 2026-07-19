@@ -8,19 +8,23 @@ import { runLine, type CellResult } from "./run";
 import { buildConsolePreview } from "./preview";
 import { splitTopLevelCommas } from "../format";
 import { vars } from "../vars.svelte";
-import { splitAssignment, type EnvOverrides } from "../vars/session";
+import {
+  overrideValue,
+  splitAssignment,
+  type EnvOverrides,
+} from "../vars/session";
 
 /**
  * One manipulable variable of a cell: a session binding with a numeric value
- * that the cell's computation resolves. Dragging re-runs the cell in place
- * with the override; `base` is the session value at run time (reset target).
+ * that the cell's computation resolves. The slider IS the variable — dragging
+ * writes through to the session binding (the Variables panel follows) and
+ * re-runs the cell; editing the binding in the panel moves the slider.
  */
 export interface CellSlider {
   name: string;
   value: number;
   lo: number;
   hi: number;
-  base: number;
 }
 
 export interface Cell {
@@ -89,10 +93,9 @@ function loadSliders(raw: unknown): CellSlider[] {
       typeof o.name === "string" &&
       typeof o.value === "number" &&
       typeof o.lo === "number" &&
-      typeof o.hi === "number" &&
-      typeof o.base === "number"
+      typeof o.hi === "number"
     )
-      out.push({ name: o.name, value: o.value, lo: o.lo, hi: o.hi, base: o.base });
+      out.push({ name: o.name, value: o.value, lo: o.lo, hi: o.hi });
   }
   return out;
 }
@@ -156,7 +159,7 @@ function sliderCandidates(input: string, result: CellResult | null): CellSlider[
     const v = Number(b.value);
     if (!Number.isFinite(v)) continue;
     if (!tokens.has(b.name) || opVars.has(b.name)) continue;
-    out.push({ name: b.name, value: v, base: v, ...defaultRange(v) });
+    out.push({ name: b.name, value: v, ...defaultRange(v) });
   }
   return out;
 }
@@ -219,8 +222,11 @@ class NotebookStore {
         st.dirty = false;
         const c = this.cells.find((x) => x.id === id);
         if (!c) break;
+        // Slider values pass as overrides even though they also write through
+        // to the session binding: the store's debounced re-validation may lag
+        // a drag, and the override keeps this run correct regardless.
         const ov: EnvOverrides = {};
-        for (const s of c.sliders) if (s.value !== s.base) ov[s.name] = s.value;
+        for (const s of c.sliders) ov[s.name] = s.value;
         const result = await runLine(c.input, ov);
         const cc = this.cells.find((x) => x.id === id);
         if (!cc) break;
@@ -239,6 +245,11 @@ class NotebookStore {
     // A typed value outside the range grows the range to keep it draggable.
     if (value < s.lo) s.lo = value;
     if (value > s.hi) s.hi = value;
+    // Write through to the session binding: the Variables panel follows the
+    // slider. Sibling cells' sliders follow via syncFromVars once the store
+    // re-validates.
+    const row = vars.rows.find((r) => r.status.symbol === name);
+    if (row) vars.edit(row.id, { value: overrideValue(value) });
     this.recompute(id);
   }
 
@@ -250,18 +261,58 @@ class NotebookStore {
     s.lo = lo;
     s.hi = hi;
     if (s.value < lo || s.value > hi) {
-      s.value = Math.min(Math.max(s.value, lo), hi);
-      this.recompute(id);
+      this.setSlider(id, name, Math.min(Math.max(s.value, lo), hi));
     } else {
       this.#persist();
     }
   }
 
-  resetSliders(id: number): void {
-    const c = this.cells.find((x) => x.id === id);
-    if (!c) return;
-    for (const s of c.sliders) s.value = s.base;
-    this.recompute(id);
+  /**
+   * The panel edited (or unset) a binding: move every cell slider of that
+   * name to the new value and re-run its cell; drop sliders whose binding is
+   * gone or no longer numeric. No-ops when already in sync, so the write-back
+   * from setSlider cannot loop.
+   */
+  syncFromVars(): void {
+    const numeric = new Map<string, number>();
+    const bound = new Set<string>();
+    for (const b of vars.active) {
+      if (b.kind !== "expression") continue;
+      bound.add(b.name);
+      const v = Number(b.value);
+      if (Number.isFinite(v)) numeric.set(b.name, v);
+    }
+    for (const c of this.cells) {
+      if (c.sliders.length === 0) continue;
+      let changed = false;
+      const kept = c.sliders.filter((s) => {
+        const v = numeric.get(s.name);
+        if (v !== undefined) {
+          if (v !== s.value) {
+            s.value = v;
+            if (v < s.lo) s.lo = v;
+            if (v > s.hi) s.hi = v;
+            changed = true;
+          }
+          return true;
+        }
+        // Bound but no longer numeric (a := x + 1): the slider is meaningless.
+        if (bound.has(s.name)) {
+          changed = true;
+          return false;
+        }
+        // Not in the active set: keep while its row still exists (rows are
+        // mid-validation at startup); drop only when truly unset.
+        const rowExists = vars.rows.some(
+          (r) => r.status.symbol === s.name || r.name === s.name,
+        );
+        if (rowExists) return true;
+        changed = true;
+        return false;
+      });
+      if (kept.length !== c.sliders.length) c.sliders = kept;
+      if (changed) this.recompute(c.id);
+    }
   }
 
   /** Fold or unfold a tall output (explicit choice persists). */

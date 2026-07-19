@@ -15,10 +15,15 @@
   let { cell, index, onrerun, onedit }: Props = $props();
 
   const result = $derived(cell.result);
-  const anyModified = $derived(cell.sliders.some((s) => s.value !== s.base));
 
   function num(e: Event): number {
     return Number((e.currentTarget as HTMLInputElement).value);
+  }
+
+  /** Track-fill percentage for the styled range input. */
+  function pct(s: { value: number; lo: number; hi: number }): number {
+    if (s.hi <= s.lo) return 0;
+    return Math.min(100, Math.max(0, ((s.value - s.lo) / (s.hi - s.lo)) * 100));
   }
 
   // --- tall-output folding --------------------------------------------------
@@ -83,8 +88,10 @@
       <span class="label" aria-hidden="true"></span>
       <div class="sliders" role="group" aria-label="Variable sliders">
         {#each cell.sliders as s (s.name)}
-          <div class="slider-row" class:modified={s.value !== s.base}>
-            <code class="s-name" title={`session value: ${s.base}`}>{s.name}</code>
+          <div class="slider-row">
+            <code class="s-name" title="linked to the session variable {s.name}">
+              {s.name}
+            </code>
             <input
               class="s-bound"
               type="number"
@@ -100,6 +107,7 @@
               max={s.hi}
               step={(s.hi - s.lo) / 200 || "any"}
               value={s.value}
+              style:--pct="{pct(s)}%"
               aria-label={`${s.name} value slider`}
               oninput={(e) => notebook.setSlider(cell.id, s.name, num(e))}
             />
@@ -121,15 +129,6 @@
             />
           </div>
         {/each}
-        {#if anyModified}
-          <button
-            class="s-reset"
-            onclick={() => notebook.resetSliders(cell.id)}
-            title="Back to the session values"
-          >
-            reset
-          </button>
-        {/if}
       </div>
     </div>
   {/if}
@@ -239,12 +238,9 @@
   .s-name {
     font-family: var(--font-mono);
     font-size: 0.85rem;
-    color: var(--fg-muted);
-    text-align: right;
-  }
-  .slider-row.modified .s-name {
     color: var(--accent);
     font-weight: 600;
+    text-align: right;
   }
   .s-bound,
   .s-value {
@@ -260,24 +256,67 @@
   .s-value {
     color: var(--fg);
   }
+
+  /* Custom range: slim rounded track with an accent fill up to the thumb,
+     and a small ringed dot instead of the native indicator. */
   .s-range {
-    accent-color: var(--accent);
+    appearance: none;
+    -webkit-appearance: none;
     min-width: 0;
     margin: 0;
-  }
-  .s-reset {
-    font: inherit;
-    font-size: 0.72rem;
-    color: var(--fg-muted);
+    height: 1.15rem;
     background: transparent;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 0.08rem 0.6rem;
     cursor: pointer;
   }
-  .s-reset:hover {
-    color: var(--accent);
-    border-color: var(--accent);
+  .s-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--accent) var(--pct),
+      var(--border) var(--pct)
+    );
+  }
+  .s-range::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 13px;
+    height: 13px;
+    margin-top: -4.5px;
+    border-radius: 50%;
+    background: var(--bg-panel);
+    border: 2.5px solid var(--accent);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 25%);
+    transition: transform 90ms ease, background 90ms ease;
+  }
+  .s-range:hover::-webkit-slider-thumb {
+    transform: scale(1.18);
+  }
+  .s-range:active::-webkit-slider-thumb {
+    transform: scale(1.25);
+    background: var(--accent);
+  }
+  .s-range:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+    border-radius: 999px;
+  }
+  .s-range::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--border);
+  }
+  .s-range::-moz-range-progress {
+    height: 4px;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+  .s-range::-moz-range-thumb {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--bg-panel);
+    border: 2.5px solid var(--accent);
+    box-shadow: 0 1px 4px rgb(0 0 0 / 25%);
   }
   .label {
     font-family: var(--font-mono);

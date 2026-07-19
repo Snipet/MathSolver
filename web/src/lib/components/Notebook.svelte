@@ -8,6 +8,17 @@
     type ConsolePreview,
   } from "../notebook/preview";
   import { splitAssignment } from "../vars/session";
+  import { vars } from "../vars.svelte";
+  import { untrack } from "svelte";
+
+  // Panel → sliders: when the session environment changes (a Variables-panel
+  // edit, an unset, a := line), cell sliders follow and their cells re-run.
+  // untrack: the sync reads and writes cell state; only vars.active may
+  // re-trigger it, or the slider writes would loop the effect.
+  $effect(() => {
+    void vars.active;
+    untrack(() => notebook.syncFromVars());
+  });
   import CommandReference from "./CommandReference.svelte";
   import ConsolePrompt from "./ConsolePrompt.svelte";
   import Katex from "./Katex.svelte";

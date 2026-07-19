@@ -586,19 +586,39 @@ try {
     { timeout: 10000 },
   );
   check("slider drag re-runs the cell in place", true);
-  await page.click(".cells .cell:last-child .s-reset");
+  // Slider → panel: the linked session variable follows the drag.
+  check(
+    "slider drag writes through to the Variables panel",
+    await page.evaluate(() => {
+      const rows = [...document.querySelectorAll(".sidebar li[data-var-id]")];
+      const row = rows.find((li) => li.querySelector("input.name")?.value === "k_a");
+      return row?.querySelector("input.value")?.value === "3";
+    }),
+  );
+  // Panel → slider: editing the variable moves the slider and re-runs.
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll(".sidebar li[data-var-id]")];
+    const row = rows.find((li) => li.querySelector("input.name")?.value === "k_a");
+    const input = row.querySelector("input.value");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(
+      input,
+      "5",
+    );
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
   await page.waitForFunction(
     () =>
       document
         .querySelector(".cells .cell:last-child")
-        ?.textContent?.includes("2*x + 2"),
+        ?.textContent?.includes("5*x + 5") &&
+      document.querySelector(".cells .cell:last-child .s-range")?.value === "5",
     { timeout: 10000 },
   );
-  check("slider reset restores the session value", true);
+  check("panel edit moves the slider and re-runs the cell", true);
   const varsOut = await run("vars");
   check(
-    "slider override leaves the session binding alone",
-    varsOut.includes("k_a := 2"),
+    "session binding reflects the linked slider",
+    varsOut.includes("k_a := 5"),
     varsOut.replace(/\s+/g, " ").slice(0, 80),
   );
 

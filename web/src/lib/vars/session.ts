@@ -125,15 +125,29 @@ export function overrideValue(v: number): string {
 /**
  * The environment with slider overrides applied: an overridden expression
  * binding becomes the numeric literal (and loses its outgoing dependencies —
- * overriding `b` in `b := a + 1` disconnects it from `a`).
+ * overriding `b` in `b := a + 1` disconnects it from `a`). A name absent from
+ * the active set is added — sliders write through to the store, whose
+ * debounced re-validation briefly drops the row from `active`; the override
+ * must stand in for it during that window.
  */
 function withOverrides(act: VarBinding[], ov?: EnvOverrides): VarBinding[] {
   if (!ov || Object.keys(ov).length === 0) return act;
-  return act.map((b) =>
+  const out = act.map((b) =>
     b.kind === "expression" && b.name in ov
       ? { ...b, value: overrideValue(ov[b.name]), symbols: [] }
       : b,
   );
+  const have = new Set(act.map((b) => b.name));
+  for (const [name, v] of Object.entries(ov)) {
+    if (!have.has(name))
+      out.push({
+        name,
+        value: overrideValue(v),
+        symbols: [],
+        kind: "expression",
+      });
+  }
+  return out;
 }
 
 /**
