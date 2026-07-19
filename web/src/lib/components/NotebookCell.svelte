@@ -109,7 +109,8 @@
               value={s.value}
               style:--pct="{pct(s)}%"
               aria-label={`${s.name} value slider`}
-              oninput={(e) => notebook.setSlider(cell.id, s.name, num(e))}
+              oninput={(e) => notebook.setSlider(cell.id, s.name, num(e), false)}
+              onchange={(e) => notebook.setSlider(cell.id, s.name, num(e))}
             />
             <input
               class="s-bound"

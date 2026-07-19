@@ -605,14 +605,26 @@ try {
     { timeout: 10000 },
   );
   check("slider drag re-runs the cell in place", true);
-  // Slider → panel: the linked session variable follows the drag.
-  check(
-    "slider drag writes through to the Variables panel",
-    await page.evaluate(() => {
+  const panelValue = () =>
+    page.evaluate(() => {
       const rows = [...document.querySelectorAll(".sidebar li[data-var-id]")];
       const row = rows.find((li) => li.querySelector("input.name")?.value === "k_a");
-      return row?.querySelector("input.value")?.value === "3";
-    }),
+      return row?.querySelector("input.value")?.value ?? null;
+    });
+  // Mid-drag (input events only): the panel must NOT follow yet.
+  check(
+    "panel does not update mid-drag",
+    (await panelValue()) === "2",
+    JSON.stringify(await panelValue()),
+  );
+  // Mouse-up (change event): the linked session variable follows.
+  await page.$eval(".cells .cell:last-child .s-range", (el) => {
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  check(
+    "slider release writes through to the Variables panel",
+    (await panelValue()) === "3",
+    JSON.stringify(await panelValue()),
   );
   // Panel → slider: editing the variable moves the slider and re-runs.
   await page.evaluate(() => {
@@ -639,6 +651,7 @@ try {
   await page.$eval(".cells .cell:last-child .s-range", (el) => {
     el.value = "2.5";
     el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await page.waitForFunction(
     () =>

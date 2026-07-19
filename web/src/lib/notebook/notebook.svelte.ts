@@ -254,20 +254,29 @@ class NotebookStore {
     })();
   }
 
-  setSlider(id: number, name: string, value: number): void {
+  /**
+   * Move a cell slider. While a drag is in progress (`commit` false — range
+   * `input` events) only this cell re-runs, through overrides; the session
+   * binding is written on `commit` (range `change`, i.e. mouse-up, and any
+   * discrete edit), which is when the Variables panel and sibling cells
+   * follow.
+   */
+  setSlider(id: number, name: string, value: number, commit = true): void {
     const c = this.cells.find((x) => x.id === id);
     const s = c?.sliders.find((x) => x.name === name);
     if (!c || !s || !Number.isFinite(value)) return;
+    const moved = s.value !== value;
     s.value = value;
     // A typed value outside the range grows the range to keep it draggable.
     if (value < s.lo) s.lo = value;
     if (value > s.hi) s.hi = value;
-    // Write through to the session binding: the Variables panel follows the
-    // slider. Sibling cells' sliders follow via syncFromVars once the store
-    // re-validates.
-    const row = vars.rows.find((r) => r.status.symbol === name);
-    if (row) vars.edit(row.id, { value: overrideValue(value) });
-    this.recompute(id);
+    if (commit) {
+      const row = vars.rows.find((r) => r.status.symbol === name);
+      if (row) vars.edit(row.id, { value: overrideValue(value) });
+    }
+    // The mouse-up commit repeats the last input's value — no need to run
+    // the same computation again.
+    if (moved) this.recompute(id);
   }
 
   setSliderBounds(id: number, name: string, lo: number, hi: number): void {
