@@ -105,6 +105,17 @@ else()
     add_executable(mathsolver apps/main.cpp)
     target_link_libraries(mathsolver PRIVATE mathsolver_core mathsolver_warnings)
 
+    # MCP server: hosts the engine and the plugin registry over stdio
+    # JSON-RPC (Model Context Protocol). The json/server code is a library so
+    # the test suite can drive Server::handle() directly.
+    add_library(mathsolver_mcp_lib STATIC mcp/json.cpp mcp/server.cpp)
+    target_include_directories(mathsolver_mcp_lib PUBLIC mcp)
+    target_link_libraries(mathsolver_mcp_lib
+        PUBLIC mathsolver_core mathsolver_plugins PRIVATE mathsolver_warnings)
+
+    add_executable(mathsolver_mcp mcp/main.cpp)
+    target_link_libraries(mathsolver_mcp PRIVATE mathsolver_mcp_lib mathsolver_warnings)
+
     option(MATHSOLVER_BUILD_TESTS "Build MathSolver unit tests" ON)
     if(MATHSOLVER_BUILD_TESTS)
         enable_testing()

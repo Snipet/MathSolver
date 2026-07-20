@@ -341,6 +341,24 @@ Input accepts both LaTeX (`\frac{1}{2}`, `\sin{x}`, `\sqrt[3]{x}`, `\pi`,
 `\alpha`) and plain style (`1/2`, `sin(x)`, `pi`) with implicit
 multiplication (`2x`, `(x+1)(x-2)`).
 
+## MCP server
+
+The same engine is also available to AI agents through a
+[Model Context Protocol](https://modelcontextprotocol.io) server,
+`mathsolver_mcp`, written in C++ and speaking JSON-RPC 2.0 over stdio. It
+exposes simplify/expand/factor, differentiate, integrate, solve, evaluate,
+series, limit, Laplace transforms, and every computation plugin (DSP, control
+systems, linear algebra, PDEs, integral equations, hybrid systems, finite
+elements) as MCP tools — all computed locally with no network access. See
+[docs/MCP.md](docs/MCP.md) for the tool list and client configuration.
+
+```sh
+cmake --build build -j --target mathsolver_mcp
+printf '%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"solve","arguments":{"equation":"x^2 = 4","variable":"x"}}}' \
+  | build/mathsolver_mcp
+```
+
 ## Web app
 
 The same engine, compiled to WebAssembly, powers a static single-page app in

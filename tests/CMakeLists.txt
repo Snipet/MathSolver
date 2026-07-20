@@ -39,8 +39,9 @@ add_executable(mathsolver_tests
     test_plugin_ie.cpp
     test_plugin_hyb.cpp
     test_plugin_fem.cpp
+    test_mcp.cpp
 )
-target_link_libraries(mathsolver_tests PRIVATE mathsolver_core mathsolver_plugins Catch2::Catch2WithMain)
+target_link_libraries(mathsolver_tests PRIVATE mathsolver_core mathsolver_plugins mathsolver_mcp_lib Catch2::Catch2WithMain)
 
 # The CLI end-to-end tests drive the real binary through popen().
 target_compile_definitions(mathsolver_tests
