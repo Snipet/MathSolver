@@ -206,7 +206,7 @@ function helpMessage(): NotebookMessage {
       "jacobian <F1;F2;…>, <vars…>    hessian <f>, <vars…>",
       "vecfield <Fx>; <Fy>[, <xlo>, <xhi>, <ylo>, <yhi>]   quiver plot",
       "plot <expr>[, <lo>, <hi>]           chart an expression",
-      "wave [<columns>][, fixed|free|robin|absorbing]   interactive 2D wave field (drag to add energy)",
+      "wave [<columns>][, fixed|free|robin|filtered|absorbing]   interactive 2D wave field (drag to add energy)",
       "<name> := <value>      bind a variable (applies to later lines)",
       "save <name>    save this session's commands as a notebook",
       "open <name>    load a notebook's commands (without running)",
@@ -719,14 +719,15 @@ function normalizeBoundary(raw: string | undefined): Boundary | null {
   if (["fixed", "reflect", "clamp", "clamped", "dirichlet"].includes(s)) return "fixed";
   if (["free", "neumann"].includes(s)) return "free";
   if (["robin", "impedance", "mixed", "springy"].includes(s)) return "robin";
+  if (["filtered", "filter", "frequency"].includes(s)) return "filtered";
   if (["absorbing", "absorb", "open", "mur"].includes(s)) return "absorbing";
   return null;
 }
 
 /**
- * `wave [<columns>][, fixed|free|absorbing]` — a live 2-D wave field cell.
- * Like plot, this produces plain-data (a serializable seed) rather than
- * calling the engine; WaveField owns the simulation.
+ * `wave [<columns>][, fixed|free|robin|filtered|absorbing]` — a live 2-D wave
+ * field cell. Like plot, this produces plain-data (a serializable seed)
+ * rather than calling the engine; WaveField owns the simulation.
  */
 function runWave(rest: string): CellResult {
   const args = rest ? splitTopLevelCommas(rest) : [];
@@ -734,12 +735,12 @@ function runWave(rest: string): CellResult {
   if (args[0]) {
     const n = Number(args[0]);
     if (!Number.isFinite(n))
-      return usage("wave [<columns>][, fixed|free|absorbing]");
+      return usage("wave [<columns>][, fixed|free|robin|filtered|absorbing]");
     columns = Math.max(48, Math.min(320, Math.round(n)));
   }
   const b = normalizeBoundary(args[1]);
   if (args[1] && b === null)
-    return usage("wave boundary must be one of: fixed, free, robin, absorbing");
+    return usage("wave boundary must be one of: fixed, free, robin, filtered, absorbing");
   return {
     kind: "wave",
     columns,

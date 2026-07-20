@@ -4,7 +4,7 @@
   // pluck, drag to launch a directional wavefront. Used both inline as a
   // console "wave" cell (compact) and as the full Workbench "Wave" tab.
   import { untrack } from "svelte";
-  import { WaveSim, type Boundary } from "../wave/sim";
+  import { WaveSim, type Boundary, type FilterType } from "../wave/sim";
 
   interface Props {
     /** Console cells pass compact=true for a smaller field + condensed controls. */
@@ -39,7 +39,19 @@
   let dampingV = $state(untrack(() => clamp01(damping)));
   let boundaryV = $state<Boundary>(untrack(() => boundary));
   let robinV = $state(0.5); // Robin edge stiffness k (∂u/∂n + k·u = 0)
+  // Mouse source: frequency (0 = low/long waves, 1 = high/short) + mode.
+  let freqV = $state(0.35);
+  let srcMode = $state<"ripple" | "drive">("ripple");
+  // Frequency-dependent ("filtered") boundary controls.
+  let filterType = $state<FilterType>("lowpass");
+  let filterCutoffV = $state(0.5);
+  let filterReflectV = $state(0.85);
   let cols = $state(untrack(() => clampCols(columns)));
+
+  // freq → the wavelength of an injected ripple, and the per-step frequency
+  // of the continuous drive.
+  const wavelength = $derived(3 + (1 - freqV) * 33); // 3 (high) .. 36 (low) cells
+  const driveFreq = $derived(0.008 + freqV * 0.052); // cycles/step
   let brush = $state(untrack(() => (compact ? 3 : 4))); // brush radius in cells
   let strength = $state(1);
   let colormap = $state<"coolwarm" | "fire" | "violet">("coolwarm");
@@ -91,6 +103,9 @@
   $effect(() => {
     const { nx, ny } = gridDims;
     untrack(() => {
+      // gridDims is a fresh object each width tick, so this effect re-runs on
+      // every resize; rebuild only when the integer grid actually changed.
+      if (sim && sim.nx === nx && sim.ny === ny) return;
       const next = new WaveSim(nx, ny, {
         speed: speedV,
         damping: dampingV,
@@ -112,6 +127,7 @@
     s.damping = dampingV;
     s.setBoundary(boundaryV);
     s.robin = robinV;
+    s.setBoundaryFilter(filterType, filterCutoffV, filterReflectV);
   });
 
   function resample(from: WaveSim, to: WaveSim): void {
@@ -185,6 +201,10 @@
 
   let lut: Uint8ClampedArray = new Uint8ClampedArray(256 * 3);
   let lutKey = "";
+  // Cache the panel-bg read; getComputedStyle is a style-recalc flush, so it
+  // is refreshed only every ~30 frames rather than every rAF frame.
+  let bgRgb: RGB = [24, 27, 33];
+  let bgTick = 0;
   function ensureLut(name: string, bg: RGB): void {
     const key = `${name}|${bg.join(",")}`;
     if (key === lutKey) return;
@@ -227,7 +247,8 @@
 
     // Theme-aware LUT: rest → panel background, so the field blends into the
     // page in light and dark; rebuilt only when the palette or bg changes.
-    ensureLut(colormap, readRgb(disp, "--bg-panel", [24, 27, 33]));
+    if (bgTick++ % 30 === 0) bgRgb = readRgb(disp, "--bg-panel", bgRgb);
+    ensureLut(colormap, bgRgb);
     const cur = s.cur;
     const px = imgData.data;
     for (let k = 0; k < cur.length; k++) {
@@ -308,27 +329,39 @@
     const { gx, gy } = toGrid(e);
     lastX = gx;
     lastY = gy;
-    sim.poke(gx, gy, brush, 1.1 * strength);
+    if (srcMode === "drive") {
+      // Start a continuous oscillator at the pointer (ripple-tank dipper).
+      sim.setSource(gx, gy, driveFreq, 0.35 * strength, brush);
+    } else {
+      // Ripple: emit a wavelet at the set frequency.
+      sim.poke(gx, gy, brush, 1.1 * strength, wavelength);
+    }
   }
 
   function onPointerMove(e: PointerEvent): void {
     if (!dragging || !sim) return;
     const { gx, gy } = toGrid(e);
+    if (srcMode === "drive") {
+      sim.setSource(gx, gy, driveFreq, 0.35 * strength, brush);
+      lastX = gx;
+      lastY = gy;
+      return;
+    }
     const dx = gx - lastX;
     const dy = gy - lastY;
     const dist = Math.hypot(dx, dy);
     if (dist < 0.5) return; // ignore jitter
-    // A moving source: deposit a small pluck scaled by drag speed, plus a
-    // velocity dipole aligned with the drag so energy launches that way.
+    // A moving source: launch a wavelet directionally (d'Alembert) along the
+    // drag, scaled by drag speed.
     const spd = Math.min(dist, 12);
-    sim.poke(gx, gy, brush, 0.18 * strength * (spd / 6));
-    sim.impartVelocity(gx, gy, brush, 0.5 * strength * (spd / 6), dx, dy);
+    sim.launch(gx, gy, brush, 0.5 * strength * (spd / 6), dx, dy, wavelength);
     lastX = gx;
     lastY = gy;
   }
 
   function onPointerUp(e: PointerEvent): void {
     dragging = false;
+    sim?.clearSource();
     if (canvas?.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
   }
 
@@ -345,6 +378,7 @@
     { id: "fixed", label: "Fixed", title: "Clamped edge (drum) — reflects with inversion" },
     { id: "free", label: "Free", title: "Free edge — reflects without inversion" },
     { id: "robin", label: "Robin", title: "Impedance edge ∂u/∂n + k·u = 0 — springy, tunable between free and fixed" },
+    { id: "filtered", label: "Filter", title: "Frequency-dependent edge — the reflection is shaped by a digital filter" },
     { id: "absorbing", label: "Open", title: "Absorbing edge — waves leave the window" },
   ];
 </script>
@@ -365,6 +399,29 @@
       <input type="range" min="0" max="0.6" step="0.01" bind:value={dampingV} />
     </label>
 
+    <label class="ctl" title="Frequency of the injected wave: low = long waves, high = short">
+      <span>Freq</span>
+      <input type="range" min="0" max="1" step="0.01" bind:value={freqV} />
+    </label>
+    <div class="seg" role="group" aria-label="Source mode">
+      <button
+        class="seg-btn"
+        class:active={srcMode === "ripple"}
+        title="Click or drag emits a wavelet at the set frequency"
+        onclick={() => (srcMode = "ripple")}
+      >
+        Ripple
+      </button>
+      <button
+        class="seg-btn"
+        class:active={srcMode === "drive"}
+        title="Hold to run a continuous oscillator (ripple-tank dipper)"
+        onclick={() => (srcMode = "drive")}
+      >
+        Drive
+      </button>
+    </div>
+
     <div class="seg" role="group" aria-label="Boundary">
       {#each BOUNDARIES as b (b.id)}
         <button
@@ -382,6 +439,35 @@
       <label class="ctl" title="Edge stiffness k: 0 ≈ free, large ≈ fixed">
         <span>Stiffness</span>
         <input type="range" min="0" max="8" step="0.1" bind:value={robinV} />
+      </label>
+    {/if}
+
+    {#if boundaryV === "filtered"}
+      <div class="seg" role="group" aria-label="Reflection filter">
+        <button
+          class="seg-btn"
+          class:active={filterType === "lowpass"}
+          title="Low-pass: reflect low frequencies, absorb highs (muffling wall)"
+          onclick={() => (filterType = "lowpass")}
+        >
+          LP
+        </button>
+        <button
+          class="seg-btn"
+          class:active={filterType === "highpass"}
+          title="High-pass: reflect high frequencies, absorb lows"
+          onclick={() => (filterType = "highpass")}
+        >
+          HP
+        </button>
+      </div>
+      <label class="ctl" title="Filter cutoff — higher reflects more">
+        <span>Cutoff</span>
+        <input type="range" min="0.02" max="1" step="0.01" bind:value={filterCutoffV} />
+      </label>
+      <label class="ctl" title="Overall reflectivity — 0 fully absorbs">
+        <span>Reflect</span>
+        <input type="range" min="0" max="1" step="0.01" bind:value={filterReflectV} />
       </label>
     {/if}
 

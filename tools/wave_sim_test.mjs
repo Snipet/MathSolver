@@ -56,6 +56,33 @@ function l2(a, b) {
   return Math.sqrt(s / a.length);
 }
 
+/** Energy-weighted centroid x of the current field. */
+function energyCentroidX(sim) {
+  let sum = 0;
+  let cx = 0;
+  for (let j = 0; j < sim.ny; j++)
+    for (let i = 0; i < sim.nx; i++) {
+      const e = sim.cur[sim.idx(i, j)] ** 2;
+      sum += e;
+      cx += e * i;
+    }
+  return sum > 0 ? cx / sum : (sim.nx - 1) / 2;
+}
+
+/** Ratio of gradient energy to displacement energy — a spatial-frequency proxy. */
+function gradRatio(sim) {
+  let grad = 0;
+  let disp = 0;
+  for (let j = 0; j < sim.ny; j++)
+    for (let i = 0; i < sim.nx; i++) {
+      const k = sim.idx(i, j);
+      disp += sim.cur[k] ** 2;
+      if (i < sim.nx - 1) grad += (sim.cur[k + 1] - sim.cur[k]) ** 2;
+      if (j < sim.ny - 1) grad += (sim.cur[k + sim.nx] - sim.cur[k]) ** 2;
+    }
+  return disp > 1e-12 ? grad / disp : 0;
+}
+
 // --- 1. stability: no blow-up over many steps ------------------------------
 {
   const sim = new WaveSim(80, 60, { speed: 1, damping: 0, boundary: "fixed" });
@@ -175,27 +202,80 @@ function l2(a, b) {
   check("centered pluck stays mirror-symmetric", asym < 1e-4, `asym=${asym.toExponential(2)}`);
 }
 
-// --- 8. directional impulse launches energy along the drag -----------------
+// --- 8. directional launch: energy TRANSLATES along the drag ---------------
+// The d'Alembert launch must move the energy centroid, not just make an
+// antisymmetric splash (an odd velocity dipole is P-invariant under the
+// symmetric stencil and stays centered — so this asserts real translation
+// AND that a reversed drag goes the other way).
 {
-  const sim = new WaveSim(120, 60, { speed: 0.6, damping: 0, boundary: "absorbing" });
-  // Impart rightward velocity at the center; after stepping, the field's
-  // energy centroid should sit to the right of where it started.
-  sim.impartVelocity(60, 30, 6, 1, 1, 0);
-  for (let k = 0; k < 60; k++) sim.step();
-  let sum = 0;
-  let cx = 0;
-  for (let j = 0; j < sim.ny; j++)
-    for (let i = 0; i < sim.nx; i++) {
-      const e = sim.cur[sim.idx(i, j)] ** 2;
-      sum += e;
-      cx += e * i;
-    }
-  const centroid = sum > 0 ? cx / sum : 60;
+  const R = new WaveSim(200, 120, { speed: 0.6, damping: 0, boundary: "absorbing" });
+  R.launch(100, 60, 6, 1, 1, 0); // rightward
+  for (let k = 0; k < 80; k++) R.step();
+  const cR = energyCentroidX(R);
+
+  const L = new WaveSim(200, 120, { speed: 0.6, damping: 0, boundary: "absorbing" });
+  L.launch(100, 60, 6, 1, -1, 0); // leftward
+  for (let k = 0; k < 80; k++) L.step();
+  const cL = energyCentroidX(L);
+
+  check("rightward drag moves energy right", cR > 108, `cx=${cR.toFixed(1)} (start 100)`);
+  check("leftward drag moves energy left", cL < 92, `cx=${cL.toFixed(1)} (start 100)`);
+  check("launch is genuinely directional (right ≠ left)", cR - cL > 25, `cR-cL=${(cR - cL).toFixed(1)}`);
+}
+
+// --- 8b. mouse frequency: shorter wavelength = higher spatial frequency -----
+{
+  const long = new WaveSim(140, 140, { speed: 0.6, boundary: "fixed" });
+  long.poke(70, 70, 8, 1, 40);
+  const short = new WaveSim(140, 140, { speed: 0.6, boundary: "fixed" });
+  short.poke(70, 70, 8, 1, 6);
   check(
-    "directional impulse launches energy along the drag",
-    centroid > 60,
-    `centroid_x=${centroid.toFixed(1)} (start 60)`,
+    "shorter-wavelength poke carries higher spatial frequency",
+    gradRatio(short) > 2 * gradRatio(long),
+    `short=${gradRatio(short).toFixed(3)} long=${gradRatio(long).toFixed(4)}`,
   );
+}
+
+// --- 8c. driven source pumps energy into the field -------------------------
+{
+  const sim = new WaveSim(120, 120, { speed: 0.6, damping: 0, boundary: "absorbing" });
+  sim.setSource(60, 60, 0.03, 0.3, 3);
+  for (let k = 0; k < 200; k++) sim.step();
+  const e = sim.energy();
+  sim.clearSource();
+  check("driven source injects energy over time", e > 0.05 && sim.maxAbs() > 0, `E=${e.toFixed(3)}`);
+}
+
+// --- 8d. filtered boundary: reflect=0 absorbs; lowpass absorbs highs more ---
+{
+  const open = new WaveSim(120, 120, { speed: 0.6, boundary: "filtered" });
+  open.setBoundaryFilter("lowpass", 0.5, 0);
+  open.poke(60, 60, 5, 1);
+  const e0 = open.energy();
+  for (let k = 0; k < 400; k++) open.step();
+  check("filtered reflect=0 absorbs (like an open edge)", open.energy() < 0.1 * e0, `E/E0=${(open.energy() / e0).toFixed(3)}`);
+
+  const retained = (wavelength) => {
+    const s = new WaveSim(100, 100, { speed: 0.6, boundary: "filtered" });
+    s.setBoundaryFilter("lowpass", 0.3, 0.9);
+    s.poke(50, 50, 6, 1, wavelength);
+    const start = s.energy();
+    for (let k = 0; k < 700; k++) s.step();
+    return s.energy() / start;
+  };
+  const lowKept = retained(28); // long wavelength = low frequency
+  const highKept = retained(5); // short wavelength = high frequency
+  check(
+    "lowpass boundary absorbs highs more than lows",
+    lowKept > highKept + 0.05,
+    `low=${lowKept.toFixed(2)} high=${highKept.toFixed(2)}`,
+  );
+
+  const stab = new WaveSim(100, 100, { speed: 1, boundary: "filtered" });
+  stab.setBoundaryFilter("highpass", 0.6, 1);
+  stab.poke(50, 50, 5, 1);
+  for (let k = 0; k < 3000; k++) stab.step();
+  check("filtered boundary stable at max speed", Number.isFinite(stab.maxAbs()) && stab.maxAbs() < 10, `maxAbs=${stab.maxAbs()}`);
 }
 
 // --- 9. Robin boundary interpolates between free and fixed -----------------

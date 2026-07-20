@@ -14,7 +14,10 @@
 // test (see tools/wave_sim_test.mjs) and is driven per animation frame by
 // WaveField.svelte, which reads `cur` directly to paint the canvas.
 
-export type Boundary = "fixed" | "free" | "absorbing" | "robin";
+export type Boundary = "fixed" | "free" | "absorbing" | "robin" | "filtered";
+
+/** 1st-order filter shaping a frequency-dependent boundary reflection. */
+export type FilterType = "lowpass" | "highpass";
 
 export interface WaveSimOptions {
   /** 0..1, mapped to the Courant number κ ∈ (0, MAX_COURANT]. */
@@ -48,6 +51,16 @@ export class WaveSim {
   private _robin = 0.5;
   boundary: Boundary;
 
+  // Frequency-dependent ("filtered") boundary: the reflected wave is the
+  // incident wave passed through a 1st-order filter (see #applyBoundary).
+  private _filterType: FilterType = "lowpass";
+  private _filterCutoff = 0.5; // lowpass coefficient α ∈ (0,1]
+  private _filterReflect = 0.85; // overall reflectivity g ∈ [0,1]
+  private fOut: Float32Array; // per-boundary-cell filter memory
+
+  // Continuous driven point source (the "drive"/oscillator gesture).
+  private src = { active: false, x: 0, y: 0, r: 3, amp: 0, freq: 0.03, phase: 0 };
+
   constructor(nx: number, ny: number, opts: WaveSimOptions = {}) {
     this.nx = Math.max(3, Math.floor(nx));
     this.ny = Math.max(3, Math.floor(ny));
@@ -55,6 +68,7 @@ export class WaveSim {
     this.cur = new Float32Array(n);
     this.prev = new Float32Array(n);
     this.nextBuf = new Float32Array(n);
+    this.fOut = new Float32Array(n);
     this._speed = clamp(opts.speed ?? 0.5, 0, 1);
     this._damping = clamp(opts.damping ?? 0, 0, 1);
     this._robin = Math.max(0, opts.robin ?? 0.5);
@@ -85,6 +99,32 @@ export class WaveSim {
   }
   setBoundary(b: Boundary): void {
     this.boundary = b;
+  }
+
+  /** Configure the frequency-dependent boundary: lowpass reflects lows and
+   *  absorbs highs (a muffling wall), highpass does the reverse. `cutoff`
+   *  ∈ (0,1] is the filter coefficient (higher = more reflective), `reflect`
+   *  ∈ [0,1] the overall reflectivity (0 = fully absorbing). */
+  setBoundaryFilter(type: FilterType, cutoff: number, reflect: number): void {
+    this._filterType = type;
+    this._filterCutoff = clamp(cutoff, 0.02, 1);
+    this._filterReflect = clamp(reflect, 0, 1);
+  }
+
+  /** Position/enable the continuous driven source (a ripple-tank dipper).
+   *  `freq` is cycles per step; energy is injected each step until cleared. */
+  setSource(gx: number, gy: number, freq: number, amp: number, radius: number): void {
+    const s = this.src;
+    if (!s.active) s.phase = 0;
+    s.active = true;
+    s.x = gx;
+    s.y = gy;
+    s.freq = Math.max(0, freq);
+    s.amp = amp;
+    s.r = Math.max(1, radius);
+  }
+  clearSource(): void {
+    this.src.active = false;
   }
 
   idx(i: number, j: number): number {
@@ -126,6 +166,17 @@ export class WaveSim {
     this.prev = cur;
     this.cur = next;
     this.nextBuf = prev;
+
+    // Driven source (soft): inject an oscillating forcing into the new field
+    // each step, so holding the pointer in "drive" mode emits a steady tone.
+    if (this.src.active) {
+      const s = this.src;
+      const val = s.amp * Math.sin(s.phase);
+      this.#brush(s.x, s.y, s.r, (k, w) => {
+        this.cur[k] += val * w;
+      });
+      s.phase += 2 * Math.PI * s.freq;
+    }
   }
 
   #applyBoundary(next: Float32Array, cur: Float32Array, kappa: number): void {
@@ -178,10 +229,48 @@ export class WaveSim {
       return;
     }
 
+    const mu = (kappa - 1) / (kappa + 1);
+
+    if (this.boundary === "filtered") {
+      // Frequency-dependent edge. At each wall cell we form the reflecting
+      // (Neumann F) and absorbing (Mur A) candidates; their difference F−A is
+      // the reflected component. Passing it through a 1st-order lowpass and
+      // recombining as A + g·H(F−A) gives a reflection that depends on
+      // frequency: lowpass reflects lows / absorbs highs (a muffling wall),
+      // highpass (its complement) reflects highs / absorbs lows. g scales the
+      // overall reflectivity (0 = fully absorbing, like Mur).
+      const g = this._filterReflect;
+      const a = this._filterCutoff;
+      const lp = this._filterType === "lowpass";
+      const fOut = this.fOut;
+      const cell = (k: number, kin: number) => {
+        const A = cur[kin] + mu * (next[kin] - cur[k]);
+        const F = next[kin];
+        const refl = F - A;
+        const low = fOut[k] + a * (refl - fOut[k]);
+        fOut[k] = low;
+        next[k] = A + g * (lp ? low : refl - low);
+      };
+      for (let j = 1; j < jLast; j++) {
+        const l = j * nx;
+        cell(l, l + 1);
+        cell(l + iLast, l + iLast - 1);
+      }
+      for (let i = 1; i < iLast; i++) {
+        cell(i, i + nx);
+        cell(jLast * nx + i, jLast * nx + i - nx);
+      }
+      next[0] = 0.5 * (next[1] + next[nx]);
+      next[iLast] = 0.5 * (next[iLast - 1] + next[iLast + nx]);
+      next[jLast * nx] = 0.5 * (next[jLast * nx + 1] + next[(jLast - 1) * nx]);
+      next[jLast * nx + iLast] =
+        0.5 * (next[jLast * nx + iLast - 1] + next[(jLast - 1) * nx + iLast]);
+      return;
+    }
+
     // Absorbing: 1st-order Mur radiation condition, so wavefronts leave the
     // window with little reflection. κ = c·dt/h; the interior next-values are
     // already computed above.
-    const mu = (kappa - 1) / (kappa + 1);
     for (let j = 1; j < jLast; j++) {
       const l = j * nx;
       next[l] = cur[l + 1] + mu * (next[l + 1] - cur[l]);
@@ -205,71 +294,77 @@ export class WaveSim {
   // --- energy injection ------------------------------------------------------
 
   /**
-   * A rest "pluck": add a Gaussian displacement bump centered at grid
-   * coordinate (gx, gy), with equal contribution to `cur` and `prev` so the
-   * patch starts at rest and radiates a symmetric outgoing ring.
+   * A rest "pluck": a Gaussian bump added equally to `cur` and `prev` (starts
+   * at rest → radiates a symmetric ring). With a finite `wavelength` the bump
+   * carries a radial cosine, so it launches waves of that wavelength — the
+   * frequency knob for the mouse. `wavelength = Infinity` is a plain bump.
    */
-  poke(gx: number, gy: number, radius: number, amp: number): void {
-    this.#brush(gx, gy, radius, (k, w) => {
-      const d = amp * w;
+  poke(gx: number, gy: number, radius: number, amp: number, wavelength = Infinity): void {
+    const kk = Number.isFinite(wavelength) ? (2 * Math.PI) / Math.max(2, wavelength) : 0;
+    const eff = kk > 0 ? Math.min(60, Math.max(radius, 1.2 * wavelength)) : radius;
+    this.#brush(gx, gy, eff, (k, w, r) => {
+      const d = amp * w * (kk > 0 ? Math.cos(kk * r) : 1);
       this.cur[k] += d;
       this.prev[k] += d;
     });
   }
 
   /**
-   * A directional impulse for drag gestures: a velocity dipole aligned with
-   * (dirX, dirY). Cells ahead of the center along the drag get positive
-   * velocity, cells behind negative — so the disturbance launches along the
-   * drag rather than radiating symmetrically. Applied to `cur` only, so the
-   * per-step velocity (cur − prev) carries the momentum.
+   * A directional launch for drag gestures. Uses the d'Alembert relation:
+   * stamp the same bump into `cur` (centered at C) and into `prev` (centered
+   * one wave-step κ *behind* along the drag), so the pulse travels in the
+   * drag direction at speed κ instead of radiating symmetrically. `wavelength`
+   * sets the launched frequency, as in poke().
    */
-  impartVelocity(
+  launch(
     gx: number,
     gy: number,
     radius: number,
     amp: number,
     dirX: number,
     dirY: number,
+    wavelength = Infinity,
   ): void {
     const len = Math.hypot(dirX, dirY);
     if (len < 1e-9) {
-      // No direction: fall back to an isotropic velocity kick.
-      this.#brush(gx, gy, radius, (k, w) => (this.cur[k] += amp * w));
+      this.poke(gx, gy, radius, amp, wavelength);
       return;
     }
     const dnx = dirX / len;
     const dny = dirY / len;
-    const nx = this.nx;
-    this.#brush(gx, gy, radius, (k, w) => {
-      const i = k % nx;
-      const j = (k - i) / nx;
-      const proj = (i - gx) * dnx + (j - gy) * dny; // signed along-drag offset
-      this.cur[k] += amp * w * (proj / radius);
+    const kappa = this.courant;
+    const kk = Number.isFinite(wavelength) ? (2 * Math.PI) / Math.max(2, wavelength) : 0;
+    const eff = kk > 0 ? Math.min(60, Math.max(radius, 1.2 * wavelength)) : radius;
+    // cur bump at C; prev bump at C − κ·d̂ (behind) so the wave moves toward d̂.
+    this.#brush(gx, gy, eff, (k, w, r) => {
+      this.cur[k] += amp * w * (kk > 0 ? Math.cos(kk * r) : 1);
+    });
+    this.#brush(gx - kappa * dnx, gy - kappa * dny, eff, (k, w, r) => {
+      this.prev[k] += amp * w * (kk > 0 ? Math.cos(kk * r) : 1);
     });
   }
 
-  /** Apply `fn(index, weight)` to every cell within `radius` of (gx, gy). */
+  /** Apply `fn(index, weight, dist)` to every cell within `radius` of (gx, gy). */
   #brush(
     gx: number,
     gy: number,
     radius: number,
-    fn: (k: number, w: number) => void,
+    fn: (k: number, w: number, r: number) => void,
   ): void {
     const { nx, ny } = this;
-    const r = Math.max(1, radius);
-    const sigma2 = (r / 2) * (r / 2);
-    const i0 = Math.max(0, Math.floor(gx - r));
-    const i1 = Math.min(nx - 1, Math.ceil(gx + r));
-    const j0 = Math.max(0, Math.floor(gy - r));
-    const j1 = Math.min(ny - 1, Math.ceil(gy + r));
+    const rad = Math.max(1, radius);
+    const sigma2 = (rad / 2) * (rad / 2);
+    const i0 = Math.max(0, Math.floor(gx - rad));
+    const i1 = Math.min(nx - 1, Math.ceil(gx + rad));
+    const j0 = Math.max(0, Math.floor(gy - rad));
+    const j1 = Math.min(ny - 1, Math.ceil(gy + rad));
     for (let j = j0; j <= j1; j++) {
       for (let i = i0; i <= i1; i++) {
         const dx = i - gx;
         const dy = j - gy;
         const d2 = dx * dx + dy * dy;
-        if (d2 > r * r) continue;
-        fn(j * nx + i, Math.exp(-d2 / (2 * sigma2)));
+        if (d2 > rad * rad) continue;
+        fn(j * nx + i, Math.exp(-d2 / (2 * sigma2)), Math.sqrt(d2));
       }
     }
   }
@@ -323,5 +418,7 @@ export class WaveSim {
     this.cur.fill(0);
     this.prev.fill(0);
     this.nextBuf.fill(0);
+    this.fOut.fill(0);
+    this.src.active = false;
   }
 }

@@ -795,6 +795,46 @@ try {
   await new Promise((r) => setTimeout(r, 200));
   check("wave cell has no sliders (scoped, non-numeric)", (await page.$(".cells .cell:last-child .s-range")) === null);
 
+  // Frequency source + source-mode controls.
+  check(
+    "wave cell exposes a Freq control",
+    await page
+      .$eval(".cells .cell:last-child .wave", (el) =>
+        [...el.querySelectorAll(".ctl span")].some((s) => s.textContent.trim() === "Freq"),
+      )
+      .catch(() => false),
+  );
+  check(
+    "wave cell exposes Ripple/Drive source modes",
+    await page
+      .$eval(".cells .cell:last-child .wave", (el) =>
+        [...el.querySelectorAll(".seg-btn")].some((b) => b.textContent.trim() === "Drive"),
+      )
+      .catch(() => false),
+  );
+  // Selecting the filtered boundary reveals the filter controls.
+  await page.evaluate(() => {
+    [...document.querySelectorAll(".cells .cell:last-child .wave .seg-btn")]
+      .find((b) => b.textContent.trim() === "Filter")
+      ?.click();
+  });
+  await new Promise((r) => setTimeout(r, 120));
+  check(
+    "filtered boundary reveals filter controls (LP/HP + cutoff + reflect)",
+    await page
+      .$eval(".cells .cell:last-child .wave", (el) => {
+        const spans = [...el.querySelectorAll(".ctl span")].map((s) => s.textContent.trim());
+        const segs = [...el.querySelectorAll(".seg-btn")].map((b) => b.textContent.trim());
+        return (
+          spans.includes("Cutoff") &&
+          spans.includes("Reflect") &&
+          segs.includes("LP") &&
+          segs.includes("HP")
+        );
+      })
+      .catch(() => false),
+  );
+
   // Switch to the Workbench "Wave" tab: full canvas, no expression input.
   await page.evaluate(() => {
     const btn = [...document.querySelectorAll(".mode-switch button")].find(
