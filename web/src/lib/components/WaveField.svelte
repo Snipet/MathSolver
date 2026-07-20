@@ -239,9 +239,11 @@
     if (!fieldCtx || !imgData) return;
 
     // Ease the color scale toward the current peak so faint ripples stay
-    // visible while a big pluck doesn't wash everything out.
+    // visible while a big pluck doesn't wash everything out. The floor is set
+    // so a dying/near-rest field fades to the calm background instead of
+    // amplifying residual noise into a saturated blob.
     const peak = s.maxAbs();
-    const target = Math.max(peak, 0.02);
+    const target = Math.max(peak, 0.08);
     scale += (target - scale) * 0.08;
     const inv = scale > 1e-6 ? 1 / scale : 0;
 
@@ -368,7 +370,7 @@
   // --- actions ---------------------------------------------------------------
   function reset(): void {
     sim?.reset();
-    scale = 0.05;
+    scale = 0.08;
     energy = 0;
   }
   function togglePlay(): void {
@@ -384,119 +386,161 @@
 </script>
 
 <div class="wave" class:compact bind:this={host}>
-  <div class="controls" role="group" aria-label="Wave field controls">
-    <button class="ctl-btn primary" onclick={togglePlay} aria-pressed={running}>
-      {running ? "❚❚ Pause" : "► Play"}
-    </button>
-    <button class="ctl-btn" onclick={reset}>Reset</button>
-
-    <label class="ctl">
-      <span>Speed</span>
-      <input type="range" min="0.05" max="1" step="0.01" bind:value={speedV} />
-    </label>
-    <label class="ctl">
-      <span>Damping</span>
-      <input type="range" min="0" max="0.6" step="0.01" bind:value={dampingV} />
-    </label>
-
-    <label class="ctl" title="Frequency of the injected wave: low = long waves, high = short">
-      <span>Freq</span>
-      <input type="range" min="0" max="1" step="0.01" bind:value={freqV} />
-    </label>
-    <div class="seg" role="group" aria-label="Source mode">
-      <button
-        class="seg-btn"
-        class:active={srcMode === "ripple"}
-        title="Click or drag emits a wavelet at the set frequency"
-        onclick={() => (srcMode = "ripple")}
-      >
-        Ripple
-      </button>
-      <button
-        class="seg-btn"
-        class:active={srcMode === "drive"}
-        title="Hold to run a continuous oscillator (ripple-tank dipper)"
-        onclick={() => (srcMode = "drive")}
-      >
-        Drive
-      </button>
-    </div>
-
-    <div class="seg" role="group" aria-label="Boundary">
-      {#each BOUNDARIES as b (b.id)}
+  <div class="panel" role="group" aria-label="Wave field controls">
+    <div class="bar">
+      <div class="tgroup transport">
         <button
-          class="seg-btn"
-          class:active={boundaryV === b.id}
-          title={b.title}
-          onclick={() => (boundaryV = b.id)}
+          class="icon-btn primary"
+          onclick={togglePlay}
+          aria-pressed={running}
+          aria-label={running ? "Pause" : "Play"}
+          title={running ? "Pause" : "Play"}
         >
-          {b.label}
+          {#if running}
+            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4.5" y="3.5" width="2.4" height="9" rx="0.6" /><rect x="9.1" y="3.5" width="2.4" height="9" rx="0.6" /></svg>
+          {:else}
+            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.6v8.8l7-4.4z" /></svg>
+          {/if}
         </button>
-      {/each}
-    </div>
-
-    {#if boundaryV === "robin"}
-      <label class="ctl" title="Edge stiffness k: 0 ≈ free, large ≈ fixed">
-        <span>Stiffness</span>
-        <input type="range" min="0" max="8" step="0.1" bind:value={robinV} />
-      </label>
-    {/if}
-
-    {#if boundaryV === "filtered"}
-      <div class="seg" role="group" aria-label="Reflection filter">
-        <button
-          class="seg-btn"
-          class:active={filterType === "lowpass"}
-          title="Low-pass: reflect low frequencies, absorb highs (muffling wall)"
-          onclick={() => (filterType = "lowpass")}
-        >
-          LP
-        </button>
-        <button
-          class="seg-btn"
-          class:active={filterType === "highpass"}
-          title="High-pass: reflect high frequencies, absorb lows"
-          onclick={() => (filterType = "highpass")}
-        >
-          HP
+        <button class="icon-btn" onclick={reset} aria-label="Reset field" title="Reset field">
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 8a4.5 4.5 0 1 1-1.4-3.26" /><path d="M12.6 3.2v2.6h-2.6" /></svg>
         </button>
       </div>
-      <label class="ctl" title="Filter cutoff — higher reflects more">
-        <span>Cutoff</span>
-        <input type="range" min="0.02" max="1" step="0.01" bind:value={filterCutoffV} />
-      </label>
-      <label class="ctl" title="Overall reflectivity — 0 fully absorbs">
-        <span>Reflect</span>
-        <input type="range" min="0" max="1" step="0.01" bind:value={filterReflectV} />
-      </label>
-    {/if}
 
-    {#if !compact}
-      <label class="ctl">
-        <span>Brush</span>
-        <input type="range" min="1" max="12" step="1" bind:value={brush} />
-      </label>
-      <label class="ctl">
-        <span>Strength</span>
-        <input type="range" min="0.2" max="2.5" step="0.1" bind:value={strength} />
-      </label>
-      <label class="ctl">
-        <span>Detail</span>
-        <input type="range" min="64" max="300" step="4" bind:value={cols} />
-      </label>
-      <label class="ctl select">
-        <span>Color</span>
-        <select bind:value={colormap}>
-          <option value="coolwarm">coolwarm</option>
-          <option value="fire">fire</option>
-          <option value="violet">violet</option>
-        </select>
-      </label>
-    {/if}
+      <span class="sep"></span>
 
-    <span class="energy" title="Total field energy (kinetic + potential, arb. units)">
-      E {Math.max(0, Math.round(energy * 1000))}
-    </span>
+      <div class="tgroup">
+        <label class="ctl" title="Wave propagation speed (Courant number)">
+          <span>Speed</span>
+          <input type="range" min="0.05" max="1" step="0.01" bind:value={speedV} />
+        </label>
+        <label class="ctl" title="Energy loss over time">
+          <span>Damping</span>
+          <input type="range" min="0" max="0.6" step="0.01" bind:value={dampingV} />
+        </label>
+      </div>
+
+      <span class="sep"></span>
+
+      <div class="tgroup">
+        <label class="ctl" title="Frequency of the injected wave: low = long waves, high = short">
+          <span>Freq</span>
+          <input type="range" min="0" max="1" step="0.01" bind:value={freqV} />
+        </label>
+        <div class="seg" role="group" aria-label="Source mode">
+          <button
+            class="seg-btn"
+            class:active={srcMode === "ripple"}
+            title="Click or drag emits a wavelet at the set frequency"
+            onclick={() => (srcMode = "ripple")}
+          >
+            Ripple
+          </button>
+          <button
+            class="seg-btn"
+            class:active={srcMode === "drive"}
+            title="Hold to run a continuous oscillator (ripple-tank dipper)"
+            onclick={() => (srcMode = "drive")}
+          >
+            Drive
+          </button>
+        </div>
+      </div>
+
+      {#if !compact}
+        <span class="sep"></span>
+        <div class="tgroup">
+          <label class="ctl" title="Source size">
+            <span>Brush</span>
+            <input type="range" min="1" max="12" step="1" bind:value={brush} />
+          </label>
+          <label class="ctl" title="Injection strength">
+            <span>Strength</span>
+            <input type="range" min="0.2" max="2.5" step="0.1" bind:value={strength} />
+          </label>
+        </div>
+      {/if}
+
+      <span
+        class="stat"
+        title="Total field energy (kinetic + potential, arb. units)"
+      >
+        <span class="stat-k">E</span>
+        <span class="stat-v">{Math.max(0, Math.round(energy * 1000))}</span>
+      </span>
+    </div>
+
+    <div class="bar row2">
+      <div class="tgroup">
+        <span class="glabel">Edge</span>
+        <div class="seg" role="group" aria-label="Boundary">
+          {#each BOUNDARIES as b (b.id)}
+            <button
+              class="seg-btn"
+              class:active={boundaryV === b.id}
+              title={b.title}
+              onclick={() => (boundaryV = b.id)}
+            >
+              {b.label}
+            </button>
+          {/each}
+        </div>
+
+        {#if boundaryV === "robin"}
+          <label class="ctl" title="Edge stiffness k: 0 ≈ free, large ≈ fixed">
+            <span>Stiffness</span>
+            <input type="range" min="0" max="8" step="0.1" bind:value={robinV} />
+          </label>
+        {/if}
+
+        {#if boundaryV === "filtered"}
+          <div class="seg" role="group" aria-label="Reflection filter">
+            <button
+              class="seg-btn"
+              class:active={filterType === "lowpass"}
+              title="Low-pass: reflect low frequencies, absorb highs (muffling wall)"
+              onclick={() => (filterType = "lowpass")}
+            >
+              LP
+            </button>
+            <button
+              class="seg-btn"
+              class:active={filterType === "highpass"}
+              title="High-pass: reflect high frequencies, absorb lows"
+              onclick={() => (filterType = "highpass")}
+            >
+              HP
+            </button>
+          </div>
+          <label class="ctl" title="Filter cutoff — higher reflects more">
+            <span>Cutoff</span>
+            <input type="range" min="0.02" max="1" step="0.01" bind:value={filterCutoffV} />
+          </label>
+          <label class="ctl" title="Overall reflectivity — 0 fully absorbs">
+            <span>Reflect</span>
+            <input type="range" min="0" max="1" step="0.01" bind:value={filterReflectV} />
+          </label>
+        {/if}
+      </div>
+
+      {#if !compact}
+        <span class="sep"></span>
+        <div class="tgroup">
+          <label class="ctl" title="Grid resolution">
+            <span>Detail</span>
+            <input type="range" min="64" max="300" step="4" bind:value={cols} />
+          </label>
+          <label class="ctl select" title="Color map">
+            <span>Color</span>
+            <select bind:value={colormap}>
+              <option value="coolwarm">coolwarm</option>
+              <option value="fire">fire</option>
+              <option value="violet">violet</option>
+            </select>
+          </label>
+        </div>
+      {/if}
+    </div>
   </div>
 
   <div class="stage">
@@ -509,7 +553,10 @@
       onpointercancel={onPointerUp}
     ></canvas>
     {#if !touched}
-      <p class="hint">Click to pluck · drag to launch a wavefront</p>
+      <div class="hint" aria-hidden="true">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.4" /><circle cx="8" cy="8" r="5.4" fill="none" stroke="currentColor" stroke-width="1" opacity="0.55" /></svg>
+        <span>Click to pluck · drag to launch a wavefront</span>
+      </div>
     {/if}
   </div>
 </div>
@@ -518,85 +565,164 @@
   .wave {
     display: flex;
     flex-direction: column;
-    gap: 0.55rem;
+    gap: 0.6rem;
     min-width: 0;
   }
-  .controls {
+
+  /* Control card ------------------------------------------------------------ */
+  .panel {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--bg-panel) 55%, transparent);
+  }
+  .bar {
     display: flex;
     align-items: center;
-    gap: 0.55rem 0.75rem;
+    gap: 0.4rem 0.7rem;
+    flex-wrap: wrap;
+    padding: 0.5rem 0.65rem;
+  }
+  .bar.row2 {
+    border-top: 1px solid var(--border);
+  }
+  .tgroup {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem 0.7rem;
     flex-wrap: wrap;
   }
-  .ctl-btn {
-    font: inherit;
-    font-size: 0.82rem;
-    font-weight: 600;
+  .sep {
+    width: 1px;
+    align-self: stretch;
+    min-height: 1.3rem;
+    background: var(--border);
+  }
+  .glabel {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+  }
+
+  /* Transport icon buttons -------------------------------------------------- */
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
     color: var(--fg-muted);
     background: var(--bg-panel);
     border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 0.25rem 0.8rem;
+    border-radius: calc(var(--radius) / 1.5);
     cursor: pointer;
-    white-space: nowrap;
+    transition: color 100ms ease, border-color 100ms ease, background 100ms ease;
   }
-  .ctl-btn:hover {
+  .icon-btn svg {
+    width: 15px;
+    height: 15px;
+    fill: currentColor;
+  }
+  .icon-btn:hover {
     color: var(--accent);
     border-color: var(--accent);
   }
-  .ctl-btn.primary {
+  .icon-btn.primary {
     color: var(--accent-fg, #fff);
     background: var(--accent);
     border-color: var(--accent);
+    box-shadow: 0 1px 5px color-mix(in srgb, var(--accent) 40%, transparent);
   }
+  .icon-btn.primary:hover {
+    filter: brightness(1.06);
+  }
+
+  /* Labeled sliders --------------------------------------------------------- */
   .ctl {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     color: var(--fg-muted);
   }
+  .ctl > span {
+    white-space: nowrap;
+  }
   .ctl input[type="range"] {
-    width: 6.5rem;
+    width: 5.4rem;
+    height: 1.1rem;
     accent-color: var(--accent);
+    cursor: pointer;
   }
   .ctl.select select {
     font: inherit;
-    font-size: 0.78rem;
+    font-size: 0.75rem;
     color: var(--fg);
     background: var(--bg);
     border: 1px solid var(--border);
     border-radius: calc(var(--radius) / 2);
-    padding: 0.1rem 0.35rem;
+    padding: 0.12rem 0.35rem;
+    cursor: pointer;
   }
+
+  /* Segmented controls ------------------------------------------------------ */
   .seg {
     display: inline-flex;
+    padding: 2px;
+    gap: 2px;
+    background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 999px;
-    overflow: hidden;
   }
   .seg-btn {
     font: inherit;
-    font-size: 0.76rem;
+    font-size: 0.73rem;
+    font-weight: 600;
     color: var(--fg-muted);
     background: transparent;
     border: none;
-    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    padding: 0.16rem 0.6rem;
     cursor: pointer;
+    transition: color 100ms ease, background 100ms ease;
   }
   .seg-btn:hover {
-    color: var(--accent);
+    color: var(--fg);
   }
   .seg-btn.active {
     color: var(--accent-fg, #fff);
     background: var(--accent);
   }
-  .energy {
-    font-family: var(--font-mono);
-    font-size: 0.74rem;
-    color: var(--fg-muted);
+
+  /* Energy stat chip -------------------------------------------------------- */
+  .stat {
     margin-left: auto;
-    white-space: nowrap;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    padding: 0.16rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg);
   }
+  .stat-k {
+    font-size: 0.64rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+  }
+  .stat-v {
+    font-family: var(--font-mono);
+    font-size: 0.82rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg);
+    min-width: 2ch;
+    text-align: right;
+  }
+
+  /* Canvas stage ------------------------------------------------------------ */
   .stage {
     position: relative;
     border: 1px solid var(--border);
@@ -604,6 +730,16 @@
     overflow: hidden;
     background: var(--bg-panel);
     line-height: 0;
+    box-shadow: inset 0 1px 24px rgb(0 0 0 / 22%);
+  }
+  /* Subtle vignette for depth; never intercepts pointer energy injection. */
+  .stage::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    box-shadow: inset 0 0 60px rgb(0 0 0 / 20%);
   }
   canvas {
     display: block;
@@ -615,16 +751,29 @@
   .hint {
     position: absolute;
     left: 50%;
-    bottom: 0.7rem;
+    bottom: 0.8rem;
     transform: translateX(-50%);
+    z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
     margin: 0;
-    padding: 0.2rem 0.7rem;
+    padding: 0.3rem 0.8rem;
     font-size: 0.78rem;
+    line-height: 1;
     color: var(--fg-muted);
-    background: color-mix(in srgb, var(--bg-panel) 78%, transparent);
+    background: color-mix(in srgb, var(--bg-panel) 82%, transparent);
     border: 1px solid var(--border);
     border-radius: 999px;
+    backdrop-filter: blur(3px);
     pointer-events: none;
     white-space: nowrap;
+  }
+  .hint svg {
+    width: 15px;
+    height: 15px;
+    fill: currentColor;
+    flex: 0 0 auto;
+    opacity: 0.8;
   }
 </style>
