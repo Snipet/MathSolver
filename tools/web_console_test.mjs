@@ -780,6 +780,62 @@ try {
       .catch(() => false),
   );
 
+  // --- wave tool: console cell + workbench tab -----------------------------
+  await run("wave 96, absorbing");
+  const waveCanvas = await page.$(".cells .cell:last-child .wave canvas");
+  check("wave cell renders an interactive canvas", waveCanvas !== null);
+  // Energy injection must not throw: dispatch a pointer drag on the canvas.
+  if (waveCanvas) {
+    const box = await waveCanvas.boundingBox();
+    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height * 0.5);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.55, { steps: 6 });
+    await page.mouse.up();
+  }
+  await new Promise((r) => setTimeout(r, 200));
+  check("wave cell has no sliders (scoped, non-numeric)", (await page.$(".cells .cell:last-child .s-range")) === null);
+
+  // Switch to the Workbench "Wave" tab: full canvas, no expression input.
+  await page.evaluate(() => {
+    const btn = [...document.querySelectorAll(".mode-switch button")].find(
+      (b) => b.textContent.trim() === "Workbench",
+    );
+    btn?.click();
+  });
+  await page.waitForSelector("#workbench-panel", { timeout: 5000 });
+  await page.evaluate(() => {
+    const t = [...document.querySelectorAll('[role="tab"]')].find(
+      (b) => b.textContent.trim() === "Wave",
+    );
+    t?.click();
+  });
+  await page.waitForFunction(
+    () => document.querySelector("#workbench-panel .wave canvas") !== null,
+    { timeout: 5000 },
+  );
+  check("workbench Wave tab renders a canvas", true);
+  check(
+    "Wave tab has no expression input",
+    (await page.$("#workbench-panel textarea")) === null,
+  );
+  // Leaving the tab must tear the animation down (no detached-canvas paints).
+  await page.evaluate(() => {
+    const t = [...document.querySelectorAll('[role="tab"]')].find(
+      (b) => b.textContent.trim() === "Simplify",
+    );
+    t?.click();
+  });
+  await new Promise((r) => setTimeout(r, 200));
+  check("Wave tab canvas removed after leaving", (await page.$("#workbench-panel .wave canvas")) === null);
+  // Return to the console for the terminal no-error checks.
+  await page.evaluate(() => {
+    const btn = [...document.querySelectorAll(".mode-switch button")].find(
+      (b) => b.textContent.trim() === "Console",
+    );
+    btn?.click();
+  });
+  await page.waitForSelector(TA, { timeout: 5000 });
+
   // --- console UX overhaul: reference panel, autocomplete, cell actions ----
   await page.waitForFunction(
     () =>

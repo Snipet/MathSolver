@@ -51,6 +51,10 @@
       ],
     },
     {
+      title: "Tools",
+      items: ["wave", "wave 240, absorbing"],
+    },
+    {
       title: "Solve",
       items: [
         "solve x^2 = 4, x",

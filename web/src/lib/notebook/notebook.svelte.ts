@@ -116,6 +116,7 @@ const NO_ENV_VERBS = new Set([
   "rsolve",
   "seq",
   "stirling",
+  "wave",
   "help",
   "vars",
   "clear",
@@ -159,7 +160,8 @@ function sliderCandidates(input: string, result: CellResult | null): CellSlider[
     !result ||
     result.kind === "message" ||
     result.kind === "assignment" ||
-    result.kind === "error"
+    result.kind === "error" ||
+    result.kind === "wave"
   )
     return [];
   if (splitAssignment(input)) return [];

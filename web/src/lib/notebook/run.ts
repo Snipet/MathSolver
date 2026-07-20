@@ -21,6 +21,7 @@ import {
   type EnvOverrides,
   type ScopeEnv,
 } from "../vars/session";
+import type { Boundary } from "../wave/sim";
 
 /** A console-only informational line (help, vars listing, unset/clear echo). */
 export interface NotebookMessage {
@@ -205,6 +206,7 @@ function helpMessage(): NotebookMessage {
       "jacobian <F1;F2;…>, <vars…>    hessian <f>, <vars…>",
       "vecfield <Fx>; <Fy>[, <xlo>, <xhi>, <ylo>, <yhi>]   quiver plot",
       "plot <expr>[, <lo>, <hi>]           chart an expression",
+      "wave [<columns>][, fixed|free|robin|absorbing]   interactive 2D wave field (drag to add energy)",
       "<name> := <value>      bind a variable (applies to later lines)",
       "save <name>    save this session's commands as a notebook",
       "open <name>    load a notebook's commands (without running)",
@@ -708,6 +710,45 @@ async function runSolve(
   return { kind: "solve", variable: v, result: r, computedFrom: env.computedFrom };
 }
 
+// --- interactive tools -----------------------------------------------------
+
+/** Map friendly boundary spellings to the sim's canonical names. */
+function normalizeBoundary(raw: string | undefined): Boundary | null {
+  const s = (raw ?? "").trim().toLowerCase();
+  if (!s) return null;
+  if (["fixed", "reflect", "clamp", "clamped", "dirichlet"].includes(s)) return "fixed";
+  if (["free", "neumann"].includes(s)) return "free";
+  if (["robin", "impedance", "mixed", "springy"].includes(s)) return "robin";
+  if (["absorbing", "absorb", "open", "mur"].includes(s)) return "absorbing";
+  return null;
+}
+
+/**
+ * `wave [<columns>][, fixed|free|absorbing]` — a live 2-D wave field cell.
+ * Like plot, this produces plain-data (a serializable seed) rather than
+ * calling the engine; WaveField owns the simulation.
+ */
+function runWave(rest: string): CellResult {
+  const args = rest ? splitTopLevelCommas(rest) : [];
+  let columns = 180;
+  if (args[0]) {
+    const n = Number(args[0]);
+    if (!Number.isFinite(n))
+      return usage("wave [<columns>][, fixed|free|absorbing]");
+    columns = Math.max(48, Math.min(320, Math.round(n)));
+  }
+  const b = normalizeBoundary(args[1]);
+  if (args[1] && b === null)
+    return usage("wave boundary must be one of: fixed, free, robin, absorbing");
+  return {
+    kind: "wave",
+    columns,
+    speed: 0.5,
+    damping: 0.08,
+    boundary: b ?? "fixed",
+  };
+}
+
 // --- bare input ------------------------------------------------------------
 
 async function runBare(
@@ -782,6 +823,7 @@ export async function runLine(
       if (!rest) return usage("plot needs an expression, e.g. plot sin(x)/x, -20, 20");
       return await runPlot(rest, ov, scope);
     }
+    if (verb === "wave") return runWave(rest);
     if (MATH_VERBS.has(verb)) {
       if (!rest) return usage(`${verb} needs an expression`);
       return await runVerb(verb, rest, ov, scope);
