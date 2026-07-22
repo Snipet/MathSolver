@@ -1,8 +1,11 @@
 name: Deploy to GitHub Pages
 
+# GitHub Pages deploys from the `dev` branch. `main` is left for Cloudflare
+# Pages (configured in the Cloudflare dashboard with main as the production
+# branch), so the two hosts don't both publish the same branch.
 on:
   push:
-    branches: [main]
+    branches: [dev]
   workflow_dispatch:
 
 # Standard GitHub Pages permissions.
