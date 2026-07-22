@@ -15,14 +15,30 @@ export interface View {
   scale: number;
 }
 
-/** A curve ready to draw: world-space samples in a color. */
+/** Inequality shading: a sign mask over a world-space grid (row-major ny×nx). */
+export interface RegionMask {
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  nx: number;
+  ny: number;
+  /** 1 where the inequality holds. */
+  mask: Uint8Array;
+}
+
+/** A drawable in world space: a polyline, a set of points, or a shaded region. */
 export interface DrawSeries {
   id: string;
   color: string;
-  /** Sampled x's (world) and y's, aligned; null y breaks the polyline. */
-  xs: number[];
-  ys: (number | null)[];
   visible: boolean;
+  kind: "line" | "points" | "region";
+  /** For "line"/"points": aligned world coords; a null in either breaks the
+   *  polyline (x can be null for x=f(y) where f is undefined). */
+  xs: (number | null)[];
+  ys: (number | null)[];
+  /** For "region": the inequality shading grid. */
+  region?: RegionMask;
 }
 
 // Deep zoom is allowed, but bounded so float precision stays usable.

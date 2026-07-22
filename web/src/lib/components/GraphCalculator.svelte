@@ -8,8 +8,9 @@
   import { call } from "../engine";
   import { vars } from "../vars.svelte";
   import { applyEnv, overrideValue } from "../vars/session";
-  import { graph, GRAPH_COLORS, type ExprRow } from "../graph/graph.svelte";
-  import { xRange, type DrawSeries } from "../graph/viewport";
+  import { graph, GRAPH_COLORS } from "../graph/graph.svelte";
+  import { xRange, yRange, type DrawSeries } from "../graph/viewport";
+  import { classifyRow, type RowKind } from "../graph/classify";
   import GraphCanvas from "./GraphCanvas.svelte";
 
   interface Props {
@@ -38,10 +39,14 @@
   // --- measure the graph area (for sample count + visible range) ------------
   let graphArea: HTMLDivElement | undefined = $state();
   let graphW = $state(800);
+  let graphH = $state(460);
   $effect(() => {
     const el = graphArea;
     if (!el) return;
-    const ro = new ResizeObserver((e) => (graphW = Math.max(120, Math.floor(e[0].contentRect.width))));
+    const ro = new ResizeObserver((e) => {
+      graphW = Math.max(120, Math.floor(e[0].contentRect.width));
+      graphH = Math.max(120, Math.floor(e[0].contentRect.height));
+    });
     ro.observe(el);
     return () => ro.disconnect();
   });
@@ -96,33 +101,139 @@
     });
   }
 
+  // The plot variables of a row (never turned into sliders).
+  function plotVarsOf(spec: RowKind): Set<string> {
+    switch (spec.t) {
+      case "function":
+        return new Set(["x"]);
+      case "functionY":
+        return new Set(["y"]);
+      case "polar":
+        return new Set(["theta", "t"]);
+      case "relation":
+        return new Set(["x", "y"]);
+      default:
+        return new Set();
+    }
+  }
+  // Expressions within a row whose symbols matter for free-variable detection.
+  function specExprs(spec: RowKind): string[] {
+    switch (spec.t) {
+      case "function":
+      case "functionY":
+      case "polar":
+        return [spec.expr];
+      case "relation":
+        return [spec.lhs, spec.rhs];
+      case "pointish":
+        return spec.coords.flatMap((c) => c);
+      default:
+        return [];
+    }
+  }
+
+  function linspace(lo: number, hi: number, n: number): number[] {
+    const xs = new Array(n);
+    for (let i = 0; i < n; i++) xs[i] = lo + ((hi - lo) * i) / (n - 1);
+    return xs;
+  }
+  function sampleN(): number {
+    return Math.max(200, Math.min(1600, Math.round(graphW * 1.6)));
+  }
+
+  /** Resolve session vars + slider overrides into one coordinate and evaluate it. */
+  async function evalCoord(expr: string): Promise<number | null> {
+    try {
+      const env = await applyEnv(expr, [], "expr", overrides);
+      const r = await call("evaluate", [env.text, ""]);
+      return r.ok && r.value !== null && Number.isFinite(r.value) ? r.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  interface Built {
+    series: DrawSeries[];
+    error?: string;
+  }
+
+  async function buildDrawable(
+    id: number,
+    color: string,
+    spec: RowKind,
+  ): Promise<Built> {
+    if (spec.t === "function" || spec.t === "functionY") {
+      const along = spec.t === "function" ? "x" : "y";
+      const [lo0, hi0] = spec.t === "function" ? xRange(graph.view, graphW) : yRange(graph.view, graphH);
+      const span = hi0 - lo0;
+      const lo = lo0 - 0.35 * span;
+      const hi = hi0 + 0.35 * span;
+      const n = sampleN();
+      const env = await applyEnv(spec.expr, [along], "expr", overrides);
+      const sr = await call("sample", [env.text, along, lo, hi, n]);
+      if (!sr.ok) return { series: [], error: sr.error };
+      const axis = linspace(lo, hi, n);
+      const series: DrawSeries =
+        spec.t === "function"
+          ? { id: String(id), color, visible: true, kind: "line", xs: axis, ys: sr.ys }
+          : { id: String(id), color, visible: true, kind: "line", xs: sr.ys, ys: axis };
+      return { series: [series] };
+    }
+
+    if (spec.t === "pointish") {
+      const xs: number[] = [];
+      const ys: (number | null)[] = [];
+      for (const [xe, ye] of spec.coords) {
+        const x = await evalCoord(xe);
+        const y = await evalCoord(ye);
+        if (x !== null && y !== null) {
+          xs.push(x);
+          ys.push(y);
+        }
+      }
+      if (xs.length === 0) return { series: [], error: "point coordinates must be numbers" };
+      return { series: [{ id: String(id), color, visible: true, kind: "points", xs, ys }] };
+    }
+
+    if (spec.t === "relation") return { series: [], error: "implicit curves & inequalities — coming in Phase 3" };
+    if (spec.t === "polar") return { series: [], error: "polar plots — coming in Phase 4" };
+    return { series: [] };
+  }
+
   async function recompute(my: number): Promise<void> {
     const vis = graph.rows.filter((r) => r.visible && r.text.trim());
-    const analyses = await Promise.all(
-      vis.map(async (r) => ({ r, a: await call("analyze", [r.text.trim()]) })),
+    const items = vis.map((r) => ({ r, spec: classifyRow(r.text.trim()) }));
+
+    // Free-variable detection: analyze each row's sampling expressions.
+    const analyzed = await Promise.all(
+      items.map(async ({ r, spec }) => {
+        const syms = new Set<string>();
+        let err: string | null = null;
+        for (const ex of specExprs(spec)) {
+          const a = await call("analyze", [ex]);
+          if (!a.ok) {
+            err = a.error;
+            break;
+          }
+          if ("symbols" in a) for (const s of a.symbols) syms.add(s);
+        }
+        return { r, spec, syms: [...syms], err };
+      }),
     );
     if (my !== seq) return;
 
     const errs: Record<number, string> = {};
     const freeVars = new Set<string>();
-    const fnRows: ExprRow[] = [];
-    for (const { r, a } of analyses) {
-      if (!a.ok) {
-        errs[r.id] = a.error;
+    for (const { r, spec, syms, err } of analyzed) {
+      if (err) {
+        errs[r.id] = err;
         continue;
       }
-      if (a.kind === "expression") {
-        if (a.symbols.every((s) => s === "x" || true)) fnRows.push(r);
-        for (const s of a.symbols) if (s !== "x") freeVars.add(s);
-      } else {
-        // equations / systems (implicit, relations) — Phase 3.
-        errs[r.id] = "relations & implicit curves are coming soon";
-      }
+      const pv = plotVarsOf(spec);
+      for (const s of syms) if (!pv.has(s)) freeVars.add(s);
     }
-    rowErrors = errs;
     reconcileVars(freeVars);
 
-    // Build the slider list from free vars that resolve to a number.
     const active = untrack(() => vars.active);
     const nextSlots: Slot[] = [];
     for (const name of freeVars) {
@@ -136,32 +247,19 @@
     }
     slots = nextSlots;
 
-    // Sample each function row over a range wider than the viewport, so a
-    // small pan re-projects existing samples without gaps.
-    const [xlo, xhi] = xRange(graph.view, graphW);
-    const wx = xhi - xlo;
-    const lo = xlo - 0.35 * wx;
-    const hi = xhi + 0.35 * wx;
-    const n = Math.max(200, Math.min(1600, Math.round(graphW * 1.6)));
-    const xs = new Array(n);
-    for (let i = 0; i < n; i++) xs[i] = lo + ((hi - lo) * i) / (n - 1);
-
     const out: DrawSeries[] = [];
-    for (const r of fnRows) {
+    for (const { r, spec, err } of analyzed) {
+      if (err) continue;
       try {
-        const env = await applyEnv(r.text.trim(), ["x"], "expr", overrides);
+        const built = await buildDrawable(r.id, r.color, spec);
         if (my !== seq) return;
-        const sr = await call("sample", [env.text, "x", lo, hi, n]);
-        if (my !== seq) return;
-        if (sr.ok) {
-          out.push({ id: String(r.id), color: r.color, xs, ys: sr.ys, visible: true });
-        } else {
-          rowErrors = { ...rowErrors, [r.id]: sr.error };
-        }
+        if (built.error) errs[r.id] = built.error;
+        for (const s of built.series) out.push(s);
       } catch (e) {
-        rowErrors = { ...rowErrors, [r.id]: e instanceof Error ? e.message : String(e) };
+        errs[r.id] = e instanceof Error ? e.message : String(e);
       }
     }
+    rowErrors = errs;
     if (my === seq) series = out;
   }
 
@@ -179,6 +277,12 @@
     ranges.set(name, { lo, hi });
     // nudge a resample so the slot picks up the new range
     overrides = { ...overrides };
+  }
+
+  // A "y =" lead only for a bare function expression (clarifies that a bare
+  // expression is y=f(x)); rows that already carry x=/r=/=/(…) are self-evident.
+  function leadFor(text: string): string {
+    return classifyRow(text).t === "function" && !text.includes("=") ? "y =" : "";
   }
 
   // --- expression list actions ----------------------------------------------
@@ -209,7 +313,9 @@
               onclick={() => graph.toggleVisible(row.id)}
             ></button>
             <div class="expr-wrap">
-              <span class="ylead" aria-hidden="true">y =</span>
+              {#if leadFor(row.text)}
+                <span class="ylead" aria-hidden="true">{leadFor(row.text)}</span>
+              {/if}
               <input
                 class="expr"
                 type="text"

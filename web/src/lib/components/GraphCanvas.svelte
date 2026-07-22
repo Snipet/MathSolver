@@ -164,28 +164,33 @@
       ctx.fillText("0", axisX - 4, axisY + 4);
     }
 
-    // Series polylines, clipped to the panel.
+    // Drawables, clipped to the panel: regions (under) → lines → points.
     ctx.save();
     ctx.beginPath();
     ctx.rect(0, 0, w, h);
     ctx.clip();
+
+    for (const s of series) {
+      if (s.visible && s.kind === "region" && s.region) drawRegion(ctx, v, w, h, s);
+    }
+
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
     ctx.lineWidth = 2.2;
     for (const s of series) {
-      if (!s.visible || s.xs.length === 0) continue;
+      if (!s.visible || s.kind !== "line" || s.xs.length === 0) continue;
       ctx.strokeStyle = s.color;
       ctx.beginPath();
       let pen = false;
       for (let i = 0; i < s.xs.length; i++) {
         const y = s.ys[i];
-        if (y === null || !Number.isFinite(y)) {
+        const x = s.xs[i];
+        if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) {
           pen = false;
           continue;
         }
-        const px = xToPx(s.xs[i], v, w);
+        const px = xToPx(x, v, w);
         const py = yToPx(y, v, h);
-        // Break the line across near-vertical jumps (asymptotes).
         if (pen && Math.abs(py) < 1e7) ctx.lineTo(px, py);
         else {
           ctx.moveTo(px, py);
@@ -194,7 +199,115 @@
       }
       ctx.stroke();
     }
+
+    for (const s of series) {
+      if (!s.visible || s.kind !== "points") continue;
+      ctx.fillStyle = s.color;
+      for (let i = 0; i < s.xs.length; i++) {
+        const y = s.ys[i];
+        const x = s.xs[i];
+        if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+        ctx.beginPath();
+        ctx.arc(xToPx(x, v, w), yToPx(y, v, h), 4, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    }
+
+    drawTrace(ctx, v, w, h, label, bg);
     ctx.restore();
+  }
+
+  function drawRegion(
+    ctx: CanvasRenderingContext2D,
+    v: View,
+    w: number,
+    h: number,
+    s: DrawSeries,
+  ): void {
+    const rg = s.region!;
+    const cw = (rg.x1 - rg.x0) / rg.nx;
+    const ch = (rg.y1 - rg.y0) / rg.ny;
+    ctx.fillStyle = s.color;
+    ctx.globalAlpha = 0.18;
+    for (let j = 0; j < rg.ny; j++) {
+      for (let i = 0; i < rg.nx; i++) {
+        if (!rg.mask[j * rg.nx + i]) continue;
+        const wx0 = rg.x0 + i * cw;
+        const wy0 = rg.y0 + j * ch;
+        const px = xToPx(wx0, v, w);
+        const py = yToPx(wy0 + ch, v, h);
+        ctx.fillRect(px, py, Math.abs(cw * v.scale) + 1, Math.abs(ch * v.scale) + 1);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /** Snap a marker + coordinate label to the sampled curve point nearest the
+   *  cursor (hover trace). */
+  function drawTrace(
+    ctx: CanvasRenderingContext2D,
+    v: View,
+    w: number,
+    h: number,
+    label: string,
+    bg: string,
+  ): void {
+    if (!cursor || dragging) return;
+    let best: { px: number; py: number; x: number; y: number; color: string } | null = null;
+    let bestD = 24 * 24;
+    for (const s of series) {
+      if (!s.visible || s.kind !== "line") continue;
+      for (let i = 0; i < s.xs.length; i++) {
+        const y = s.ys[i];
+        const x = s.xs[i];
+        if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+        const px = xToPx(x, v, w);
+        const py = yToPx(y, v, h);
+        const d = (px - cursor.x) ** 2 + (py - cursor.y) ** 2;
+        if (d < bestD) {
+          bestD = d;
+          best = { px, py, x, y, color: s.color };
+        }
+      }
+    }
+    if (!best) return;
+    ctx.beginPath();
+    ctx.arc(best.px, best.py, 4.5, 0, 2 * Math.PI);
+    ctx.fillStyle = best.color;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = bg;
+    ctx.stroke();
+    const txt = `(${fmtCoord(best.x)}, ${fmtCoord(best.y)})`;
+    ctx.font = "12px " + (cssColor(canvas!, "--font-mono", "") || "monospace");
+    const tw = ctx.measureText(txt).width;
+    let lx = best.px + 10;
+    if (lx + tw + 10 > w) lx = best.px - tw - 18;
+    const ly = best.py - 14;
+    ctx.fillStyle = color_mix(bg);
+    roundRect(ctx, lx - 5, ly - 12, tw + 12, 20, 5);
+    ctx.fill();
+    ctx.fillStyle = label;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(txt, lx + 1, ly - 1);
+  }
+
+  function fmtCoord(v: number): string {
+    if (v === 0) return "0";
+    return String(parseFloat(v.toPrecision(4)));
+  }
+  function color_mix(bg: string): string {
+    return bg; // solid panel bg behind the label
+  }
+  function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
   }
 
   function drawGrid(
