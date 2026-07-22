@@ -4,6 +4,7 @@
   // multi-series rendering. Purely a view: it owns the viewport interaction
   // and drawing; the parent supplies already-sampled `series` and resamples
   // when `view` changes.
+  import { untrack } from "svelte";
   import {
     type View,
     type DrawSeries,
@@ -226,7 +227,7 @@
       if (!s.visible || s.kind !== "points") continue;
       ctx.fillStyle = s.color;
       for (let i = 0; i < s.xs.length; i++) {
-        const isGhost = !!ghost && ghost.sid === s.id && ghost.i === i;
+        const isGhost = !!ghost && ghost.sid === s.id && handles[s.id]?.[i]?.coordIndex === ghost.ci;
         let x = s.xs[i];
         let y = s.ys[i];
         if (isGhost && ghost) {
@@ -403,8 +404,10 @@
   // Draggable-point state: the grabbed handle and a live ghost position drawn
   // decoupled from the (debounced) `series` so the dot tracks the cursor.
   const GRAB = 11; // px hit radius
-  let pointDrag = $state<null | { sid: string; i: number; h: PointHandle }>(null);
-  let ghost = $state<null | { sid: string; i: number; x: number; y: number }>(null);
+  // Keyed by the stable coordIndex (ci), not the volatile series xs-index, so a
+  // mid-drag resample of a multi-point row can't desync the ghost/emphasis.
+  let pointDrag = $state<null | { sid: string; ci: number; h: PointHandle; pointerId: number }>(null);
+  let ghost = $state<null | { sid: string; ci: number; x: number; y: number }>(null);
   let grabMoved = false;
   let hoverPoint = $state(false); // cursor hint: hovering a draggable point
   const cursorStyle = $derived(
@@ -418,10 +421,15 @@
   function grabbable(h: PointHandle): boolean {
     return h.x.kind !== "expr" || h.y.kind !== "expr";
   }
-  function seriesXY(sid: string, i: number): { x: number; y: number } | null {
+  // Locate a point by its stable coordIndex within a series (handles align with
+  // xs/ys by position, and each carries its coordIndex).
+  function seriesXY(sid: string, ci: number): { x: number; y: number } | null {
     const s = series.find((ss) => ss.id === sid);
-    const x = s?.xs[i];
-    const y = s?.ys[i];
+    if (!s) return null;
+    const k = handles[sid]?.findIndex((hh) => hh && hh.coordIndex === ci) ?? -1;
+    if (k < 0) return null;
+    const x = s.xs[k];
+    const y = s.ys[k];
     return x == null || y == null ? null : { x, y };
   }
   function hitPoint(p: { x: number; y: number }): { sid: string; i: number; h: PointHandle } | null {
@@ -465,10 +473,13 @@
       onPointCommit?.(d.h.rowId, d.h.coordIndex, ghost.x, ghost.y);
     }
   }
-  // Clear the retained ghost once a fresh series (with the committed point) lands.
+  // Clear the retained ghost only when a fresh `series` actually lands (the
+  // committed recompute) — NOT when pointDrag flips to null on release, or a
+  // literal-point commit (no live series write) would snap back for ~90ms.
+  // pointDrag is read untracked so the release transition doesn't fire this.
   $effect(() => {
     void series;
-    if (!pointDrag) ghost = null;
+    if (!untrack(() => pointDrag)) ghost = null;
   });
 
   function onPointerDown(e: PointerEvent): void {
@@ -479,10 +490,11 @@
     if (pointers.size === 1) {
       const hit = hitPoint(p);
       if (hit) {
-        const base = seriesXY(hit.sid, hit.i);
+        const ci = hit.h.coordIndex;
+        const base = seriesXY(hit.sid, ci);
         if (base) {
-          pointDrag = hit;
-          ghost = { sid: hit.sid, i: hit.i, ...base };
+          pointDrag = { sid: hit.sid, ci, h: hit.h, pointerId: e.pointerId };
+          ghost = { sid: hit.sid, ci, ...base };
           grabMoved = false;
           onPointDragStart?.();
           return; // do NOT arm pan
@@ -498,18 +510,24 @@
   }
 
   function onPointerMove(e: PointerEvent): void {
+    // While dragging a point, ignore every other pointer's moves.
+    if (pointDrag && e.pointerId !== pointDrag.pointerId) return;
     const p = localXY(e);
     if (pointers.has(e.pointerId)) pointers.set(e.pointerId, p);
     cursor = { x: p.x, y: p.y };
 
     if (pointDrag) {
       const h = pointDrag.h;
-      const base = seriesXY(pointDrag.sid, pointDrag.i);
+      const base = seriesXY(pointDrag.sid, pointDrag.ci);
       // A free axis follows the cursor; a locked axis holds the series value.
-      const wx = h.x.kind !== "expr" ? pxToX(p.x, view, width) : base?.x ?? pxToX(p.x, view, width);
-      const wy = h.y.kind !== "expr" ? pxToY(p.y, view, H) : base?.y ?? pxToY(p.y, view, H);
+      let wx = h.x.kind !== "expr" ? pxToX(p.x, view, width) : base?.x ?? pxToX(p.x, view, width);
+      let wy = h.y.kind !== "expr" ? pxToY(p.y, view, H) : base?.y ?? pxToY(p.y, view, H);
+      // Same variable on both axes → one degree of freedom: project onto y = x.
+      if (h.x.kind === "var" && h.y.kind === "var" && h.x.name === h.y.name) {
+        wx = wy = (wx + wy) / 2;
+      }
       grabMoved = true;
-      ghost = { sid: pointDrag.sid, i: pointDrag.i, x: wx, y: wy };
+      ghost = { sid: pointDrag.sid, ci: pointDrag.ci, x: wx, y: wy };
       onPointDrag?.(h.rowId, h.coordIndex, wx, wy);
       return;
     }
@@ -535,7 +553,9 @@
 
   function onPointerUp(e: PointerEvent): void {
     pointers.delete(e.pointerId);
-    if (pointDrag) finishPointDrag(e.type === "pointercancel");
+    // Only the pointer that started the drag can finish it — a stray second
+    // finger lifting must not commit/cancel the gesture.
+    if (pointDrag && pointDrag.pointerId === e.pointerId) finishPointDrag(e.type === "pointercancel");
     if (pointers.size < 2) pinchDist = 0;
     if (pointers.size === 1) {
       // Lifting one finger of a pinch: reseat the pan anchor to the remaining

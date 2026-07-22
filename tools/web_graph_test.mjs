@@ -380,6 +380,27 @@ try {
     check("locked point (expr coords) is not rewritten — drag pans instead", before === after, `${before} -> ${after}`);
   }
 
+  // Same-variable point (a, a): one DOF — drag projects onto y=x, single write.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({ rows: [{ text: "(a, a)", color: "#9333ea", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
+    );
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  await clickGraph();
+  await page.waitForFunction(() => document.querySelectorAll(".calc .sliders .slot").length >= 1, { timeout: 6000 });
+  {
+    const box = await canvasBox();
+    const from = worldToScreen(box, 1, 1, 40); // a=1 → (1,1)
+    const to = worldToScreen(box, 4, 2, 40); // projects to a=(4+2)/2=3
+    await dragOnCanvas(from, to);
+    await new Promise((r) => setTimeout(r, 500));
+    const a = Number(await varVal("a"));
+    check("same-variable point (a,a) drags along y=x (single value)", Math.abs(a - 3) < 0.4, `a=${a}`);
+  }
+
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 } catch (e) {

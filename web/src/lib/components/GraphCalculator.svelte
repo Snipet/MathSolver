@@ -324,6 +324,9 @@
   // and non-numeric bindings are never settable.
   function isSettableVar(name: string): boolean {
     if (name === "x" || name === "y" || name === "r") return false;
+    // A `name = expr` graph definition drives the var from its row, not the
+    // session store — dragging it would just be reverted by reconcileDefines.
+    if (definedByGraph.has(name)) return false;
     if (slots.some((s) => s.name === name)) return true;
     return vars.active.some((b) => b.name === name && numericValue(b.value) !== null);
   }
