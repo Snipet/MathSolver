@@ -418,6 +418,13 @@ std::string render_function(const Expr& e, PrintStyle style) {
             return "\\Gamma\\left(" + arg + "\\right)";
         case FunctionId::Digamma:
             return "\\psi\\left(" + arg + "\\right)";
+        case FunctionId::Conj:
+            // Conjugate is drawn as an overline: conj(z) -> \overline{z}.
+            return "\\overline{" + arg + "}";
+        case FunctionId::Arg:
+            return "\\arg\\left(" + arg + "\\right)";
+        case FunctionId::Re:
+        case FunctionId::Im:
         case FunctionId::Asinh:
         case FunctionId::Acosh:
         case FunctionId::Atanh:

@@ -655,6 +655,7 @@
       {:else if !versionLoaded}
         <span class="version-chip shimmer" aria-hidden="true"></span>
       {/if}
+      <span class="tagline">a computer algebra system</span>
       <span class="spacer"></span>
       <div class="mode-switch" role="tablist" aria-label="View">
         <button
@@ -699,6 +700,7 @@
       {:else if mode === "graph"}
         <GraphCalculator />
       {:else}
+      <div class="sheet">
       <Tabs tabs={TABS} active={tab} onselect={selectTab} />
 
       <div
@@ -878,6 +880,7 @@
         </details>
         {/if}
       </div>
+      </div>
       {/if}
     </main>
 
@@ -931,24 +934,40 @@
   .header-inner {
     max-width: 1240px;
     margin: 0 auto;
-    padding: 0.65rem 1rem;
+    padding: 0.7rem 1.25rem;
     display: flex;
     align-items: center;
-    gap: 0.6rem;
+    gap: 0.7rem;
   }
   .wordmark {
+    font-family: var(--font-serif);
     font-weight: 700;
-    font-size: 1.15rem;
-    letter-spacing: -0.02em;
+    font-size: 1.42rem;
+    letter-spacing: -0.01em;
+    color: var(--fg);
   }
   .version-chip {
     font-family: var(--font-mono);
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     color: var(--fg-muted);
     border: 1px solid var(--border);
     border-radius: 999px;
     padding: 0.05rem 0.55rem;
     background: var(--bg);
+  }
+  .tagline {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: 0.92rem;
+    color: var(--fg-muted);
+    padding-left: 0.55rem;
+    margin-left: 0.15rem;
+    border-left: 1px solid var(--rule);
+  }
+  @media (max-width: 900px) {
+    .tagline {
+      display: none;
+    }
   }
   .version-chip.shimmer {
     width: 3.4em;
@@ -977,7 +996,7 @@
     display: inline-flex;
     gap: 0.15rem;
     padding: 0.2rem;
-    background: var(--bg);
+    background: var(--bg-inset);
     border: 1px solid var(--border);
     border-radius: var(--radius);
   }
@@ -985,16 +1004,16 @@
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    font: inherit;
+    font-family: var(--font-sans);
     font-size: 0.82rem;
     font-weight: 600;
     color: var(--fg-muted);
     background: transparent;
     border: none;
     border-radius: calc(var(--radius) - 0.2rem);
-    padding: 0.3rem 0.75rem;
+    padding: 0.32rem 0.75rem;
     cursor: pointer;
-    transition: color 120ms ease, background 120ms ease;
+    transition: color 130ms ease, background 130ms ease, box-shadow 130ms ease;
   }
   .mode-switch button svg {
     width: 15px;
@@ -1003,12 +1022,11 @@
   }
   .mode-switch button:hover:not(.active) {
     color: var(--fg);
-    background: color-mix(in srgb, var(--fg) 6%, transparent);
   }
   .mode-switch button.active {
-    color: var(--accent-fg, #fff);
-    background: var(--accent);
-    box-shadow: 0 1px 4px color-mix(in srgb, var(--accent) 35%, transparent);
+    color: var(--accent);
+    background: var(--bg-panel);
+    box-shadow: var(--shadow-sm);
   }
   @media (max-width: 680px) {
     .mode-switch button span {
@@ -1024,10 +1042,10 @@
     width: 100%;
     max-width: 1240px;
     margin: 0 auto;
-    padding: 1.25rem 1rem 2rem;
+    padding: 1.85rem 1.25rem 2.5rem;
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 1.5rem;
+    gap: 2rem;
   }
   .column {
     width: 100%;
@@ -1055,11 +1073,19 @@
     }
   }
 
+  /* The workbench presents as a sheet of paper resting on the desk. */
+  .sheet {
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) + 4px);
+    box-shadow: var(--shadow);
+    padding: 0.5rem 1.6rem 1.6rem;
+  }
   .panel {
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
-    padding-top: 1rem;
+    padding-top: 1.15rem;
   }
 
   /* Console mode: the console owns the viewport — the page never scrolls,
@@ -1198,15 +1224,16 @@
     font-family: var(--font-mono);
     font-size: 0.8rem;
     color: var(--fg-muted);
-    background: var(--bg-panel);
+    background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 999px;
-    padding: 0.2rem 0.7rem;
+    padding: 0.22rem 0.72rem;
     cursor: pointer;
+    transition: color 130ms ease, border-color 130ms ease;
   }
   .example-chip:hover {
     color: var(--accent);
-    border-color: var(--accent);
+    border-color: var(--accent-line);
   }
 
   .ctl-row {
@@ -1214,10 +1241,10 @@
     align-items: center;
     gap: 0.75rem;
     flex-wrap: wrap;
-    background: var(--bg-panel);
+    background: var(--bg-inset);
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    padding: 0.6rem 0.75rem;
+    padding: 0.6rem 0.8rem;
   }
   .ctl {
     display: inline-flex;
@@ -1232,10 +1259,16 @@
     font: inherit;
     font-family: var(--font-mono);
     color: var(--fg);
-    background: var(--bg);
+    background: var(--bg-panel);
     border: 1px solid var(--border);
     border-radius: calc(var(--radius) / 2);
     padding: 0.25rem 0.45rem;
+  }
+  .ctl select:focus,
+  .ctl input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent-soft);
   }
   .ctl input[type="number"] {
     width: 6.5em;
@@ -1262,11 +1295,12 @@
     font-family: var(--font-mono);
     font-size: 0.85rem;
     color: var(--fg-muted);
-    background: var(--bg);
+    background: var(--bg-panel);
     border: 1px solid var(--border);
     border-radius: 999px;
     padding: 0.15rem 0.7rem;
     cursor: pointer;
+    transition: color 130ms ease, border-color 130ms ease;
   }
   .var-chip[aria-pressed="true"] {
     color: var(--accent-fg, #fff);
@@ -1277,14 +1311,15 @@
   .history-inline {
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: var(--bg-panel);
+    background: var(--bg-inset);
   }
   .history-inline summary {
     cursor: pointer;
     padding: 0.55rem 0.8rem;
-    font-size: 0.9rem;
+    font-family: var(--font-serif);
+    font-size: 1rem;
     font-weight: 600;
-    color: var(--fg-muted);
+    color: var(--fg);
   }
   .history-inline-body {
     padding: 0 0.8rem 0.8rem;

@@ -3,6 +3,7 @@
 
 #include <climits>
 #include <cmath>
+#include <complex>
 #include <numbers>
 #include <stdexcept>
 #include <string>
@@ -233,4 +234,60 @@ TEST_CASE("evaluate: inverse hyperbolic values and domains") {
     CHECK(std::abs(E("atanh(1/2)") - std::atanh(0.5)) < 1e-15);
     CHECK_THROWS_AS(E("acosh(1/2)"), Error);
     CHECK_THROWS_AS(E("atanh(2)"), Error);
+}
+
+// ---------------------------------------------------------------------------
+// evaluate_complex (complex domain, Phase 2)
+// ---------------------------------------------------------------------------
+
+TEST_CASE("evaluate_complex: arithmetic and Euler's formula", "[evaluator][complex]") {
+    const auto C = [](std::string_view s) {
+        return evaluate_complex(parse_expression(s));
+    };
+    const auto near = [](std::complex<double> got, std::complex<double> want) {
+        return std::abs(got - want) < 1e-12;
+    };
+    CHECK(near(C("i^2"), {-1.0, 0.0}));
+    CHECK(near(C("(2+3i)*(1-i)"), {5.0, 1.0}));
+    CHECK(near(C("1/(1+i)"), {0.5, -0.5}));
+    CHECK(near(C("(1+i)^8"), {16.0, 0.0}));
+    // Euler: e^(i pi) = -1, e^(i pi/2) = i.
+    CHECK(near(C("e^(i*pi)"), {-1.0, 0.0}));
+    CHECK(near(C("e^(i*pi/2)"), {0.0, 1.0}));
+    // abs is the modulus; cos(i) = cosh(1) is real.
+    CHECK(near(C("abs(3+4i)"), {5.0, 0.0}));
+    CHECK(near(C("cos(i)"), {std::cosh(1.0), 0.0}));
+}
+
+TEST_CASE("evaluate_complex: complex accessor functions", "[evaluator][complex]") {
+    const auto C = [](std::string_view s) {
+        return evaluate_complex(parse_expression(s));
+    };
+    const auto near = [](std::complex<double> got, std::complex<double> want) {
+        return std::abs(got - want) < 1e-12;
+    };
+    CHECK(near(C("conj(2+3i)"), {2.0, -3.0}));
+    CHECK(near(C("Re(2+3i)"), {2.0, 0.0}));
+    CHECK(near(C("Im(2+3i)"), {3.0, 0.0}));
+    CHECK(near(C("arg(i)"), {std::numbers::pi / 2.0, 0.0}));
+    CHECK(near(C("arg(-1 + 0*i)"), {std::numbers::pi, 0.0}));
+    // Real-domain accessors agree with the real evaluator.
+    CHECK(evaluate(parse_expression("Re(x)"), {{"x", 4.0}}) == Approx(4.0));
+    CHECK(evaluate(parse_expression("Im(x)"), {{"x", 4.0}}) == Approx(0.0));
+    CHECK(evaluate(parse_expression("conj(x)"), {{"x", 4.0}}) == Approx(4.0));
+    CHECK(evaluate(parse_expression("arg(x)"), {{"x", -2.0}}) == Approx(std::numbers::pi));
+}
+
+TEST_CASE("evaluate_complex: bindings and error surfaces", "[evaluator][complex]") {
+    // A real binding participates in a complex expression.
+    const Expr e = parse_expression("z*i");
+    CHECK(std::abs(evaluate_complex(e, {{"z", {2.0, 0.0}}}) - std::complex<double>(0.0, 2.0)) <
+          1e-12);
+    // A genuinely complex binding.
+    CHECK(std::abs(evaluate_complex(parse_expression("z^2"), {{"z", {0.0, 1.0}}}) -
+                   std::complex<double>(-1.0, 0.0)) < 1e-12);
+    // Unbound symbol still throws.
+    CHECK_THROWS_AS(evaluate_complex(parse_expression("w + i")), EvalError);
+    // The real evaluator is untouched: it still refuses i.
+    CHECK_THROWS_AS(evaluate(parse_expression("1 + i")), Error);
 }

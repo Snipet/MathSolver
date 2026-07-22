@@ -163,14 +163,16 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid var(--rule);
   }
   h2 {
     margin: 0;
-    font-size: 0.85rem;
+    font-family: var(--font-serif);
+    font-size: 1.08rem;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--fg-muted);
+    letter-spacing: 0;
+    color: var(--fg);
   }
   .clear {
     font: inherit;

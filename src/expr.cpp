@@ -36,6 +36,10 @@ std::string_view function_name(FunctionId id) {
         case FunctionId::Harmonic: return "harmonic";
         case FunctionId::Ln: return "ln";
         case FunctionId::Abs: return "abs";
+        case FunctionId::Conj: return "conj";
+        case FunctionId::Re: return "Re";
+        case FunctionId::Im: return "Im";
+        case FunctionId::Arg: return "arg";
     }
     throw std::logic_error("function_name: invalid FunctionId");
 }
@@ -61,6 +65,10 @@ std::optional<FunctionId> function_from_name(std::string_view name) {
     if (name == "harmonic") return FunctionId::Harmonic;
     if (name == "ln") return FunctionId::Ln;
     if (name == "abs") return FunctionId::Abs;
+    if (name == "conj" || name == "conjugate") return FunctionId::Conj;
+    if (name == "re" || name == "Re" || name == "real") return FunctionId::Re;
+    if (name == "im" || name == "Im" || name == "imag") return FunctionId::Im;
+    if (name == "arg" || name == "Arg") return FunctionId::Arg;
     return std::nullopt;
 }
 
@@ -595,6 +603,14 @@ bool contains_symbol(const Expr& e, std::string_view name) {
     }
     return std::ranges::any_of(e->args(),
                                [&](const Expr& a) { return contains_symbol(a, name); });
+}
+
+bool contains_constant(const Expr& e, ConstantId id) {
+    if (e->kind() == Kind::Constant) {
+        return e->constant() == id;
+    }
+    return std::ranges::any_of(e->args(),
+                               [&](const Expr& a) { return contains_constant(a, id); });
 }
 
 namespace {

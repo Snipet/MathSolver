@@ -18,6 +18,25 @@ per-feature specs are under docs/proposals/.
   result, so you can keep going without retyping. Clicking a chip runs `<verb>
   <line>` (with a ` = 0` suffix for `solve`); **Tab** fills the first
   suggestion. Suggestions stay hidden once a verb is typed.
+- **Complex domain, Phase 3** (docs/proposals/complex-domain.md): the complex
+  accessor functions `conj`, `Re`, `Im`, `arg` (`Re`/`Im` capitalized so
+  lowercase `r*e`/`i*m` products are unaffected). `simplify` folds numeric
+  arguments — `conj(2+3i) → 2-3i`, `Re(2+3i) → 2`, `abs(3+4i) → 5` — while a
+  symbolic argument stays unevaluated. Both evaluators compute them (`eval
+  "arg(i)" → 1.5708`); LaTeX renders `conj` as `\overline{·}`.
+- **Complex domain, Phase 2** (docs/proposals/complex-domain.md): a complex
+  numeric evaluator (`evaluate_complex`) running alongside the real one, which
+  is unchanged. The CLI `eval` verb evaluates any expression containing `i`
+  over ℂ and prints `a + b*i`, chopping rounding dust — `eval "e^(i*pi)" → -1`,
+  `eval "(2+3i)*(1-i)" → 5 + i`, `eval "1/(1+i)" → 0.5 - 0.5*i`, `eval
+  "abs(3+4i)" → 5`. Principal branch for the multivalued functions.
+- **Complex domain, Phase 1** (docs/proposals/complex-domain.md): `simplify`
+  now folds exact complex (Gaussian-rational) constants to canonical `a + b·i`,
+  including rationalized denominators — `1/(1+i) → 1/2 - i/2`, `(3+i)/(1-i) →
+  1 + 2i`, `(1+i)*(1-i) → 2`, `1/(3+4i) → 3/25 - 4i/25`. Confluent with
+  `expand`; scoped to expressions containing `i`, so real arithmetic and
+  symbolic complex (`x + i`, `1/(x+i)`) are untouched. First slice of the
+  flagship ℂ project (see docs/proposals/next-features.md).
 - **Variable assignment** (docs/proposals/variable-assignment.md): a session
   environment of `name := value` bindings in the REPL and the web app.
   - Values are expressions or equations (`E_1 := x + y = 3`), stored as
