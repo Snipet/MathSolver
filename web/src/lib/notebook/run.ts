@@ -38,6 +38,8 @@ export const MATH_VERBS = new Set([
   "simplify",
   "expand",
   "factor",
+  "cancel",
+  "together",
   "latex",
   "solve",
   "diff",
@@ -186,6 +188,8 @@ function helpMessage(): NotebookMessage {
     lines: [
       "A bare expression is simplified; a bare equation is solved.",
       "simplify <expr>        expand <expr>        factor <expr>",
+      "cancel <expr>          cancel a rational's common polynomial factor",
+      "together <expr>        combine a sum of fractions over one denominator",
       "diff <expr>[, <var>]",
       "integrate <expr>[, <var>[, <lo>, <hi>]]",
       "solve <equation>[, <var>]",
@@ -324,7 +328,9 @@ async function runVerb(
   switch (verb) {
     case "simplify":
     case "expand":
-    case "factor": {
+    case "factor":
+    case "cancel":
+    case "together": {
       const env = await applyEnv(expr, [], "expr", ov, scope);
       const r = await call(verb, [env.text]);
       if (!r.ok) return err(env.text, r);

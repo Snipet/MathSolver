@@ -45,6 +45,18 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "factor x^2 - 5x + 6",
       },
       {
+        insert: "cancel",
+        usage: "cancel <expr>",
+        hint: "Cancel a rational's common polynomial factor",
+        example: "cancel (x^2 - 1)/(x - 1)",
+      },
+      {
+        insert: "together",
+        usage: "together <expr>",
+        hint: "Combine a sum of fractions over one denominator",
+        example: "together 1/x + 1/y",
+      },
+      {
         insert: "collect",
         usage: "collect <expr>[, <var>]",
         hint: "Regroup as a polynomial in one variable",

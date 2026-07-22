@@ -22,6 +22,34 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **`together` — combine a sum of fractions over a common denominator**
+  (docs/proposals/together.md): the companion to `cancel`, closing the other
+  half of the "combine and reduce fractions" gap. `1/x + 1/y` now becomes
+  `(x + y)/(x*y)`, `1/(x-1) + 1/(x+1)` becomes `2*x/((x-1)*(x+1))`, and
+  `a + 1/x` becomes `(a*x + 1)/x`. It assembles the least common denominator
+  as the product of each distinct denominator base at its maximum power,
+  scales and sums the numerators — no GCD or factoring, so it is fully
+  multivariate — and keeps the denominator factored (`(x*y)`, not a
+  distributed `y^-1·x^-1`). Nothing symbolic to combine (or a 64-bit
+  overflow) returns the input unchanged, never throwing. Shipped as an
+  explicit verb (CLI `together "1/x + 1/y"`, REPL, wasm, web console),
+  deliberately not folded into `simplify`. Pairs with `cancel` via
+  `cancel(together(e))`.
+- **`cancel` — rational-expression cancellation** (docs/proposals/cancel-poly-gcd.md):
+  a new verb that removes the common polynomial factor of a rational
+  expression's numerator and denominator, exactly, over 64-bit rationals —
+  the "first five minutes" gap where `(x^2-1)/(x-1)` used to come back
+  untouched now cancels to `x+1`, `(x^2-1)/(x^2-3x+2) → (x+1)/(x-2)`, and
+  `2/(2x-2) → 1/(x-1)`. It splits the expression into `N/D`, and when both are
+  single-variable polynomials with rational coefficients, divides by their GCD
+  (Euclid over `Q[x]` with primitive-part normalization, content folded in),
+  internally verifying the quotient before publishing it. Anything outside
+  that class — no denominator, non-polynomial parts, symbolic coefficients,
+  more than one symbol, or 64-bit overflow — comes back unchanged, never
+  throwing. Shipped as an explicit verb (CLI `cancel "(x^2-1)/(x-1)" [x]`,
+  REPL, and the `cancel` wasm binding), deliberately **not** folded into
+  `simplify` (it erases removable singularities, a domain change; see the
+  proposal §7). Formal cancellation, same doctrine as `x/x → 1`.
 - **Wave system, Phase 4 — authoring & analytics** (docs/proposals/wave-system.md):
   the wave lab can now be **saved, shared, and driven by the CAS**. A **Share
   link** button encodes the whole setup — scene, boundary, every knob, the

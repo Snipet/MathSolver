@@ -273,6 +273,51 @@ void run_factor(const std::string& input, PrintStyle style) {
     }
 }
 
+/// `cancel` removes the common polynomial factor of a rational expression's
+/// numerator and denominator (univariate GCD over Q[x]). The optional
+/// variable follows the diff/collect convention: accepted, validated (a name
+/// not free in the input is a usage error), and forward-compatible with the
+/// multivariate v2 — the v1 engine only ever cancels single-symbol inputs and
+/// auto-selects that symbol. A no-op input prints the simplified input, exit 0.
+void run_cancel(const std::string& input, const std::string& explicit_var,
+                PrintStyle style) {
+    const auto parsed = parse_input_diag(input);
+    const auto validate = [&](const std::set<std::string>& symbols) {
+        if (explicit_var.empty()) return;
+        if (!is_symbol_name(explicit_var)) {
+            throw UsageError{
+                std::format("'{}' is not a valid variable name", explicit_var)};
+        }
+        if (!symbols.contains(explicit_var)) {
+            throw UsageError{std::format(
+                "'{}' is not a free variable of the input", explicit_var)};
+        }
+    };
+    if (std::holds_alternative<Expr>(parsed)) {
+        const Expr& e = std::get<Expr>(parsed);
+        validate(free_symbols(e));
+        std::println("{}", to_string(cancel(e), style));
+    } else {
+        const Equation& eq = std::get<Equation>(parsed);
+        std::set<std::string> symbols = free_symbols(eq.lhs);
+        for (const std::string& s : free_symbols(eq.rhs)) symbols.insert(s);
+        validate(symbols);
+        std::println("{}", to_string(cancel(eq), style));
+    }
+}
+
+/// `together` combines a sum of fractions over a common denominator
+/// (`1/x + 1/y → (x + y)/(x*y)`). It is multivariate and takes no variable
+/// argument. A no-op input prints the simplified input, exit 0.
+void run_together(const std::string& input, PrintStyle style) {
+    const auto parsed = parse_input_diag(input);
+    if (std::holds_alternative<Expr>(parsed)) {
+        std::println("{}", to_string(together(std::get<Expr>(parsed)), style));
+    } else {
+        std::println("{}", to_string(together(std::get<Equation>(parsed)), style));
+    }
+}
+
 /// `latex` is a pure format conversion: it prints the parsed AST in LaTeX
 /// without simplifying first.
 void run_latex(const std::string& input) {
@@ -1009,6 +1054,8 @@ void print_usage(std::FILE* out) {
                "  mathsolver simplify \"2x + 3x\"\n"
                "  mathsolver expand   \"(x+1)^3\"\n"
                "  mathsolver factor   \"x^2 - 5x + 6\"\n"
+               "  mathsolver cancel   \"(x^2 - 1)/(x - 1)\" [x]\n"
+               "  mathsolver together \"1/x + 1/y\"\n"
                "  mathsolver solve    \"x^2 = 4\" [x] [--range LO HI]\n"
                "  mathsolver solve    \"x + y = 3; x - y = 1\" [x y ...]\n"
                "  mathsolver diff     \"sin(x^2)\" [x]\n"
@@ -1046,9 +1093,11 @@ void print_usage(std::FILE* out) {
 }
 
 bool is_known_subcommand(std::string_view s) {
-    return s == "simplify" || s == "expand" || s == "factor" || s == "solve" ||
-           s == "diff" || s == "integrate" || s == "eval" || s == "latex" ||
-           s == "subs" || s == "collect" || s == "laplace" || s == "ilaplace" ||
+    return s == "simplify" || s == "expand" || s == "factor" || s == "cancel" ||
+           s == "together" ||
+           s == "solve" || s == "diff" || s == "integrate" || s == "eval" ||
+           s == "latex" || s == "subs" || s == "collect" || s == "laplace" ||
+           s == "ilaplace" ||
            s == "apart" || s == "dsolve" || s == "series" || s == "grad" ||
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
@@ -1143,7 +1192,7 @@ int run_one_shot(const std::vector<std::string>& args) {
             run_solve_system(input, vars, style);
         } else if (sub == "solve" || sub == "diff" || sub == "integrate" ||
                    sub == "collect" || sub == "laplace" || sub == "ilaplace" ||
-                   sub == "apart") {
+                   sub == "apart" || sub == "cancel") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (usage: mathsolver {} \"<input>\" [var])",
@@ -1158,6 +1207,8 @@ int run_one_shot(const std::vector<std::string>& args) {
                 run_collect(input, var, style);
             } else if (sub == "apart") {
                 run_apart(input, var, style);
+            } else if (sub == "cancel") {
+                run_cancel(input, var, style);
             } else if (sub == "laplace") {
                 run_laplace(input, var, style);
             } else if (sub == "ilaplace") {
@@ -1235,6 +1286,8 @@ int run_one_shot(const std::vector<std::string>& args) {
                 run_expand(input, style);
             } else if (sub == "factor") {
                 run_factor(input, style);
+            } else if (sub == "together") {
+                run_together(input, style);
             } else {  // latex
                 run_latex(input);
             }
@@ -1294,6 +1347,8 @@ void print_repl_help() {
         "  laplacian <f>, <vars...>  jacobian <F1;..>, <vars...>  hessian <f>, <vars...>\n"
         "  simplify <expression>      expand <expression>\n"
         "  factor <expression>        latex <expression>\n"
+        "  cancel <expression>[, <variable>]      cancel a rational's GCD\n"
+        "  together <expression>                  sum of fractions over one denom\n"
         "  debug <expression>         (s-expression dump)\n"
         "  help                       quit / exit\n"
         "Assignments (docs/GRAMMAR.md \"Assignments\"):\n"
@@ -1312,7 +1367,8 @@ std::vector<std::string> split_top_level_commas(const std::string& s) {
 
 bool is_repl_command(std::string_view word) {
     return word == "simplify" || word == "expand" || word == "factor" ||
-           word == "solve" || word == "diff" || word == "integrate" ||
+           word == "cancel" || word == "together" || word == "solve" ||
+           word == "diff" || word == "integrate" ||
            word == "eval" || word == "latex" || word == "debug" ||
            word == "subs" || word == "collect" || word == "laplace" ||
            word == "ilaplace" || word == "apart" || word == "dsolve" ||
@@ -1874,7 +1930,8 @@ void repl_command(const std::string& command, const std::string& rest,
         // The first comma segment holds the equation(s) (';'-separated for a
         // system), the remaining segments are the variables.
         repl_solve(input, {parts.begin() + 1, parts.end()}, env);
-    } else if (command == "diff" || command == "collect" || command == "apart") {
+    } else if (command == "diff" || command == "collect" || command == "apart" ||
+               command == "cancel") {
         if (parts.size() > 2) {
             throw UsageError{std::format(
                 "too many arguments: usage: {} <input>[, <variable>]", command)};
@@ -1891,6 +1948,8 @@ void repl_command(const std::string& command, const std::string& rest,
             run_diff(resolved, var, PrintStyle::Plain);
         } else if (command == "apart") {
             run_apart(resolved, var, PrintStyle::Plain);
+        } else if (command == "cancel") {
+            run_cancel(resolved, var, PrintStyle::Plain);
         } else {
             run_collect(resolved, var, PrintStyle::Plain);
         }
@@ -2025,6 +2084,8 @@ void repl_command(const std::string& command, const std::string& rest,
         run_expand(resolve_input_text(input, env), PrintStyle::Plain);
     } else if (command == "factor") {
         run_factor(resolve_input_text(input, env), PrintStyle::Plain);
+    } else if (command == "together") {
+        run_together(resolve_input_text(input, env), PrintStyle::Plain);
     } else if (command == "latex") {
         run_latex(input);
     } else {  // debug
