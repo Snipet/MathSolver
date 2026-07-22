@@ -1,20 +1,51 @@
 <script lang="ts">
   import { notebook, type Cell } from "../notebook/notebook.svelte";
+  import {
+    suggestVerbs,
+    suggestionCommand,
+    type VerbSuggestion,
+  } from "../notebook/suggest";
   import Katex from "./Katex.svelte";
   import ResultCard from "./ResultCard.svelte";
 
   interface Props {
     cell: Cell;
     index: number;
+    /** Whether this is the newest cell (only it offers "next" suggestions). */
+    islast?: boolean;
     /** Run this cell's input again (appends a fresh cell). */
     onrerun?: (input: string) => void;
     /** Load this cell's input into the prompt for editing. */
     onedit?: (input: string) => void;
+    /** Run an arbitrary line (a "next" suggestion) as a fresh cell. */
+    onrun?: (line: string) => void;
   }
 
-  let { cell, index, onrerun, onedit }: Props = $props();
+  let { cell, index, islast = false, onrerun, onedit, onrun }: Props = $props();
 
   const result = $derived(cell.result);
+
+  // --- "next" suggestions: verbs to try on the newest bare-expression cell --
+  // Only the last cell offers these, and only when its result is one the user
+  // would naturally continue from (not a message/error/assignment/plugin).
+  const QUIET_KINDS = ["message", "error", "assignment", "plugin", "chart", "vecfield", "wave"];
+  let nextSuggestions = $state<VerbSuggestion[]>([]);
+  $effect(() => {
+    const r = cell.result;
+    if (!islast || !r || QUIET_KINDS.includes(r.kind)) {
+      nextSuggestions = [];
+      return;
+    }
+    let alive = true;
+    // suggestVerbs returns [] when the input already names a verb, so an
+    // explicit `factor …` cell shows nothing — this fires only for bare input.
+    void suggestVerbs(cell.input).then((s) => {
+      if (alive) nextSuggestions = s;
+    });
+    return () => {
+      alive = false;
+    };
+  });
 
   function num(e: Event): number {
     return Number((e.currentTarget as HTMLInputElement).value);
@@ -165,6 +196,24 @@
       {/if}
     </div>
   </div>
+
+  {#if nextSuggestions.length > 0}
+    <div class="line next-line" data-testid="cell-next">
+      <span class="label" aria-hidden="true"></span>
+      <div class="next-suggest" role="group" aria-label="Suggested next steps">
+        <span class="next-lead">next:</span>
+        {#each nextSuggestions as s (s.label)}
+          <button
+            class="next-chip"
+            title={s.hint}
+            onclick={() => onrun?.(suggestionCommand(s, cell.input))}
+          >
+            {s.label}
+          </button>
+        {/each}
+      </div>
+    </div>
+  {/if}
 
   {#if tall && !isCollapsed}
     <div class="line out-line fold-line">
@@ -426,6 +475,35 @@
     cursor: pointer;
   }
   .fold:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* "next" suggestions under the newest cell's output. */
+  .next-suggest {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+  .next-lead {
+    font-size: 0.74rem;
+    color: var(--fg-muted);
+    flex: 0 0 auto;
+  }
+  .next-chip {
+    font-family: var(--font-mono);
+    font-size: 0.76rem;
+    color: var(--fg-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.1rem 0.6rem;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+  .next-chip:hover {
     color: var(--accent);
     border-color: var(--accent);
   }

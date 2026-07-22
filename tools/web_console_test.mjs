@@ -565,10 +565,12 @@ try {
   );
   check(
     "bare expression suggests verbs",
-    ["factor", "diff", "integrate"].every((v) => suggestChips.includes(v)),
+    ["factor", "solve = 0", "diff", "integrate"].every((v) =>
+      suggestChips.includes(v),
+    ),
     JSON.stringify(suggestChips),
   );
-  // Clicking a suggestion runs `<verb> <expr>` as a new cell.
+  // Clicking a prompt suggestion runs `<verb> <expr>` as a new cell.
   const cellsBefore = await page.$$eval(".cells .cell", (els) => els.length);
   await page.evaluate(() => {
     const chip = [
@@ -589,6 +591,54 @@ try {
     "clicking a suggestion runs the verb",
     factored.includes("(x - 3)") && factored.includes("(x - 2)"),
     factored.slice(0, 80),
+  );
+  await clearPrompt();
+
+  // Running a bare expression offers "next" steps on its result cell; the
+  // "solve = 0" chip carries the ` = 0` suffix so solve gets an equation.
+  const beforeBare = await page.$$eval(".cells .cell", (els) => els.length);
+  await page.click(TA);
+  await page.type(TA, "x^2 - 5x + 6");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".cells .cell").length === n + 1,
+    { timeout: 20000 },
+    beforeBare,
+  );
+  await page.waitForSelector(".cells .cell:last-child [data-testid='cell-next'] .next-chip", {
+    timeout: 6000,
+  });
+  const nextChips = await page.$$eval(
+    ".cells .cell:last-child [data-testid='cell-next'] .next-chip",
+    (els) => els.map((e) => e.textContent.trim()),
+  );
+  check(
+    "result cell offers next-step suggestions",
+    nextChips.includes("factor") && nextChips.includes("solve = 0"),
+    JSON.stringify(nextChips),
+  );
+  const beforeNext = await page.$$eval(".cells .cell", (els) => els.length);
+  await page.evaluate(() => {
+    const chip = [
+      ...document.querySelectorAll(
+        ".cells .cell:last-child [data-testid='cell-next'] .next-chip",
+      ),
+    ].find((c) => c.textContent.trim() === "solve = 0");
+    chip.click();
+  });
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".cells .cell").length === n + 1,
+    { timeout: 20000 },
+    beforeNext,
+  );
+  const solved = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => el.textContent,
+  );
+  check(
+    "'solve = 0' next chip finds the roots",
+    solved.includes("x = 2") && solved.includes("x = 3"),
+    solved.slice(0, 80),
   );
   await clearPrompt();
 

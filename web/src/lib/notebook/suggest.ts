@@ -15,6 +15,19 @@ export interface VerbSuggestion {
   label: string;
   /** Tooltip: what the verb would do. */
   hint: string;
+  /** Appended after the line, e.g. " = 0" so `solve` gets an equation. */
+  suffix?: string;
+}
+
+/** The command a chip runs on `line`: `<verb> <line><suffix>`. */
+export function suggestionCommand(s: VerbSuggestion, line: string): string {
+  return `${s.verb} ${line.trim()}${s.suffix ?? ""}`;
+}
+
+/** Transcendental content — series/limit territory, and factoring rarely helps. */
+function isTranscendental(text: string): boolean {
+  return /\b(sin|cos|tan|sec|csc|cot|sinh|cosh|tanh|arc|exp|ln|log)\b/.test(text) ||
+    /e\s*\^/.test(text);
 }
 
 // Heads that already name a command, so the line is not a bare expression.
@@ -62,20 +75,36 @@ export async function suggestVerbs(line: string): Promise<VerbSuggestion[]> {
     return [{ verb: "eval", label: "eval", hint: "evaluate to a decimal number" }];
   }
 
-  // Expression in one or more variables: offer the common transforms. All are
-  // best-effort in the engine, so an inapplicable one simply echoes the input.
-  const out: VerbSuggestion[] = [
-    { verb: "factor", label: "factor", hint: "factor into irreducible pieces" },
-    { verb: "expand", label: "expand", hint: "multiply everything out" },
-    { verb: "diff", label: "diff", hint: "differentiate" },
-    { verb: "integrate", label: "integrate", hint: "integrate" },
+  // Expression in one or more variables: offer the transforms worth trying, in
+  // priority order and gated by structure. All are best-effort in the engine,
+  // so an inapplicable one simply echoes the input.
+  const single = symbols.length === 1;
+  const transcendental = isTranscendental(text);
+  const rational = looksRational(text, hasVar);
+
+  const FACTOR = { verb: "factor", label: "factor", hint: "factor into irreducible pieces" };
+  const EXPAND = { verb: "expand", label: "expand", hint: "multiply everything out" };
+  const APART = { verb: "apart", label: "apart", hint: "split into partial fractions" };
+  const DIFF = { verb: "diff", label: "diff", hint: "differentiate" };
+  const INTEGRATE = { verb: "integrate", label: "integrate", hint: "integrate" };
+  const SERIES = { verb: "series", label: "series", hint: "Taylor series about 0" };
+  // solve needs an equation and an unambiguous variable, so offer "= 0" only
+  // when there is exactly one symbol.
+  const SOLVE0 = {
+    verb: "solve",
+    label: "solve = 0",
+    hint: "solve <expr> = 0 for its roots",
+    suffix: " = 0",
+  };
+
+  const picks: (VerbSuggestion | null)[] = [
+    transcendental ? null : FACTOR,
+    single ? SOLVE0 : null,
+    transcendental ? null : EXPAND,
+    rational ? APART : null,
+    DIFF,
+    INTEGRATE,
+    transcendental && single ? SERIES : null,
   ];
-  if (looksRational(text, hasVar)) {
-    out.splice(2, 0, {
-      verb: "apart",
-      label: "apart",
-      hint: "split into partial fractions",
-    });
-  }
-  return out;
+  return picks.filter((s): s is VerbSuggestion => s !== null).slice(0, 6);
 }

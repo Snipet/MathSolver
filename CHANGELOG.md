@@ -9,10 +9,13 @@ per-feature specs are under docs/proposals/.
 
 - **Console verb suggestions**: when a console line names no command, a quiet
   "try:" row of chips appears beside the parsed-math preview, offering the
-  verbs worth running on it — `factor`/`expand`/`diff`/`integrate` for an
-  expression (plus `apart` for a rational function), `eval` for a pure number.
-  Clicking a chip runs `<verb> <line>`. Suggestions are tailored via `analyze`
-  and stay hidden once a verb is typed.
+  verbs worth running on it, tailored via `analyze` — `factor`/`expand` and
+  `solve = 0` for a polynomial, `apart` for a rational function, `series` for a
+  transcendental one, `diff`/`integrate` for anything with a variable, and
+  `eval` for a pure number. After running a bare expression, the same picks
+  reappear as a "next:" row under its result, so you can keep going without
+  retyping. Clicking a chip runs `<verb> <line>` (with a ` = 0` suffix for
+  `solve`); suggestions stay hidden once a verb is typed.
 - **Variable assignment** (docs/proposals/variable-assignment.md): a session
   environment of `name := value` bindings in the REPL and the web app.
   - Values are expressions or equations (`E_1 := x + y = 3`), stored as

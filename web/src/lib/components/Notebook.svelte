@@ -7,7 +7,11 @@
     buildConsolePreview,
     type ConsolePreview,
   } from "../notebook/preview";
-  import { suggestVerbs, type VerbSuggestion } from "../notebook/suggest";
+  import {
+    suggestVerbs,
+    suggestionCommand,
+    type VerbSuggestion,
+  } from "../notebook/suggest";
   import { splitAssignment } from "../vars/session";
   import { vars } from "../vars.svelte";
   import { untrack } from "svelte";
@@ -401,7 +405,14 @@
       </div>
     {:else}
       {#each notebook.cells as cell, i (cell.id)}
-        <NotebookCell {cell} index={i + 1} onrerun={(t) => void runText(t)} onedit={editText} />
+        <NotebookCell
+          {cell}
+          index={i + 1}
+          islast={i === notebook.cells.length - 1}
+          onrerun={(t) => void runText(t)}
+          onedit={editText}
+          onrun={(t) => void runText(t)}
+        />
       {/each}
     {/if}
   </div>
@@ -444,7 +455,7 @@
               class="verb-chip"
               title={s.hint}
               onmousedown={(e) => e.preventDefault() /* keep focus */}
-              onclick={() => void runText(`${s.verb} ${input.trim()}`)}
+              onclick={() => void runText(suggestionCommand(s, input))}
             >
               {s.label}
             </button>
