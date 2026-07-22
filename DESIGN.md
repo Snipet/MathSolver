@@ -372,6 +372,23 @@ Round-trip invariant (tested): `parse(to_string(e, Plain))` and
   doctrine as `x/x → 1` (§12). Idempotent. Shipped as an explicit verb, not a
   `simplify` rule (it changes the domain; see docs/proposals/cancel-poly-gcd.md
   §7). Implementation: `src/cancel.cpp`.
+- `together(expr)` / `together(Equation)` (v0.5): the companion of `cancel` —
+  combine a sum of fractions into a single `N/D` over the least common
+  denominator (`1/x + 1/y → (x+y)/(x*y)`, `1/(x-1) + 1/(x+1) →
+  2*x/((x-1)*(x+1))`, `a + 1/x → (a*x+1)/x`). Splits each additive term of
+  `simplify(e)` into numerator and denominator factors (same sign-of-exponent
+  rule as `cancel`), assembles the LCD as the product of each distinct
+  denominator base — compared with `structurally_equal` — raised to its
+  maximum multiplicity across terms, scales every numerator by `D/(its
+  denominator)`, and sums them. No GCD, factoring, or expansion, so it is
+  fully **multivariate**; the denominator is kept factored (built via the
+  factories, not top-simplified, so `(x+y)/(x*y)` does not distribute into
+  `y^-1·(x+y)/x`). Returns `simplify(e)` unchanged when nothing has a
+  symbolic denominator (numeric denominators are already folded into rational
+  coefficients) or on any `OverflowError`; never throws. Idempotent; formal
+  cancellation (same doctrine as `x/x → 1`). Explicit verb, not a `simplify`
+  rule (forcing a common denominator is a presentation choice; see
+  docs/proposals/together.md). Implementation: `src/together.cpp`.
 
 **Rule inventory for `simplify`** (all "safe" — value-preserving on the reals
 except formal cancellations, which are standard CAS behavior and documented):
@@ -822,8 +839,8 @@ REPL (`>>> ` prompt, plain `std::getline` — no readline dependency; Ctrl-D or
   use `solve ..., var`).
 - Commands (comma-separated arguments, split at top-level commas only):
   `solve <eq>[, <var>]`, `diff <expr>[, <var>]`, `eval <expr>, x=1[, y=2 …]`,
-  `expand <e>`, `factor <e>`, `cancel <e>[, <var>]`, `latex <e>`,
-  `debug <e>` (s-expr dump), `help`, `quit`/`exit`.
+  `expand <e>`, `factor <e>`, `cancel <e>[, <var>]`, `together <e>`,
+  `latex <e>`, `debug <e>` (s-expr dump), `help`, `quit`/`exit`.
 - Parse/math errors print the caret diagnostic and keep the session alive.
 
 ### REPL session environment (variable assignment)

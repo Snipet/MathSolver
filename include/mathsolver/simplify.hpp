@@ -57,4 +57,20 @@ Expr cancel(const Expr& e);
 /// Cancel each side independently.
 Equation cancel(const Equation& eq);
 
+/// Combine the additive terms of e (after simplify) into a single fraction
+/// N/D over their least common denominator: `1/x + 1/y -> (x + y)/(x*y)`,
+/// `1/(x-1) + 1/(x+1) -> 2*x/((x-1)*(x+1))`, `a + 1/x -> (a*x + 1)/x`. The
+/// LCD is the product of each distinct denominator base (compared
+/// structurally, split by the sign of integer Number Pow exponents) raised
+/// to the maximum multiplicity across terms; each numerator is scaled by
+/// D/(its denominator) and the scaled numerators summed. No GCD, factoring,
+/// or expansion — fully multivariate, denominator left factored. Returns
+/// simplify(e) unchanged when nothing has a symbolic denominator, or on any
+/// 64-bit overflow (never throws). Value-preserving where every original
+/// denominator is nonzero (formal, same doctrine as x/x -> 1). Idempotent.
+Expr together(const Expr& e);
+
+/// Combine each side independently.
+Equation together(const Equation& eq);
+
 } // namespace mathsolver

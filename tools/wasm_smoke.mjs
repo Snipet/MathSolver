@@ -25,6 +25,7 @@ check("simplify latex", ms.simplify("2x + 3x"), (r) => r.ok && r.latex === "5x",
 check("expand", ms.expand("(x+1)^2"), (r) => r.ok && r.plain === "x^2 + 2*x + 1", "x^2 + 2*x + 1");
 check("factor", ms.factor("x^2 - 5x + 6"), (r) => r.ok && r.plain.includes("(x - 3)"), "(x-3)(x-2)");
 check("cancel", ms.cancel("(x^2-1)/(x-1)"), (r) => r.ok && r.plain === "x + 1", "x + 1");
+check("together", ms.together("1/x + 1/y"), (r) => r.ok && r.plain === "(x + y)/(x*y)", "(x + y)/(x*y)");
 check("latex frac", ms.latex("sqrt(x)/2"), (r) => r.ok && r.latex.includes("\\frac"), "\\frac");
 check("analyze expr", ms.analyze("a*x^2 + b"), (r) => r.ok && r.kind === "expression" && r.symbols.join(",") === "a,b,x", "symbols a,b,x");
 check("analyze equation", ms.analyze("x^2 = 4"), (r) => r.ok && r.kind === "equation", "equation");

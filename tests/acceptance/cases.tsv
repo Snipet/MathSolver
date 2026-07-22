@@ -86,6 +86,17 @@ can-10	cancel	sin(x)/x	-	exact	sin(x)/x	0
 # usage error: a variable that is not free in the input
 can-11	cancel	(x^2 - 1)/(x - 1)	z	contains	is not a free variable	2
 #
+# ---------- together (combine a sum of fractions over one denominator) ----------
+tog-01	together	1/x + 1/y	-	exact	(x + y)/(x*y)	0
+tog-02	together	1/x + 1/x^2	-	exact	(x + 1)/x^2	0
+tog-03	together	a + 1/x	-	exact	(a*x + 1)/x	0
+tog-04	together	1/(x - 1) + 1/(x + 1)	-	regex	2\*x/\(\(x - 1\)\*\(x \+ 1\)\)	0
+tog-05	together	2/x + 3/x	-	exact	5/x	0
+tog-06	together	x/(x + 1) + 1/(x + 1)	-	exact	1	0
+# no-op: numeric denominators already folded; nothing symbolic to combine
+tog-07	together	x/2 + 1/3	-	exact	x/2 + 1/3	0
+tog-08	together	x + 1	-	exact	x + 1	0
+#
 # ---------- derivatives (every FunctionId + power/exp cases + compositions) ----------
 dif-01	diff	x^3	x	exact	3*x^2	0
 dif-02	diff	sin(x)	x	exact	cos(x)	0

@@ -7,6 +7,19 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **`together` — combine a sum of fractions over a common denominator**
+  (docs/proposals/together.md): the companion to `cancel`, closing the other
+  half of the "combine and reduce fractions" gap. `1/x + 1/y` now becomes
+  `(x + y)/(x*y)`, `1/(x-1) + 1/(x+1)` becomes `2*x/((x-1)*(x+1))`, and
+  `a + 1/x` becomes `(a*x + 1)/x`. It assembles the least common denominator
+  as the product of each distinct denominator base at its maximum power,
+  scales and sums the numerators — no GCD or factoring, so it is fully
+  multivariate — and keeps the denominator factored (`(x*y)`, not a
+  distributed `y^-1·x^-1`). Nothing symbolic to combine (or a 64-bit
+  overflow) returns the input unchanged, never throwing. Shipped as an
+  explicit verb (CLI `together "1/x + 1/y"`, REPL, wasm, web console),
+  deliberately not folded into `simplify`. Pairs with `cancel` via
+  `cancel(together(e))`.
 - **`cancel` — rational-expression cancellation** (docs/proposals/cancel-poly-gcd.md):
   a new verb that removes the common polynomial factor of a rational
   expression's numerator and denominator, exactly, over 64-bit rationals —

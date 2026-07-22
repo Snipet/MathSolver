@@ -137,6 +137,19 @@ TEST_CASE("cli: cancel — success, no-op, and usage error") {
     CHECK(contains(bad.output, "is not a free variable"));
 }
 
+TEST_CASE("cli: together — combine and no-op") {
+    const RunResult ok = run_cli({"together", "1/x + 1/y"});
+    INFO(ok.output);
+    CHECK(ok.exit_code == 0);
+    CHECK(contains(ok.output, "(x + y)/(x*y)"));
+
+    // Nothing to combine (no symbolic denominator): input back, exit 0.
+    const RunResult noop = run_cli({"together", "x + 1"});
+    INFO(noop.output);
+    CHECK(noop.exit_code == 0);
+    CHECK(contains(noop.output, "x + 1"));
+}
+
 TEST_CASE("cli: solve exact quadratic") {
     const RunResult r = run_cli({"solve", "x^2 = 4", "x"});
     INFO(r.output);
