@@ -200,6 +200,7 @@ export interface EngineApi {
   simplify: [[input: string], TransformResult];
   expand: [[input: string], TransformResult];
   factor: [[input: string], TransformResult];
+  cancel: [[input: string], TransformResult];
   latex: [[input: string], TransformResult];
   subs: [
     [input: string, assignments: string, simplifyResult: boolean],

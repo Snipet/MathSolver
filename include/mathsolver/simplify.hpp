@@ -41,4 +41,20 @@ std::optional<std::vector<Expr>> polynomial_coefficients(const Expr& e,
 /// merely because the expression is not factorable.
 Expr factor(const Expr& e);
 
+/// Best-effort rational-expression cancellation. Splits e (after simplify)
+/// into numerator N and denominator D by the sign of integer Number Pow
+/// exponents; if both are univariate polynomials in the same single symbol
+/// with rational Number coefficients (degree <= 32 each), divides both by
+/// their polynomial GCD (content included) and returns the normalized
+/// quotient N'/D'. In every other case — no denominator, non-polynomial
+/// parts, symbolic coefficients, more than one symbol, degree over the cap,
+/// or 64-bit rational overflow anywhere — returns simplify(e) unchanged.
+/// Never throws OverflowError; value-preserving wherever the original
+/// denominator is nonzero (formal cancellation, same doctrine as x/x -> 1).
+/// Idempotent.
+Expr cancel(const Expr& e);
+
+/// Cancel each side independently.
+Equation cancel(const Equation& eq);
+
 } // namespace mathsolver

@@ -119,6 +119,24 @@ TEST_CASE("cli: factor") {
     CHECK(contains(r.output, ")*("));
 }
 
+TEST_CASE("cli: cancel — success, no-op, and usage error") {
+    const RunResult ok = run_cli({"cancel", "(x^2 - 1)/(x - 1)"});
+    INFO(ok.output);
+    CHECK(ok.exit_code == 0);
+    CHECK(contains(ok.output, "x + 1"));
+
+    // A non-cancelling input prints the simplified input back, exit 0.
+    const RunResult noop = run_cli({"cancel", "(x^2 + 1)/(x + 1)"});
+    INFO(noop.output);
+    CHECK(noop.exit_code == 0);
+    CHECK(contains(noop.output, "(x^2 + 1)/(x + 1)"));
+
+    // Naming a variable not free in the input is a usage error (exit 2).
+    const RunResult bad = run_cli({"cancel", "(x^2 - 1)/(x - 1)", "z"});
+    CHECK(bad.exit_code == 2);
+    CHECK(contains(bad.output, "is not a free variable"));
+}
+
 TEST_CASE("cli: solve exact quadratic") {
     const RunResult r = run_cli({"solve", "x^2 = 4", "x"});
     INFO(r.output);

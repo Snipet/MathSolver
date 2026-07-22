@@ -21,6 +21,7 @@ add_executable(mathsolver_tests
     test_derivative.cpp
     test_integrate.cpp
     test_apart.cpp
+    test_cancel.cpp
     test_solver.cpp
     test_solver_review.cpp
     test_transform.cpp

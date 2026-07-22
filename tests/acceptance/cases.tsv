@@ -70,6 +70,22 @@ fac-03	factor	2x^2 + 4x	-	regex	2\*x\*\(x \+ 2\)|2\*\(x \+ 2\)\*x	0
 fac-05	factor	x^2 + 1	-	exact	x^2 + 1	0
 fac-06	factor	x^2 - 2	-	exact	x^2 - 2	0
 #
+# ---------- cancel (rational-expression GCD cancellation) ----------
+can-01	cancel	(x^2 - 1)/(x - 1)	-	exact	x + 1	0
+can-02	cancel	(x^3 - 1)/(x - 1)	-	exact	x^2 + x + 1	0
+can-03	cancel	(x^2 + 2x + 1)/(x + 1)	-	exact	x + 1	0
+can-04	cancel	(x^2 - 1)/(x^2 - 3x + 2)	-	regex	\(x \+ 1\)/\(x - 2\)	0
+can-05	cancel	(x^2 - 1)/(x - 1)^2	-	regex	\(x \+ 1\)/\(x - 1\)	0
+can-06	cancel	2/(2x - 2)	-	regex	1/\(x - 1\)	0
+# content-only and non-unit constant denominators
+can-07	cancel	(2x + 2)/(4x - 2)	-	regex	\(x \+ 1\)/\(2\*x - 1\)	0
+# guards: gcd = 1, not polynomial, no denominator — unchanged, exit 0
+can-08	cancel	(x^2 - 1)/(x - 2)	-	exact	(x^2 - 1)/(x - 2)	0
+can-09	cancel	(x^2 + 1)/(x + 1)	-	exact	(x^2 + 1)/(x + 1)	0
+can-10	cancel	sin(x)/x	-	exact	sin(x)/x	0
+# usage error: a variable that is not free in the input
+can-11	cancel	(x^2 - 1)/(x - 1)	z	contains	is not a free variable	2
+#
 # ---------- derivatives (every FunctionId + power/exp cases + compositions) ----------
 dif-01	diff	x^3	x	exact	3*x^2	0
 dif-02	diff	sin(x)	x	exact	cos(x)	0

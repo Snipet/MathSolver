@@ -7,6 +7,21 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **`cancel` — rational-expression cancellation** (docs/proposals/cancel-poly-gcd.md):
+  a new verb that removes the common polynomial factor of a rational
+  expression's numerator and denominator, exactly, over 64-bit rationals —
+  the "first five minutes" gap where `(x^2-1)/(x-1)` used to come back
+  untouched now cancels to `x+1`, `(x^2-1)/(x^2-3x+2) → (x+1)/(x-2)`, and
+  `2/(2x-2) → 1/(x-1)`. It splits the expression into `N/D`, and when both are
+  single-variable polynomials with rational coefficients, divides by their GCD
+  (Euclid over `Q[x]` with primitive-part normalization, content folded in),
+  internally verifying the quotient before publishing it. Anything outside
+  that class — no denominator, non-polynomial parts, symbolic coefficients,
+  more than one symbol, or 64-bit overflow — comes back unchanged, never
+  throwing. Shipped as an explicit verb (CLI `cancel "(x^2-1)/(x-1)" [x]`,
+  REPL, and the `cancel` wasm binding), deliberately **not** folded into
+  `simplify` (it erases removable singularities, a domain change; see the
+  proposal §7). Formal cancellation, same doctrine as `x/x → 1`.
 - **Wave system, Phase 4 — authoring & analytics** (docs/proposals/wave-system.md):
   the wave lab can now be **saved, shared, and driven by the CAS**. A **Share
   link** button encodes the whole setup — scene, boundary, every knob, the

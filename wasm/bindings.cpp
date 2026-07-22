@@ -228,6 +228,9 @@ std::string ms_expand(std::string input) {
 std::string ms_factor(std::string input) {
     return transform_json(input, [](const Expr& e) { return factor(e); });
 }
+std::string ms_cancel(std::string input) {
+    return transform_json(input, [](const Expr& e) { return cancel(e); });
+}
 std::string ms_latex(std::string input) {
     return transform_json(input, identity_op);
 }
@@ -1040,6 +1043,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("simplify", &ms_simplify);
     emscripten::function("expand", &ms_expand);
     emscripten::function("factor", &ms_factor);
+    emscripten::function("cancel", &ms_cancel);
     emscripten::function("latex", &ms_latex);
     emscripten::function("subs", &ms_subs);
     emscripten::function("collect", &ms_collect);

@@ -355,6 +355,23 @@ Round-trip invariant (tested): `parse(to_string(e, Plain))` and
 - `factor(expr)`: best-effort — extract common numeric/symbolic factors from
   an Add; factor quadratics with rational roots into linear factors; leave
   anything else unchanged. Never throws just because it can't factor.
+- `cancel(expr)` / `cancel(Equation)` (v0.5): remove the common polynomial
+  factor of a rational expression's numerator and denominator, exactly, over
+  64-bit rationals (`(x^2-1)/(x-1) → x+1`, `(x^2-1)/(x^2-3x+2) →
+  (x+1)/(x-2)`). Splits `simplify(e)` into `N/D` by the sign of integer `Pow`
+  exponents, and — only when both are univariate polynomials in the same
+  single symbol with rational Number coefficients (degree ≤ 32 each) —
+  divides both by their GCD (Euclidean algorithm over `Q[x]` on
+  primitive-part–normalized coefficient vectors, content folded in). Every
+  other case (no denominator, non-polynomial parts, symbolic coefficients,
+  more than one symbol, degree over the cap, or any `OverflowError` in the
+  pipeline) returns `simplify(e)` unchanged — never throws. The quotient is
+  internally verified (both remainders zero, and `N'·g`/`D'·g` reproduce the
+  inputs) before being published, then re-simplified. Formal cancellation:
+  value-preserving wherever the *original* denominator is nonzero, same
+  doctrine as `x/x → 1` (§12). Idempotent. Shipped as an explicit verb, not a
+  `simplify` rule (it changes the domain; see docs/proposals/cancel-poly-gcd.md
+  §7). Implementation: `src/cancel.cpp`.
 
 **Rule inventory for `simplify`** (all "safe" — value-preserving on the reals
 except formal cancellations, which are standard CAS behavior and documented):
@@ -805,8 +822,8 @@ REPL (`>>> ` prompt, plain `std::getline` — no readline dependency; Ctrl-D or
   use `solve ..., var`).
 - Commands (comma-separated arguments, split at top-level commas only):
   `solve <eq>[, <var>]`, `diff <expr>[, <var>]`, `eval <expr>, x=1[, y=2 …]`,
-  `expand <e>`, `factor <e>`, `latex <e>`, `debug <e>` (s-expr dump),
-  `help`, `quit`/`exit`.
+  `expand <e>`, `factor <e>`, `cancel <e>[, <var>]`, `latex <e>`,
+  `debug <e>` (s-expr dump), `help`, `quit`/`exit`.
 - Parse/math errors print the caret diagnostic and keep the session alive.
 
 ### REPL session environment (variable assignment)
@@ -916,7 +933,10 @@ numeric, diff, eval, a parse-error exit code, and a piped-stdin REPL session).
   report "no real solutions").
 - `e` is always Euler's number; variables are single letters/greek names.
 - Rational arithmetic is 64-bit and overflow-checked (throws, never wraps).
-- Formal cancellations (`x/x → 1`) assume nonzero denominators.
+- Formal cancellations (`x/x → 1`) assume nonzero denominators. The `cancel`
+  verb (§7) extends the same doctrine to algebraic common factors —
+  `(x^2-1)/(x-1) → x+1` is defined at `x=1` where the input was not — so its
+  result is value-preserving only where the original denominator is nonzero.
 - Numeric root search only covers the requested interval.
 - Scientific-notation literals are exact and must fit 64-bit rationals
   (`1e300` is a clean ParseError).

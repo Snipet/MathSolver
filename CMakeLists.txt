@@ -50,6 +50,7 @@ add_library(mathsolver_core STATIC
     src/printer.cpp
     src/evaluator.cpp
     src/simplify.cpp
+    src/cancel.cpp
     src/derivative.cpp
     src/discrete.cpp
     src/integrate.cpp
