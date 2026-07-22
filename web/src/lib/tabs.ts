@@ -62,12 +62,6 @@ export const TABS: TabDef[] = [
     examples: ["pi^2/6", "2e-3 + 1e2"],
   },
   {
-    id: "plot",
-    label: "Plot",
-    placeholder: "Function of one variable, e.g. sin(x)/x",
-    examples: ["sin(x)/x", "x^3 - 3x"],
-  },
-  {
     // A full-canvas interactive tool: it has no expression input, so App.svelte
     // special-cases it (like nothing else) — placeholder/examples stay empty.
     id: "wave",

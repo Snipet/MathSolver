@@ -1,5 +1,5 @@
-// Browser verification of the Desmos-style graphing calculator (Workbench
-// "Plot" tab). Requires `npm run build` in web/ first.
+// Browser verification of the Desmos-style graphing calculator (top-level
+// "Graph" mode). Requires `npm run build` in web/ first.
 //   node tools/web_graph_test.mjs
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -70,10 +70,10 @@ try {
     { timeout: 30000 },
   );
   await page.evaluate(() => {
-    [...document.querySelectorAll('[role="tab"]')].find((b) => b.textContent.trim() === "Plot")?.click();
+    [...document.querySelectorAll('.mode-switch [role="tab"]')].find((b) => b.textContent.trim() === "Graph")?.click();
   });
   await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
-  check("Plot tab renders the graphing calculator", true);
+  check("Graph mode renders the graphing calculator", true);
 
   const typeRow = async (i, text) => {
     const inputs = await page.$$(".calc .expr");
@@ -158,7 +158,7 @@ try {
   });
   await page.reload({ waitUntil: "networkidle0" });
   await page.evaluate(() => {
-    [...document.querySelectorAll('[role="tab"]')].find((b) => b.textContent.trim() === "Plot")?.click();
+    [...document.querySelectorAll('.mode-switch [role="tab"]')].find((b) => b.textContent.trim() === "Graph")?.click();
   });
   await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
   for (let i = 0; i < surface.length; i++) {
@@ -174,6 +174,38 @@ try {
     rowErrs.length === 0,
     rowErrs.join(" | "),
   );
+
+  // Named definitions + calculus operators: `f = x^2` becomes a session
+  // variable; diff(f) and integral(f) plot its derivative / antiderivative.
+  await page.evaluate(() => {
+    try {
+      localStorage.removeItem("mathsolver.graph");
+    } catch {}
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  await page.evaluate(() => {
+    [...document.querySelectorAll('.mode-switch [role="tab"]')].find((b) => b.textContent.trim() === "Graph")?.click();
+  });
+  await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  const calc = ["f = x^2", "diff(f)", "integral(f)"];
+  for (let i = 0; i < calc.length; i++) {
+    if (i > 0) await page.click(".calc .add-row");
+    const inputs = await page.$$(".calc .expr");
+    await inputs[i].click({ clickCount: 3 });
+    await inputs[i].type(calc[i]);
+  }
+  await new Promise((r) => setTimeout(r, 1800));
+  const calcErrs = await page.$$eval(".calc .row-err", (els) => els.map((e) => e.textContent));
+  check("definition + diff/integral plot without error", calcErrs.length === 0, calcErrs.join(" | "));
+  const fDefined = await page.evaluate(() =>
+    [...document.querySelectorAll(".sidebar li[data-var-id] input.name")].some((el) => el.value === "f"),
+  );
+  check("`f = x^2` registers as a session variable", fDefined);
+  // The definition row itself must not spawn a slider (x is the graph axis).
+  const sliderNames = await page.$$eval(".calc .sliders .slot-name", (els) =>
+    els.map((e) => e.textContent.trim()),
+  );
+  check("definition does not create a stray slider", !sliderNames.includes("f") && !sliderNames.includes("x"), sliderNames.join(","));
 
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));

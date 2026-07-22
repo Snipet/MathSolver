@@ -26,6 +26,7 @@
   import ResultCard from "./lib/components/ResultCard.svelte";
   import Plot from "./lib/components/Plot.svelte";
   import WaveField from "./lib/components/WaveField.svelte";
+  import GraphCalculator from "./lib/components/GraphCalculator.svelte";
   import History from "./lib/components/History.svelte";
   import VariablesPanel from "./lib/components/VariablesPanel.svelte";
   import VarChips, { type Chip } from "./lib/components/VarChips.svelte";
@@ -52,12 +53,13 @@
       engineError = e instanceof Error ? e.message : String(e);
     });
 
-  // --- top-level mode: the tabbed workbench, or the line-by-line console -----
-  type Mode = "workbench" | "console";
+  // --- top-level mode: tabbed workbench, line-by-line console, or graphing ---
+  type Mode = "workbench" | "console" | "graph";
   const MODE_KEY = "mathsolver.mode";
   function loadMode(): Mode {
     try {
-      return localStorage.getItem(MODE_KEY) === "console" ? "console" : "workbench";
+      const m = localStorage.getItem(MODE_KEY);
+      return m === "console" || m === "graph" ? m : "workbench";
     } catch {
       return "workbench";
     }
@@ -667,7 +669,11 @@
   </label>
 {/snippet}
 
-<div class="app" class:console-mode={mode === "console"}>
+<div
+  class="app"
+  class:console-mode={mode === "console"}
+  class:graph-mode={mode === "graph"}
+>
   <header class="site-header">
     <div class="header-inner">
       <span class="wordmark">MathSolver</span>
@@ -683,16 +689,30 @@
           aria-selected={mode === "workbench"}
           class:active={mode === "workbench"}
           onclick={() => (mode = "workbench")}
+          title="Workbench — step-by-step tools"
         >
-          Workbench
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><rect x="1.5" y="1.5" width="5.4" height="5.4" rx="1.2" /><rect x="9.1" y="1.5" width="5.4" height="5.4" rx="1.2" /><rect x="1.5" y="9.1" width="5.4" height="5.4" rx="1.2" /><rect x="9.1" y="9.1" width="5.4" height="5.4" rx="1.2" /></svg>
+          <span>Workbench</span>
+        </button>
+        <button
+          role="tab"
+          aria-selected={mode === "graph"}
+          class:active={mode === "graph"}
+          onclick={() => (mode = "graph")}
+          title="Graph — interactive graphing calculator"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 2v11.5H14" /><path d="M3 11c2.5 0 3-7 5.5-7s3 5 5.5 5" /></svg>
+          <span>Graph</span>
         </button>
         <button
           role="tab"
           aria-selected={mode === "console"}
           class:active={mode === "console"}
           onclick={() => (mode = "console")}
+          title="Console — line-by-line REPL"
         >
-          Console
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6.5 8 3 11.5" /><path d="M8.5 11.5H13" /></svg>
+          <span>Console</span>
         </button>
       </div>
       <ThemeToggle />
@@ -703,6 +723,8 @@
     <main class="column">
       {#if mode === "console"}
         <Notebook {ready} {engineError} />
+      {:else if mode === "graph"}
+        <GraphCalculator />
       {:else}
       <Tabs tabs={TABS} active={tab} onselect={selectTab} />
 
@@ -944,13 +966,20 @@
       {#if mode === "console"}
         <NotebooksPanel />
         <CommandReference />
+      {:else if mode === "graph"}
+        <p class="graph-tip">
+          Type functions, points, or relations on the left. Undefined
+          variables (like <code>a</code>) become sliders here and in the app;
+          define reusable expressions with <code>f = x^2</code>, and plot
+          <code>diff(f)</code> or <code>integral(f)</code>.
+        </p>
       {:else}
         <History onrestore={restore} />
       {/if}
     </aside>
   </div>
 
-  {#if mode !== "console"}
+  {#if mode === "workbench"}
     <footer class="site-footer">
       <p>
         All computation runs locally in your browser via WebAssembly — nothing
@@ -1024,25 +1053,47 @@
   .mode-switch {
     display: inline-flex;
     gap: 0.15rem;
-    padding: 0.15rem;
+    padding: 0.2rem;
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius);
   }
   .mode-switch button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
     font: inherit;
     font-size: 0.82rem;
     font-weight: 600;
     color: var(--fg-muted);
     background: transparent;
     border: none;
-    border-radius: 999px;
-    padding: 0.25rem 0.85rem;
+    border-radius: calc(var(--radius) - 0.2rem);
+    padding: 0.3rem 0.75rem;
     cursor: pointer;
+    transition: color 120ms ease, background 120ms ease;
+  }
+  .mode-switch button svg {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 auto;
+  }
+  .mode-switch button:hover:not(.active) {
+    color: var(--fg);
+    background: color-mix(in srgb, var(--fg) 6%, transparent);
   }
   .mode-switch button.active {
     color: var(--accent-fg, #fff);
     background: var(--accent);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  @media (max-width: 680px) {
+    .mode-switch button span {
+      display: none;
+    }
+    .mode-switch button {
+      padding: 0.35rem 0.5rem;
+    }
   }
 
   .layout {
@@ -1121,6 +1172,57 @@
       padding-top: 0.9rem;
       scrollbar-width: thin;
     }
+  }
+
+  /* Graph mode: like the console, the graphing calculator owns the whole
+     viewport so there's maximum room to work with expressions and sliders. */
+  .app.graph-mode {
+    height: 100dvh;
+    overflow: hidden;
+  }
+  .app.graph-mode .header-inner {
+    max-width: none;
+  }
+  .app.graph-mode .layout {
+    min-height: 0;
+    max-width: none;
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+  }
+  .app.graph-mode .column {
+    max-width: none;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .app.graph-mode :global(.calc) {
+    flex: 1;
+    min-height: 0;
+  }
+  @media (min-width: 1100px) {
+    .app.graph-mode .layout {
+      grid-template-columns: minmax(0, 1fr) 260px;
+    }
+    .app.graph-mode .sidebar {
+      overflow-y: auto;
+      min-height: 0;
+      padding-top: 0.6rem;
+      scrollbar-width: thin;
+    }
+  }
+  .graph-tip {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--fg-muted);
+  }
+  .graph-tip code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.02em 0.3em;
   }
 
   .loading-note {

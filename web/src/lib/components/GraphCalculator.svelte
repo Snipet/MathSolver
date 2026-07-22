@@ -10,8 +10,9 @@
   import { applyEnv, overrideValue } from "../vars/session";
   import { graph, GRAPH_COLORS } from "../graph/graph.svelte";
   import { xRange, yRange, type DrawSeries } from "../graph/viewport";
-  import { classifyRow, type RowKind } from "../graph/classify";
+  import { classifyRow, splitTopLevelCommas, type RowKind } from "../graph/classify";
   import { marchingSquares, inequalityMask } from "../graph/contour";
+  import { findInnermostCall, stripCalc } from "../graph/calculus";
   import GraphCanvas from "./GraphCanvas.svelte";
 
   interface Props {
@@ -34,7 +35,8 @@
   // drag overrides that keep the curve responsive before the session store's
   // debounced validation catches up.
   const ranges = new Map<string, { lo: number; hi: number }>();
-  const autoCreated = new Set<string>();
+  const autoCreated = new Set<string>(); // slider vars we created
+  const definedByGraph = new Set<string>(); // `name = expr` definitions we created
   let overrides = $state<Record<string, number>>({});
 
   // --- measure the graph area (for sample count + visible range) ------------
@@ -80,9 +82,61 @@
     return () => clearTimeout(timer);
   });
 
+  // Upsert `name := expr` session variables from `name = expr` graph rows, and
+  // remove ones we defined that are no longer present.
+  function reconcileDefines(defs: Map<string, string>): void {
+    untrack(() => {
+      for (const [name, expr] of defs) {
+        const row = vars.rows.find((r) => r.status.symbol === name || r.name === name);
+        if (row) {
+          if (row.value.trim() !== expr.trim()) vars.edit(row.id, { value: expr });
+        } else {
+          const id = vars.add();
+          if (id != null) vars.edit(id, { name, value: expr });
+        }
+        definedByGraph.add(name);
+      }
+      for (const name of [...definedByGraph]) {
+        if (!defs.has(name)) {
+          const row = vars.rows.find((r) => r.status.symbol === name || r.name === name);
+          if (row) vars.remove(row.id);
+          definedByGraph.delete(name);
+        }
+      }
+    });
+  }
+
+  /** Expand diff(...) / integral(...) calls via the engine (innermost first),
+   *  resolving session variables inside each argument. */
+  async function resolveCalculus(text: string): Promise<string> {
+    let s = text;
+    for (let guard = 0; guard < 16; guard++) {
+      const c = findInnermostCall(s);
+      if (!c) break;
+      const parts = splitTopLevelCommas(c.inner);
+      const variable = (parts[1] ?? "x").trim();
+      const argEnv = await applyEnv(parts[0]?.trim() ?? "", [variable], "expr", overrides);
+      const isDiff = c.name === "diff" || c.name === "derivative";
+      let plain: string;
+      if (isDiff) {
+        const r = await call("derivative", [argEnv.text, variable]);
+        if (!r.ok) throw new Error(r.error);
+        plain = r.plain;
+      } else {
+        const r = await call("integrate", [argEnv.text, variable]);
+        if (!r.ok) throw new Error(r.error);
+        if (!r.solved) throw new Error("no closed-form antiderivative");
+        plain = r.plain;
+      }
+      s = s.slice(0, c.start) + "(" + plain + ")" + s.slice(c.end);
+    }
+    return s;
+  }
+
   function reconcileVars(freeVars: Set<string>): void {
     untrack(() => {
       for (const name of freeVars) {
+        if (definedByGraph.has(name)) continue; // a defined name, not a slider
         const exists = vars.rows.some((r) => r.status.symbol === name);
         if (!exists && !autoCreated.has(name)) {
           const id = vars.add();
@@ -119,6 +173,8 @@
         return new Set([angleVar(syms)]);
       case "relation":
         return new Set(["x", "y"]);
+      case "define":
+        return new Set(["x", "y"]); // x/y in a definition are the graph axes
       case "pointish":
         return syms.includes("t") ? new Set(["t"]) : new Set();
       default:
@@ -134,6 +190,8 @@
         return [spec.expr];
       case "relation":
         return [spec.lhs, spec.rhs];
+      case "define":
+        return [spec.expr];
       case "pointish":
         return spec.coords.flatMap((c) => c);
       default:
@@ -179,7 +237,8 @@
       const lo = lo0 - 0.35 * span;
       const hi = hi0 + 0.35 * span;
       const n = sampleN();
-      const env = await applyEnv(spec.expr, [along], "expr", overrides);
+      const resolved = await resolveCalculus(spec.expr);
+      const env = await applyEnv(resolved, [along], "expr", overrides);
       const sr = await call("sample", [env.text, along, lo, hi, n]);
       if (!sr.ok) return { series: [], error: sr.error };
       const axis = linspace(lo, hi, n);
@@ -196,7 +255,8 @@
         // coordinate over t in one engine call.
         if (spec.coords.length !== 1)
           return { series: [], error: "a parametric curve is a single (x(t), y(t)) pair" };
-        const [xe, ye] = spec.coords[0];
+        const [xe0, ye0] = spec.coords[0];
+        const [xe, ye] = [await resolveCalculus(xe0), await resolveCalculus(ye0)];
         const n = 720;
         const ex = await applyEnv(xe, ["t"], "expr", overrides);
         const sx = await call("sample", [ex.text, "t", 0, TWO_PI, n]);
@@ -223,7 +283,7 @@
     if (spec.t === "relation") {
       // g = lhs − rhs, with session vars / slider overrides resolved so only
       // x and y remain; contour at 0 (implicit curve) or shade the region.
-      const gExpr = `(${spec.lhs}) - (${spec.rhs})`;
+      const gExpr = await resolveCalculus(`(${spec.lhs}) - (${spec.rhs})`);
       const env = await applyEnv(gExpr, ["x", "y"], "expr", overrides);
       const [xlo, xhi] = xRange(graph.view, graphW);
       const [ylo, yhi] = yRange(graph.view, graphH);
@@ -260,7 +320,8 @@
       // r = f(θ) over θ ∈ [0, 2π], converted to (r·cosθ, r·sinθ).
       const ang = angleVar(syms);
       const n = 720;
-      const env = await applyEnv(spec.expr, [ang], "expr", overrides);
+      const resolved = await resolveCalculus(spec.expr);
+      const env = await applyEnv(resolved, [ang], "expr", overrides);
       const sr = await call("sample", [env.text, ang, 0, TWO_PI, n]);
       if (!sr.ok) return { series: [], error: sr.error };
       const th = linspace(0, TWO_PI, n);
@@ -291,7 +352,7 @@
         const syms = new Set<string>();
         let err: string | null = null;
         for (const ex of specExprs(spec)) {
-          const a = await call("analyze", [ex]);
+          const a = await call("analyze", [stripCalc(ex)]);
           if (!a.ok) {
             err = a.error;
             break;
@@ -302,6 +363,12 @@
       }),
     );
     if (my !== seq) return;
+
+    // Commit `name = expr` rows as session variables before slider reconcile,
+    // so referencing them elsewhere resolves and they never become sliders.
+    const defs = new Map<string, string>();
+    for (const { spec } of analyzed) if (spec.t === "define") defs.set(spec.name, spec.expr);
+    reconcileDefines(defs);
 
     const errs: Record<number, string> = {};
     const freeVars = new Set<string>();
