@@ -655,6 +655,39 @@ try {
   check("no suggestions when a command is already typed", verbTypedSuggest === 0);
   await clearPrompt();
 
+  // An ODE-shaped line (prime notation) reads as a parse error, but the
+  // dsolve chip rescues it.
+  await page.click(TA);
+  await page.type(TA, "y' = -2t*y, y(0)=1");
+  await page.waitForSelector("[data-testid='verb-suggest'] .verb-chip", {
+    timeout: 6000,
+  });
+  const odeChips = await page.$$eval(
+    "[data-testid='verb-suggest'] .verb-chip",
+    (els) => els.map((e) => e.textContent.trim()),
+  );
+  check(
+    "an ODE suggests dsolve",
+    odeChips.length === 1 && odeChips[0] === "dsolve",
+    JSON.stringify(odeChips),
+  );
+  await clearPrompt();
+
+  // Tab accepts the first suggestion by filling `<verb> <line>` (Enter runs).
+  await page.click(TA);
+  await page.type(TA, "x^3 - x");
+  await page.waitForSelector("[data-testid='verb-suggest'] .verb-chip", {
+    timeout: 6000,
+  });
+  await page.keyboard.press("Tab");
+  const afterTab = await page.$eval(TA, (el) => el.value);
+  check(
+    "Tab fills the first suggestion",
+    afterTab.startsWith("factor ") && afterTab.includes("x^3 - x"),
+    JSON.stringify(afterTab),
+  );
+  await clearPrompt();
+
   // --- ghost argument hints at the caret -----------------------------------
   const ghostText = () =>
     page

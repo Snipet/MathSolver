@@ -12,10 +12,12 @@ per-feature specs are under docs/proposals/.
   verbs worth running on it, tailored via `analyze` — `factor`/`expand` and
   `solve = 0` for a polynomial, `apart` for a rational function, `series` for a
   transcendental one, `diff`/`integrate` for anything with a variable, and
-  `eval` for a pure number. After running a bare expression, the same picks
-  reappear as a "next:" row under its result, so you can keep going without
-  retyping. Clicking a chip runs `<verb> <line>` (with a ` = 0` suffix for
-  `solve`); suggestions stay hidden once a verb is typed.
+  `eval` for a pure number, and `dsolve` for an ODE-shaped line (whose prime
+  notation otherwise reads as a parse error — the chip is the rescue). After
+  running a bare expression, the same picks reappear as a "next:" row under its
+  result, so you can keep going without retyping. Clicking a chip runs `<verb>
+  <line>` (with a ` = 0` suffix for `solve`); **Tab** fills the first
+  suggestion. Suggestions stay hidden once a verb is typed.
 - **Variable assignment** (docs/proposals/variable-assignment.md): a session
   environment of `name := value` bindings in the REPL and the web app.
   - Values are expressions or equations (`E_1 := x + y = 3`), stored as

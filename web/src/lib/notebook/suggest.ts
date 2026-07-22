@@ -53,6 +53,16 @@ function looksRational(text: string, hasVar: boolean): boolean {
 }
 
 /**
+ * Derivative notation → an ODE. Detected by text (a name followed by a prime,
+ * or `d/dx` / `dy/dx`), because `analyze` does not parse the prime grammar
+ * that `dsolve` owns — so an ODE line reads as a parse error, and the dsolve
+ * chip is exactly the rescue.
+ */
+function looksLikeOde(text: string): boolean {
+  return /[A-Za-z]\s*'/.test(text) || /\bd[A-Za-z]?\s*\/\s*d[A-Za-z]/.test(text);
+}
+
+/**
  * Verbs worth trying on a bare line, in priority order. Empty when the line is
  * a command, an assignment, a parse error, or when no alternative to the
  * default action adds value.
@@ -60,6 +70,14 @@ function looksRational(text: string, hasVar: boolean): boolean {
 export async function suggestVerbs(line: string): Promise<VerbSuggestion[]> {
   const text = line.trim();
   if (!text || splitAssignment(text) || hasCommandHead(text)) return [];
+
+  // ODEs first: the prime grammar makes `analyze` report a parse error, so
+  // detect them by shape and offer the verb that does parse them.
+  if (looksLikeOde(text)) {
+    return [
+      { verb: "dsolve", label: "dsolve", hint: "solve as a differential equation" },
+    ];
+  }
 
   const a = await call("analyze", [text]);
   if (!a.ok) return [];

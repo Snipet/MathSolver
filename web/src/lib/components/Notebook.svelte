@@ -326,6 +326,14 @@
         return;
       }
       // Enter falls through: run the line as typed.
+    } else if (verbSuggestions.length > 0 && e.key === "Tab") {
+      // No completion popup, but bare-line verb suggestions are showing: Tab
+      // fills the first (Enter then runs it), mirroring the completion Tab.
+      e.preventDefault();
+      input = suggestionCommand(verbSuggestions[0], input) + " ";
+      recall = null;
+      void tick().then(() => exprInput?.focusEnd());
+      return;
     }
 
     // Shell-style history recall (single-line input only).
@@ -447,21 +455,6 @@
           <span class="preview-note">{preview.note}</span>
         {/if}
       </div>
-      {#if verbSuggestions.length > 0}
-        <div class="verb-suggest" role="group" aria-label="Suggested commands" data-testid="verb-suggest">
-          <span class="verb-suggest-lead">try:</span>
-          {#each verbSuggestions as s (s.verb)}
-            <button
-              class="verb-chip"
-              title={s.hint}
-              onmousedown={(e) => e.preventDefault() /* keep focus */}
-              onclick={() => void runText(suggestionCommand(s, input))}
-            >
-              {s.label}
-            </button>
-          {/each}
-        </div>
-      {/if}
     {:else if preview && preview.kind === "error"}
       <div class="console-preview has-error" data-testid="console-preview">
         <p class="preview-error">{preview.error}</p>
@@ -475,6 +468,28 @@
       </div>
     {:else if activeUsage}
       <p class="usage-hint"><code>{activeUsage}</code></p>
+    {/if}
+
+    {#if verbSuggestions.length > 0}
+      <div
+        class="verb-suggest"
+        role="group"
+        aria-label="Suggested commands"
+        data-testid="verb-suggest"
+      >
+        <span class="verb-suggest-lead">try:</span>
+        {#each verbSuggestions as s (s.label)}
+          <button
+            class="verb-chip"
+            title={s.hint}
+            onmousedown={(e) => e.preventDefault() /* keep focus */}
+            onclick={() => void runText(suggestionCommand(s, input))}
+          >
+            {s.label}
+          </button>
+        {/each}
+        <span class="verb-suggest-tab">Tab</span>
+      </div>
     {/if}
 
     <div class="prompt">
@@ -800,6 +815,15 @@
   .verb-chip:hover {
     color: var(--accent);
     border-color: var(--accent);
+  }
+  .verb-suggest-tab {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) / 3);
+    padding: 0 0.3rem;
+    opacity: 0.7;
   }
 
   .palette {
