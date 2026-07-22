@@ -11,6 +11,7 @@ export type RowKind =
   | { t: "functionY"; expr: string } // x = f(y)
   | { t: "polar"; expr: string } // r = f(θ)
   | { t: "pointish"; coords: [string, string][] } // (a,b)[, (c,d)…] — points or parametric
+  | { t: "define"; name: string; expr: string } // name = expr  (a named value/expression)
   | { t: "relation"; lhs: string; rhs: string; op: RelOp }; // implicit / inequality
 
 /** Split top-level on commas, respecting (), [], {} nesting. */
@@ -105,6 +106,13 @@ export function classifyRow(text: string): RowKind {
       if (isVar(rhs, "x")) return { t: "functionY", expr: lhs.trim() };
       if (isVar(lhs, "r")) return { t: "polar", expr: rhs.trim() };
       if (isVar(rhs, "r")) return { t: "polar", expr: lhs.trim() };
+      // A definition: `name = expr` or `name(args) = expr` where `name` is a
+      // bare identifier other than the graph variables — becomes a reusable
+      // named value/expression (a session variable).
+      const dm = /^([A-Za-z][A-Za-z0-9_]*)\s*(?:\([^()]*\))?$/.exec(lhs.trim());
+      if (dm && !["x", "y", "r"].includes(dm[1])) {
+        return { t: "define", name: dm[1], expr: rhs.trim() };
+      }
       return { t: "relation", lhs: lhs.trim(), rhs: rhs.trim(), op };
     }
     return { t: "relation", lhs: lhs.trim(), rhs: rhs.trim(), op };
