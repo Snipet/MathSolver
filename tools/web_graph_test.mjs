@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import net from "node:net";
-import { encodeState } from "../web/src/lib/graph/share.ts";
+import { encodeState, decodeState } from "../web/src/lib/graph/share.ts";
 
 const WEB = fileURLToPath(new URL("../web", import.meta.url));
 const require = createRequire(`${WEB}/package.json`);
@@ -435,6 +435,38 @@ try {
     check("shared link restores variables (a=4)", aVal, `a=${await varVal("a")}`);
     const hash = await page.evaluate(() => location.hash);
     check("shared link hash is cleared after import", hash === "", hash);
+  }
+
+  // Share button gathers the graph's variables at their resolved values.
+  {
+    await page.evaluate(() => {
+      localStorage.clear();
+      localStorage.setItem(
+        "mathsolver.graph",
+        JSON.stringify({ rows: [{ text: "a*sin(x)", color: "#2563eb", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
+      );
+      localStorage.setItem("mathsolver.mode", "graph");
+    });
+    await page.goto("about:blank");
+    await page.goto(url, { waitUntil: "networkidle0" });
+    await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+    await page.waitForFunction(() => document.querySelectorAll(".calc .sliders .slot").length >= 1, { timeout: 6000 });
+    await page.evaluate(() => {
+      window.__shared = null;
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText: (t) => { window.__shared = t; return Promise.resolve(); } },
+        configurable: true,
+      });
+      [...document.querySelectorAll(".calc-toolbar .tool-btn")].find((b) => b.textContent.trim() === "Share")?.click();
+    });
+    const sharedUrl = await page.waitForFunction(() => window.__shared, { timeout: 6000 }).then((h) => h.jsonValue()).catch(() => null);
+    const payload = sharedUrl && sharedUrl.split("#g=")[1];
+    const decoded = payload ? decodeState(payload) : null;
+    check(
+      "Share encodes the graph's variables at their resolved values",
+      !!decoded && decoded.vars.some((v) => v.name === "a" && Number(v.value) === 1),
+      JSON.stringify(decoded?.vars),
+    );
   }
 
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));

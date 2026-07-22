@@ -65,20 +65,42 @@
       return "workbench";
     }
   }
-  // A shared link (#g=…) replaces the graph document and opens Graph mode.
+  // A shared link (#g=…) replaces the graph document and its variables. Because
+  // this overwrites the user's local work (graph + app-wide session vars) and
+  // persists immediately, confirm first when there is existing work.
   function importSharedLink(): boolean {
+    let matched = false;
     try {
       const m = /^#g=(.+)$/.exec(location.hash);
       if (!m) return false;
+      matched = true;
       const state = decodeState(m[1]);
       if (!state) return false;
+      const hasWork =
+        graph.rows.length > 1 || graph.rows.some((r) => r.text.trim()) || vars.rows.length > 0;
+      if (
+        hasWork &&
+        !window.confirm(
+          "Open this shared graph? It will replace your current graph and its variables.",
+        )
+      ) {
+        return false;
+      }
       graph.replaceAll(state.rows, state.view);
       if (state.vars.length) vars.importVars(state.vars);
-      // Drop the hash so a later reload uses the (now-saved) local document.
-      window.history.replaceState(null, "", location.pathname + location.search);
       return true;
     } catch {
       return false;
+    } finally {
+      // Always strip a #g= hash (even on decline/failure) so a reload uses the
+      // local document and a malformed hash doesn't linger in the address bar.
+      if (matched) {
+        try {
+          window.history.replaceState(null, "", location.pathname + location.search);
+        } catch {
+          /* ignore */
+        }
+      }
     }
   }
   let mode = $state<Mode>(importSharedLink() ? "graph" : loadMode());

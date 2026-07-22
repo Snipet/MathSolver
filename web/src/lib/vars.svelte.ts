@@ -193,7 +193,10 @@ class VarsStore {
   importVars(list: { name: string; value: string }[]) {
     for (const { name, value } of list) {
       if (!name) continue;
-      const row = this.rows.find((r) => r.status.symbol === name || r.name.trim() === name);
+      const typed = symbolToTyped(name);
+      const row = this.rows.find(
+        (r) => r.status.symbol === name || r.name.trim() === name || r.name.trim() === typed,
+      );
       if (row) {
         this.edit(row.id, { value });
       } else {

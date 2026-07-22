@@ -4,7 +4,7 @@
   // through the WASM engine; free variables resolve against the app's session
   // variables and auto-create a slider (app-integrated — `a := 2` set anywhere
   // moves the graph, and a graph slider moves `a` everywhere).
-  import { untrack } from "svelte";
+  import { untrack, onDestroy } from "svelte";
   import { call } from "../engine";
   import { vars } from "../vars.svelte";
   import { applyEnv, overrideValue } from "../vars/session";
@@ -709,29 +709,68 @@
   let shareState = $state<"idle" | "copied" | "error">("idle");
   let shareTimer: ReturnType<typeof setTimeout> | null = null;
 
+  const PLOT_SYMS = new Set(["x", "y", "r", "t", "theta", "θ"]);
+  // Every variable the document actually depends on — across ALL rows (visible
+  // or hidden) and resolved to its concrete numeric value through the session
+  // (following indirect refs like b := a := 3) — so a link reproduces the graph
+  // exactly. Definitions are recreated by their own `name = expr` rows.
+  async function gatherSharedVars(): Promise<{ name: string; value: string }[]> {
+    const syms = new Set<string>();
+    for (const row of graph.rows) {
+      if (!row.text.trim()) continue;
+      const spec = classifyRow(row.text.trim());
+      for (const ex of specExprs(spec)) {
+        const a = await call("analyze", [stripCalc(ex)]);
+        if (a.ok && "symbols" in a) for (const s of a.symbols) syms.add(s);
+      }
+    }
+    const out: { name: string; value: string }[] = [];
+    for (const name of syms) {
+      if (PLOT_SYMS.has(name) || definedByGraph.has(name)) continue;
+      const v = await evalCoord(name);
+      if (v !== null) out.push({ name, value: overrideValue(v) });
+    }
+    return out;
+  }
+  // Legacy clipboard path for contexts where navigator.clipboard is blocked.
+  function legacyCopy(text: string): boolean {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      ta.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+
   async function shareLink(): Promise<void> {
     const snap = graph.snapshot();
-    // Include the graph's own variables: its sliders and its definitions.
-    const varList = [
-      ...slots.map((s) => ({ name: s.name, value: String(s.value) })),
-      ...[...definedByGraph]
-        .map((name) => {
-          const row = vars.rows.find((r) => r.status.symbol === name || r.name.trim() === name);
-          return row ? { name, value: row.value } : null;
-        })
-        .filter((x): x is { name: string; value: string } => !!x),
-    ];
+    const varList = await gatherSharedVars();
     const encoded = encodeState({ v: 1, rows: snap.rows, view: snap.view, vars: varList });
     const url = `${location.origin}${location.pathname}#g=${encoded}`;
+    let copied = false;
     try {
       await navigator.clipboard.writeText(url);
-      shareState = "copied";
+      copied = true;
     } catch {
-      shareState = "error";
+      copied = legacyCopy(url);
     }
+    shareState = copied ? "copied" : "error";
     if (shareTimer) clearTimeout(shareTimer);
     shareTimer = setTimeout(() => (shareState = "idle"), 2200);
   }
+
+  onDestroy(() => {
+    if (shareTimer) clearTimeout(shareTimer);
+    clearDragTimer();
+    for (const t of releaseTimers.values()) clearTimeout(t);
+  });
 
   async function savePNG(): Promise<void> {
     const blob = await canvasComp?.exportBlob();

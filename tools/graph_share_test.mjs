@@ -29,9 +29,27 @@ check("round-trips unicode", decodeState(encodeState(uni)).rows[0].text === "r =
 // Malformed / hostile inputs → null (never throw)
 check("garbage → null", decodeState("!!!not base64!!!") === null);
 check("empty → null", decodeState("") === null);
-check("wrong version → null", decodeState(encodeState({ ...state, v: 2 })) === null);
+check("wrong version → null", decodeState(btoaJson({ v: 2, rows: [], vars: [], view: { cx: 0, cy: 0, scale: 40 } })) === null);
 check("bad view → null", decodeState(encodeState({ ...state, view: { cx: 0, cy: 0, scale: 0 } })) === null);
 check("non-array rows → null", (() => { const bad = btoaJson({ v: 1, rows: "x", vars: [], view: { cx: 0, cy: 0, scale: 1 } }); return decodeState(bad) === null; })());
+
+// Hardening
+check("oversized payload → null", decodeState("A".repeat(70000)) === null);
+check("extreme view → null", decodeState(encodeState({ ...state, view: { cx: 1e9, cy: 0, scale: 40 } })) === null);
+check("tiny scale → null", decodeState(encodeState({ ...state, view: { cx: 0, cy: 0, scale: 1e-9 } })) === null);
+check("non-hex color falls back to default", (() => {
+  const bad = btoaJson({ v: 1, rows: [{ text: "x", color: "url(javascript:alert(1))", visible: true }], vars: [], view: { cx: 0, cy: 0, scale: 40 } });
+  return decodeState(bad).rows[0].color === "#2563eb";
+})());
+check("valid hex color preserved", decodeState(encodeState({ ...state, rows: [{ text: "x", color: "#abc123", visible: true }] })).rows[0].color === "#abc123");
+check("encode caps rows at 60", (() => {
+  const many = { v: 1, rows: Array.from({ length: 80 }, (_, i) => ({ text: `x+${i}`, color: "#2563eb", visible: true })), vars: [], view: { cx: 0, cy: 0, scale: 40 } };
+  return decodeState(encodeState(many)).rows.length === 60;
+})());
+check("oversized text field is truncated", (() => {
+  const big = btoaJson({ v: 1, rows: [{ text: "x".repeat(5000), color: "#2563eb", visible: true }], vars: [], view: { cx: 0, cy: 0, scale: 40 } });
+  return decodeState(big).rows[0].text.length === 2048;
+})());
 
 function btoaJson(o) {
   const s = JSON.stringify(o);
