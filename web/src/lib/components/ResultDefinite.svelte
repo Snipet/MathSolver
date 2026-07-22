@@ -3,7 +3,7 @@
   import type { DefiniteResult } from "../engine/types";
   import { fmt } from "../format";
   import Katex from "./Katex.svelte";
-  import CopyField from "./CopyField.svelte";
+  import SourceFields from "./SourceFields.svelte";
   import MethodMeta from "./MethodMeta.svelte";
 
   let {
@@ -24,10 +24,12 @@
       <span class="approx">≈ {fmt(result.approx)}</span>
     {/if}
   </div>
-  <div class="sources">
-    <CopyField label="Plain" text={result.plain} />
-    <CopyField label="LaTeX" text={result.latex} />
-  </div>
+  <SourceFields
+    fields={[
+      { label: "Plain", text: result.plain },
+      { label: "LaTeX", text: result.latex },
+    ]}
+  />
 {/if}
 <MethodMeta method={result.method} warnings={result.warnings} />
 
@@ -65,10 +67,5 @@
     margin: 0.4rem 0 0;
     font-size: 0.85rem;
     color: var(--fg-muted);
-  }
-  .sources {
-    margin-top: 0.75rem;
-    display: grid;
-    gap: 0.4rem;
   }
 </style>

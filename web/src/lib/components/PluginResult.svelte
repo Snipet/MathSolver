@@ -3,7 +3,7 @@
   // (kv / table / series / text — see mathsolver/plugin.hpp and
   // docs/PLUGINS.md). No plugin-specific code: any plugin that emits the
   // block contract renders here.
-  import type { PluginCallResult } from "../engine/types";
+  import type { PluginBlock, PluginCallResult } from "../engine/types";
   import type { Ok } from "../outcome";
   import { fmt } from "../format";
   import CopyButton from "./CopyButton.svelte";
@@ -14,6 +14,27 @@
     command,
     result,
   }: { plugin: string; command: string; result: Ok<PluginCallResult> } = $props();
+
+  type SeriesBlock = Extract<PluginBlock, { type: "series" }>;
+
+  // Multiple charts group into one tabbed panel (at the first chart's
+  // position) instead of stacking; a single chart renders inline as before.
+  const charts = $derived(
+    result.blocks.filter((b): b is SeriesBlock => b.type === "series"),
+  );
+  const tabbed = $derived(charts.length > 1);
+  const firstChartIdx = $derived(
+    result.blocks.findIndex((b) => b.type === "series"),
+  );
+  let chartTab = $state(0);
+  // Clamp, not reset: the selected tab survives slider-driven re-runs.
+  const activeChart = $derived(
+    Math.min(chartTab, Math.max(0, charts.length - 1)),
+  );
+
+  function chartLabel(b: SeriesBlock, i: number): string {
+    return b.title ?? `chart ${i + 1}`;
+  }
 
   /** Display form of a table cell: numbers compacted to ~6 significant
    * digits (the Copy button exports full precision). */
@@ -74,18 +95,48 @@
         </table>
       </div>
     {:else if block.type === "series"}
-      {#if block.title}
-        <p class="block-title">{block.title}</p>
+      {#if !tabbed}
+        {#if block.title}
+          <p class="block-title">{block.title}</p>
+        {/if}
+        <SeriesChart
+          x={block.x}
+          series={block.series}
+          xlabel={block.xlabel}
+          ylabel={block.ylabel}
+          logx={block.logx ?? false}
+          equal={block.equal ?? false}
+          vlines={block.vlines ?? []}
+        />
+      {:else if i === firstChartIdx}
+        {@const active = charts[activeChart]}
+        <div class="chart-tabs" data-testid="chart-tabs">
+          <div class="tab-strip" role="tablist" aria-label="Charts">
+            {#each charts as c, ci (ci)}
+              <button
+                class="chart-tab"
+                class:active={ci === activeChart}
+                role="tab"
+                aria-selected={ci === activeChart}
+                onclick={() => (chartTab = ci)}
+              >
+                {chartLabel(c, ci)}
+              </button>
+            {/each}
+          </div>
+          {#key activeChart}
+            <SeriesChart
+              x={active.x}
+              series={active.series}
+              xlabel={active.xlabel}
+              ylabel={active.ylabel}
+              logx={active.logx ?? false}
+              equal={active.equal ?? false}
+              vlines={active.vlines ?? []}
+            />
+          {/key}
+        </div>
       {/if}
-      <SeriesChart
-        x={block.x}
-        series={block.series}
-        xlabel={block.xlabel}
-        ylabel={block.ylabel}
-        logx={block.logx ?? false}
-        equal={block.equal ?? false}
-        vlines={block.vlines ?? []}
-      />
     {:else if block.type === "text"}
       {#each block.lines as ln (ln)}
         <p class="text-line">{ln}</p>
@@ -147,6 +198,37 @@
     font-size: 0.82rem;
     font-weight: 600;
     color: var(--fg-muted);
+  }
+  .chart-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    min-width: 0;
+  }
+  .tab-strip {
+    display: flex;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+  }
+  .chart-tab {
+    font: inherit;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--fg-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.18rem 0.75rem;
+    cursor: pointer;
+  }
+  .chart-tab:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .chart-tab.active {
+    color: var(--accent-fg, #fff);
+    background: var(--accent);
+    border-color: var(--accent);
   }
   .block-head {
     display: flex;

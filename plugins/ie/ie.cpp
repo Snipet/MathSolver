@@ -28,15 +28,7 @@ constexpr int k_chart_points = 121;
 
 /// Numeric argument through the CAS, so "pi", "1/2", "-3/4" all work.
 std::optional<double> parse_number(const std::string& s) {
-    try {
-        const double v = evaluate(simplify(parse_expression(s)), Bindings{});
-        if (!std::isfinite(v)) {
-            return std::nullopt;
-        }
-        return v;
-    } catch (const std::exception&) {
-        return std::nullopt;
-    }
+    return mathsolver::plugins::parse_number(s); // shared impl (plugin.hpp)
 }
 
 std::string jarr(const std::vector<double>& v) {

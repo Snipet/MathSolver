@@ -2,6 +2,10 @@
 
 #include "mathsolver/plugin.hpp"
 
+#include "mathsolver/evaluator.hpp"
+#include "mathsolver/parser.hpp"
+#include "mathsolver/simplify.hpp"
+
 #include <cmath>
 #include <format>
 #include <utility>
@@ -77,6 +81,18 @@ std::string jnum(double v) {
 
 std::string error_json(std::string_view message) {
     return std::format("{{\"ok\":false,\"error\":{}}}", jstr(message));
+}
+
+std::optional<double> parse_number(const std::string& s) {
+    try {
+        const double v = evaluate(simplify(parse_expression(s)), Bindings{});
+        if (!std::isfinite(v)) {
+            return std::nullopt;
+        }
+        return v;
+    } catch (const std::exception&) {
+        return std::nullopt;
+    }
 }
 
 } // namespace mathsolver::plugins

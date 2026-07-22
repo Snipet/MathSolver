@@ -2,7 +2,7 @@
   import type { Ok } from "../outcome";
   import type { IntegrateResult } from "../engine/types";
   import Katex from "./Katex.svelte";
-  import CopyField from "./CopyField.svelte";
+  import SourceFields from "./SourceFields.svelte";
   import MethodMeta from "./MethodMeta.svelte";
 
   let { result }: { result: Ok<IntegrateResult> } = $props();
@@ -10,10 +10,12 @@
 
 {#if result.solved}
   <Katex latex={result.latex + " + C"} display />
-  <div class="sources">
-    <CopyField label="Plain" text={result.plain + " + C"} />
-    <CopyField label="LaTeX" text={result.latex + " + C"} />
-  </div>
+  <SourceFields
+    fields={[
+      { label: "Plain", text: result.plain + " + C" },
+      { label: "LaTeX", text: result.latex + " + C" },
+    ]}
+  />
 {:else}
   <p class="banner">No closed form found</p>
   <p class="hint">
@@ -24,11 +26,6 @@
 <MethodMeta method={result.method} warnings={result.warnings} />
 
 <style>
-  .sources {
-    margin-top: 0.75rem;
-    display: grid;
-    gap: 0.4rem;
-  }
   .banner {
     margin: 0;
     padding: 0.5rem 0.75rem;

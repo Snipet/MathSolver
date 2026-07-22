@@ -27,6 +27,7 @@
 //     No exception may escape invoke(); the host also guards.
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -76,5 +77,14 @@ std::string jstr(std::string_view s);
 std::string jnum(double v);
 /// {"ok":false,"error":"..."} with the message escaped.
 std::string error_json(std::string_view message);
+
+/// Parse a numeric command argument through the CAS: plain decimals, exact
+/// rationals ("150187/100" — the engine's plain print for any non-integer
+/// value, so session variables resolve to this spelling), and constant
+/// expressions ("pi", "2pi") all evaluate. Non-constant, malformed, or
+/// non-finite input is nullopt. Every plugin should parse numeric arguments
+/// through this, never std::stod (which silently accepts "148797/100" as
+/// 148797).
+std::optional<double> parse_number(const std::string& s);
 
 } // namespace mathsolver::plugins

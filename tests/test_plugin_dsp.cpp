@@ -602,6 +602,28 @@ TEST_CASE("dsp: butter command returns the block envelope") {
     CHECK_THAT(out, ContainsSubstring("Phase response"));
 }
 
+TEST_CASE("dsp: numeric args accept the CAS spellings sessions produce") {
+    // A session variable holding 1501.87 resolves to the engine's exact
+    // plain print "150187/100" — the plugin must read it as 1501.87, not
+    // reject it (or worse, strtod-truncate it to 148797).
+    const std::string rat =
+        dsp_plugin().invoke("butter", {"lowpass", "4", "150187/100", "48000"});
+    CHECK_THAT(rat, ContainsSubstring("\"ok\":true"));
+    CHECK_THAT(rat, ContainsSubstring("1501.87"));
+
+    // Constant expressions evaluate too.
+    const std::string k =
+        dsp_plugin().invoke("butter", {"lowpass", "2", "1000*2", "48000"});
+    CHECK_THAT(k, ContainsSubstring("\"ok\":true"));
+    CHECK_THAT(k, ContainsSubstring("2000"));
+
+    // Malformed numerics still fail loudly, never partially parse.
+    const std::string bad =
+        dsp_plugin().invoke("butter", {"lowpass", "4", "1000abc", "48000"});
+    CHECK_THAT(bad, ContainsSubstring("\"ok\":false"));
+    CHECK_THAT(bad, ContainsSubstring("frequency must be a positive number"));
+}
+
 TEST_CASE("dsp: cheby commands and band forms return the block envelope") {
     const auto& p = dsp_plugin();
     const std::string c1 =

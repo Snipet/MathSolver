@@ -31,6 +31,7 @@
   import Katex from "./lib/components/Katex.svelte";
   import SpanHighlight from "./lib/components/SpanHighlight.svelte";
   import Notebook from "./lib/components/Notebook.svelte";
+  import NotebooksPanel from "./lib/components/NotebooksPanel.svelte";
   import CommandReference from "./lib/components/CommandReference.svelte";
 
   // --- engine readiness ------------------------------------------------------
@@ -936,6 +937,7 @@
     <aside class="sidebar" aria-label="Session variables and reference">
       <VariablesPanel />
       {#if mode === "console"}
+        <NotebooksPanel />
         <CommandReference />
       {:else}
         <History onrestore={restore} />

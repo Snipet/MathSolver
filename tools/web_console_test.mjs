@@ -104,7 +104,9 @@ async function run(cmd) {
     { timeout: 20000 },
     before,
   );
-  return page.$eval(".cells .cell:last-child", (el) => el.innerText);
+  // textContent, not innerText: the Plain/LaTeX source rows live inside a
+  // collapsed <details> and must stay assertable without expanding it.
+  return page.$eval(".cells .cell:last-child", (el) => el.textContent);
 }
 
 try {
@@ -132,6 +134,38 @@ try {
   check(
     "indefinite integral verb",
     (await run("integrate x*sin(x), x")).includes("-x*cos(x)"),
+  );
+
+  // New cell chrome: the typeset input line and the collapsed source rows.
+  check(
+    "cell typesets its input (∫ … dx)",
+    await page
+      .$eval(
+        ".cells .cell:last-child [data-testid='cell-input-typeset'] annotation",
+        (el) => /\\int/.test(el.textContent || ""),
+      )
+      .catch(() => false),
+  );
+  const srcState = await page
+    .$eval(".cells .cell:last-child details.sources", (d) => ({
+      open: d.open,
+      fields: d.querySelectorAll(".copy-field").length,
+    }))
+    .catch(() => null);
+  check(
+    "source rows collapsed by default",
+    !!srcState && !srcState.open && srcState.fields === 2,
+    JSON.stringify(srcState),
+  );
+  await page.click(".cells .cell:last-child details.sources summary");
+  check(
+    "source rows expand on click",
+    await page
+      .$eval(
+        ".cells .cell:last-child details.sources",
+        (d) => d.open && d.querySelectorAll(".copy-field").length === 2,
+      )
+      .catch(() => false),
   );
   check(
     "apart verb",
@@ -337,11 +371,26 @@ try {
       chebyOut.includes("Phase response"),
     chebyOut.replace(/\n/g, " ").slice(0, 80),
   );
-  const chartCount = await page.$eval(
-    ".cells .cell:last-child",
-    (el) => el.querySelectorAll("canvas").length,
+  // Multiple charts group into a tab strip: one visible canvas, one tab each.
+  const chartTabs = await page.$eval(".cells .cell:last-child", (el) => ({
+    tabs: el.querySelectorAll(".chart-tabs .chart-tab").length,
+    canvases: el.querySelectorAll("canvas").length,
+  }));
+  check(
+    "magnitude + phase + time charts grouped in tabs",
+    chartTabs.tabs === 3 && chartTabs.canvases === 1,
+    JSON.stringify(chartTabs),
   );
-  check("magnitude + phase + time charts", chartCount === 3, `canvases: ${chartCount}`);
+  await page.click(".cells .cell:last-child .chart-tab:nth-child(2)");
+  check(
+    "chart tab switches the visible chart",
+    await page.$eval(
+      ".cells .cell:last-child .chart-tabs",
+      (el) =>
+        el.querySelectorAll(".chart-tab")[1].classList.contains("active") &&
+        el.querySelectorAll("canvas").length === 1,
+    ),
+  );
 
   const firOut = await run("dsp.fir lowpass, 63, 1000, 48000");
   check(
@@ -388,11 +437,15 @@ try {
       tfOut.includes("Bode magnitude") && tfOut.includes("Time response"),
     tfOut.replace(/\n/g, " ").slice(0, 80),
   );
-  const sysCharts = await page.$eval(
-    ".cells .cell:last-child",
-    (el) => el.querySelectorAll("canvas").length,
+  const sysCharts = await page.$eval(".cells .cell:last-child", (el) => ({
+    tabs: el.querySelectorAll(".chart-tabs .chart-tab").length,
+    canvases: el.querySelectorAll("canvas").length,
+  }));
+  check(
+    "sys.tf has 4 charts grouped in tabs",
+    sysCharts.tabs === 4 && sysCharts.canvases === 1,
+    JSON.stringify(sysCharts),
   );
-  check("sys.tf has 4 charts", sysCharts === 4, `canvases: ${sysCharts}`);
 
   const odeOut = await run("sys.ode y'' + 3y' + 2y = u' + u");
   check(
@@ -500,6 +553,233 @@ try {
   );
   await clearPrompt();
 
+  // --- ghost argument hints at the caret -----------------------------------
+  const ghostText = () =>
+    page
+      .$eval("[data-testid='ghost-hint'] .ghost-text", (el) => el.textContent)
+      .catch(() => null);
+  await page.click(TA);
+  await page.type(TA, "integrate ");
+  check("ghost hints <expr> after the verb", (await ghostText()) === "<expr>");
+  await page.type(TA, "x*sin(x)");
+  check("ghost hidden while typing an argument", (await ghostText()) === null);
+  await page.type(TA, ", ");
+  check(
+    "ghost hints <var> after the comma",
+    (await ghostText()) === "<var>",
+    JSON.stringify(await ghostText()),
+  );
+  await clearPrompt();
+  await page.type(TA, "solve ");
+  const solveGhost = await ghostText();
+  check(
+    "ghost joins alternatives with |",
+    !!solveGhost && solveGhost.includes(" | "),
+    JSON.stringify(solveGhost),
+  );
+  await clearPrompt();
+
+  // --- cell sliders: Manipulate-style re-runs ------------------------------
+  await run("k_a := 2");
+  const sliderOut = await run("simplify k_a*x + k_a");
+  check(
+    "slider cell computes with the session value",
+    sliderOut.includes("2*x + 2"),
+    sliderOut.replace(/\s+/g, " ").slice(0, 60),
+  );
+  check(
+    "numeric binding gets a slider",
+    !!(await page.$(
+      ".cells .cell:last-child [data-testid='cell-sliders'] .s-range",
+    )),
+  );
+  await page.$eval(".cells .cell:last-child .s-range", (el) => {
+    el.value = "3";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector(".cells .cell:last-child")
+        ?.textContent?.includes("3*x + 3"),
+    { timeout: 10000 },
+  );
+  check("slider drag re-runs the cell in place", true);
+  const panelValue = () =>
+    page.evaluate(() => {
+      const rows = [...document.querySelectorAll(".sidebar li[data-var-id]")];
+      const row = rows.find((li) => li.querySelector("input.name")?.value === "k_a");
+      return row?.querySelector("input.value")?.value ?? null;
+    });
+  // Mid-drag (input events only): the panel must NOT follow yet.
+  check(
+    "panel does not update mid-drag",
+    (await panelValue()) === "2",
+    JSON.stringify(await panelValue()),
+  );
+  // Mouse-up (change event): the linked session variable follows.
+  await page.$eval(".cells .cell:last-child .s-range", (el) => {
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  check(
+    "slider release writes through to the Variables panel",
+    (await panelValue()) === "3",
+    JSON.stringify(await panelValue()),
+  );
+  // Panel → slider: editing the variable moves the slider and re-runs.
+  await page.evaluate(() => {
+    const rows = [...document.querySelectorAll(".sidebar li[data-var-id]")];
+    const row = rows.find((li) => li.querySelector("input.name")?.value === "k_a");
+    const input = row.querySelector("input.value");
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(
+      input,
+      "5",
+    );
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector(".cells .cell:last-child")
+        ?.textContent?.includes("5*x + 5") &&
+      document.querySelector(".cells .cell:last-child .s-range")?.value === "5",
+    { timeout: 10000 },
+  );
+  check("panel edit moves the slider and re-runs the cell", true);
+  // Fractional values plain-print as exact rationals ("5/2"): the slider
+  // must survive the store's re-validation (regression: it used to vanish).
+  await page.$eval(".cells .cell:last-child .s-range", (el) => {
+    el.value = "2.5";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () =>
+      document
+        .querySelector(".cells .cell:last-child")
+        ?.textContent?.includes("5*x/2"),
+    { timeout: 10000 },
+  );
+  await new Promise((r) => setTimeout(r, 800)); // re-validation window
+  check(
+    "fractional slider survives re-validation",
+    await page.evaluate(
+      () => !!document.querySelector(".cells .cell:last-child .s-range"),
+    ),
+  );
+  const varsOut = await run("vars");
+  check(
+    "session binding reflects the linked slider",
+    varsOut.includes("k_a := 5/2"),
+    varsOut.replace(/\s+/g, " ").slice(0, 80),
+  );
+
+  // --- tall-output folding -------------------------------------------------
+  await run("dsp.butter lowpass, 4, 1000, 48000");
+  await page.waitForFunction(
+    () => !!document.querySelector(".cells .cell:last-child .fold"),
+    { timeout: 10000 },
+  );
+  check("tall output offers a collapse control", true);
+  await page.click(".cells .cell:last-child .fold");
+  check(
+    "collapse clips the output",
+    await page.$eval(".cells .cell:last-child .out-body", (el) =>
+      el.classList.contains("clipped"),
+    ),
+  );
+  check(
+    "collapsed content stays in the DOM",
+    await page.$eval(".cells .cell:last-child", (el) =>
+      (el.textContent || "").includes("Butterworth"),
+    ),
+  );
+  await page.click(".cells .cell:last-child .unfold");
+  check(
+    "show-all expands again",
+    await page.$eval(
+      ".cells .cell:last-child .out-body",
+      (el) => !el.classList.contains("clipped"),
+    ),
+  );
+
+  // Fractional session values resolve to exact-rational text ("150187/100");
+  // plugin numeric args must accept that spelling (regression).
+  await run("k_f := 1501.87");
+  const fracOut = await run("dsp.butter lowpass, 4, k_f, 48000");
+  check(
+    "fractional session variable feeds a plugin arg",
+    fracOut.includes("Butterworth") && fracOut.includes("1501.87"),
+    fracOut.replace(/\s+/g, " ").slice(0, 90),
+  );
+
+  // --- notebook documents: save / open / run in a fresh scope --------------
+  await page.click(".console-head .clear-btn");
+  await page.waitForFunction(
+    () => document.querySelectorAll(".cells .cell").length === 0,
+    { timeout: 5000 },
+  );
+  await run("s_a := 7");
+  check("scoped setup computes", (await run("s_a*x + 1")).includes("7*x + 1"));
+  const savedOut = await run("save demo");
+  check(
+    "save stores the session as a notebook",
+    savedOut.includes("saved notebook 'demo' (2 commands)"),
+    savedOut.replace(/\s+/g, " ").slice(0, 80),
+  );
+  check("notebooks lists the saved notebook", (await run("notebooks")).includes("demo"));
+  // Remove the session binding: the run must work from its own scope.
+  await run("unset s_a");
+  await page.click(TA);
+  await page.type(TA, "run demo");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    () => {
+      const cells = document.querySelectorAll(".cells .cell");
+      const last = cells[cells.length - 1];
+      return last && (last.textContent || "").includes("7*x + 1");
+    },
+    { timeout: 20000 },
+  );
+  const runText = await page.$eval(".cells", (el) => el.textContent);
+  check(
+    "run replays the notebook in a fresh scope",
+    runText.includes("fresh scope") && runText.includes("7*x + 1"),
+  );
+  check(
+    "notebook scope does not leak into the session",
+    !(await run("vars")).includes("s_a"),
+  );
+  await page.click(TA);
+  await page.type(TA, "open demo");
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(
+    () => {
+      const cells = document.querySelectorAll(".cells .cell");
+      return (
+        cells.length === 2 &&
+        (cells[0].textContent || "").includes("loaded from 'demo'")
+      );
+    },
+    { timeout: 10000 },
+  );
+  const opened = await page.$$eval(".cells .cell", (els) =>
+    els.map((e) => (e.textContent || "").replace(/\s+/g, " ")),
+  );
+  check(
+    "open loads the commands unevaluated",
+    opened[0].includes("s_a := 7") && opened[1].includes("s_a*x + 1"),
+    JSON.stringify(opened.map((t) => t.slice(0, 60))),
+  );
+  check(
+    "notebooks panel lists the saved notebook",
+    await page
+      .$eval("[data-testid='notebooks-panel']", (el) =>
+        (el.textContent || "").includes("demo"),
+      )
+      .catch(() => false),
+  );
+
   // --- console UX overhaul: reference panel, autocomplete, cell actions ----
   await page.waitForFunction(
     () =>
@@ -551,7 +831,7 @@ try {
       { timeout: 20000 },
       before,
     );
-    return page.$eval(".cells .cell:last-child", (el) => el.innerText);
+    return page.$eval(".cells .cell:last-child", (el) => el.textContent);
   };
   await page.evaluate(() => {
     const egs = [...document.querySelectorAll(".sidebar .cmd-ref .ref-example")];

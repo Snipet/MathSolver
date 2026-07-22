@@ -7,6 +7,18 @@
     buildConsolePreview,
     type ConsolePreview,
   } from "../notebook/preview";
+  import { splitAssignment } from "../vars/session";
+  import { vars } from "../vars.svelte";
+  import { untrack } from "svelte";
+
+  // Panel → sliders: when the session environment changes (a Variables-panel
+  // edit, an unset, a := line), cell sliders follow and their cells re-run.
+  // untrack: the sync reads and writes cell state; only vars.active may
+  // re-trigger it, or the slider writes would loop the effect.
+  $effect(() => {
+    void vars.active;
+    untrack(() => notebook.syncFromVars());
+  });
   import CommandReference from "./CommandReference.svelte";
   import ConsolePrompt from "./ConsolePrompt.svelte";
   import Katex from "./Katex.svelte";
@@ -89,6 +101,73 @@
     const m = /^\s*([A-Za-z_][A-Za-z0-9_.]*)\s+/.exec(input);
     if (!m) return null;
     return completions.find((c) => c.insert === m[1])?.usage ?? null;
+  });
+
+  // --- ghost hint: the next argument slot(s), inline at the caret -----------
+  // Shown at a word boundary (input ends with space or comma); hidden while a
+  // word is being typed. Alternatives are joined with " | ".
+
+  /** Per-synopsis argument slots of a usage string ("·" separates synopses). */
+  function synopses(usage: string, insert: string): string[][] {
+    return usage.split("·").map((syn) => {
+      let s = syn.trim();
+      if (s.toLowerCase().startsWith(insert.toLowerCase()))
+        s = s.slice(insert.length);
+      // Prose notes "(or just type …)" go; call shapes like y(0)=v stay.
+      s = s.replace(/\s+\([^)]*\)/g, "").replace(/[[\]]/g, "");
+      return s
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean);
+    });
+  }
+
+  const ghostHint = $derived.by(() => {
+    const line = input;
+    if (!line || computing) return "";
+    const endsSpace = /\s$/.test(line);
+    const endsComma = /,$/.test(line);
+    if (!endsSpace && !endsComma) return ""; // mid-word: previewer hidden
+    const m = /^\s*(\S+)\s([\s\S]*)$/.exec(line);
+    if (!m) return "";
+    const [, head, rest] = m;
+    if (splitAssignment(line)) return "";
+    const items = completions.filter(
+      (c) => c.insert.toLowerCase() === head.toLowerCase(),
+    );
+    if (items.length === 0) return "";
+    // Which argument the caret is in: top-level commas of the tail.
+    let depth = 0;
+    let nCommas = 0;
+    let lastComma = -1;
+    for (let i = 0; i < rest.length; i++) {
+      const ch = rest[i];
+      if (ch === "(" || ch === "[" || ch === "{") depth++;
+      else if (ch === ")" || ch === "]" || ch === "}")
+        depth = Math.max(0, depth - 1);
+      else if (ch === "," && depth === 0) {
+        nCommas++;
+        lastComma = i;
+      }
+    }
+    const starting = rest.slice(lastComma + 1).trim() === "";
+    const idx = starting ? nCommas : nCommas + 1;
+    const opts: string[] = [];
+    for (const it of items) {
+      for (const slots of synopses(it.usage, it.insert)) {
+        let s = slots[idx];
+        // A variadic tail ("<var> …", "y'(0)=v, …") keeps hinting.
+        if (!s && slots.length > 0 && idx >= slots.length) {
+          const last = slots[slots.length - 1];
+          if (last.includes("…")) s = last;
+        }
+        if (s && !opts.includes(s)) opts.push(s);
+      }
+    }
+    if (opts.length === 0) return "";
+    const body = opts.join(" | ").replace(/\s*\|\s*/g, " | ");
+    if (!starting) return ", " + body;
+    return endsComma && !endsSpace ? " " + body : body;
   });
 
   // --- live typeset preview of the prompt (debounced engine analyze) --------
@@ -348,6 +427,7 @@
         bind:value={input}
         index={promptIndex}
         placeholder={notebook.cells.length === 0 ? "try: solve x^2 = 4, x" : ""}
+        hint={ghostHint}
         {ready}
         {computing}
         onrun={run}

@@ -15,6 +15,7 @@ import {
   findCycle,
   cycleMessage,
   equationRefMessage,
+  type VarBinding,
 } from "./resolve";
 import {
   nameVerdict,
@@ -59,6 +60,7 @@ export function splitAssignment(text: string): AssignParts | null {
 
 export async function buildAssignPreview(
   parts: AssignParts,
+  env?: VarBinding[],
 ): Promise<AssignPreview> {
   const name = normalizeTypedName(parts.name);
   const nv = nameVerdict(name, await call("analyze", [name]));
@@ -69,7 +71,7 @@ export async function buildAssignPreview(
     return { ...parts, error: vv.error, span: { begin: vv.begin, end: vv.end } };
   // Definition-time cycle check (§5.2) against the environment as it would
   // become; redefinition replaces, so the old binding of this name is out.
-  const others = vars.active.filter((b) => b.name !== nv.symbol);
+  const others = (env ?? vars.active).filter((b) => b.name !== nv.symbol);
   const path = findCycle(nv.symbol, vv.symbols, others);
   if (path) return { ...parts, error: cycleMessage(path) };
   return {
@@ -93,8 +95,11 @@ export async function buildAssignPreview(
  * plain-printed values (round-trip-safe, §5) and happens before the engine
  * ever sees the text — `analyze`/`solveSystem` require an `=` in every segment.
  */
-export function swapEqSegments(text: string): { text: string; swapped: boolean } {
-  const act = vars.active;
+export function swapEqSegments(
+  text: string,
+  env?: VarBinding[],
+): { text: string; swapped: boolean } {
+  const act = env ?? vars.active;
   let swapped = false;
   const segments = splitTopLevel(text).map((seg) => {
     const b = act.find((x) => x.kind === "equation" && x.name === seg);
@@ -113,6 +118,51 @@ export interface Applied {
   computedFrom: Rendered | null;
 }
 
+/** Numeric value overrides (cell sliders): shadow expression bindings. */
+export type EnvOverrides = Record<string, number>;
+
+/**
+ * An isolated variable scope for a notebook run: starts empty, `:=` lines
+ * bind into it, later lines resolve against it, and it is discarded when the
+ * run ends — the session environment is neither visible nor modified.
+ */
+export interface ScopeEnv {
+  bindings: VarBinding[];
+}
+
+/** Plain-printed override value the engine can re-parse. */
+export function overrideValue(v: number): string {
+  return String(Number(v.toPrecision(8)));
+}
+
+/**
+ * The environment with slider overrides applied: an overridden expression
+ * binding becomes the numeric literal (and loses its outgoing dependencies —
+ * overriding `b` in `b := a + 1` disconnects it from `a`). A name absent from
+ * the active set is added — sliders write through to the store, whose
+ * debounced re-validation briefly drops the row from `active`; the override
+ * must stand in for it during that window.
+ */
+function withOverrides(act: VarBinding[], ov?: EnvOverrides): VarBinding[] {
+  if (!ov || Object.keys(ov).length === 0) return act;
+  const out = act.map((b) =>
+    b.kind === "expression" && b.name in ov
+      ? { ...b, value: overrideValue(ov[b.name]), symbols: [] }
+      : b,
+  );
+  const have = new Set(act.map((b) => b.name));
+  for (const [name, v] of Object.entries(ov)) {
+    if (!have.has(name))
+      out.push({
+        name,
+        value: overrideValue(v),
+        symbols: [],
+        kind: "expression",
+      });
+  }
+  return out;
+}
+
 /**
  * Apply the environment to `text` (§5 resolve + §8 one `subs` call per
  * equation segment), returning the resolved input for the operation and its
@@ -123,13 +173,15 @@ export async function applyEnv(
   text: string,
   excluded: string[],
   mode: "expr" | "solve",
+  overrides?: EnvOverrides,
+  scope?: ScopeEnv,
 ): Promise<Applied> {
-  const act = vars.active;
+  const act = withOverrides(scope ? scope.bindings : vars.active, overrides);
   if (act.length === 0) return { text, computedFrom: null };
   let segments = [text];
   let swapped = false;
   if (mode === "solve") {
-    const sw = swapEqSegments(text);
+    const sw = swapEqSegments(text, act);
     swapped = sw.swapped;
     segments = splitTopLevel(sw.text);
     if (segments.length === 0) segments = [sw.text];
