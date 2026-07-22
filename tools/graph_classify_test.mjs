@@ -1,5 +1,5 @@
 // Unit tests for the graph row classifier (web/src/lib/graph/classify.ts).
-import { classifyRow, splitRelation, splitTopLevelCommas, splitRestrictions, parseRestriction } from "../web/src/lib/graph/classify.ts";
+import { classifyRow, splitRelation, splitTopLevelCommas, splitRestrictions, parseRestriction, coordAtom, rebuildPointRow } from "../web/src/lib/graph/classify.ts";
 
 let pass = 0, fail = 0;
 const check = (n, c, e = "") => { if (c) { pass++; console.log("PASS  " + n); } else { fail++; console.log(`FAIL  ${n}${e ? "  [" + e + "]" : ""}`); } };
@@ -31,6 +31,18 @@ check("chained bound → two comparisons", (() => { const cs = parseRestriction(
 check("single comparison", (() => { const cs = parseRestriction(["a < x"]); return cs.length === 1 && cs[0].lhs === "a" && cs[0].op === "<" && cs[0].rhs === "x"; })());
 check("no restriction → empty list", (() => { const { body, restrict } = splitRestrictions("x^2 + 1"); return body === "x^2 + 1" && restrict.length === 0; })());
 check("brace inside stays balanced", (() => { const { body, restrict } = splitRestrictions("x^2"); return body === "x^2" && restrict.length === 0; })());
+
+// Draggable-point coordinate classification
+check("coordAtom literals", ["3","-2.5","1e3",".5","+4"].every((s) => coordAtom(s) === "literal"));
+check("coordAtom fraction is locked (no silent decimal)", coordAtom("1/2") === "locked");
+check("coordAtom idents", coordAtom("a") === "ident" && coordAtom("x_max") === "ident");
+check("coordAtom x/y/r are locked", ["x","y","r"].every((s) => coordAtom(s) === "locked"));
+check("coordAtom expressions are locked", ["a+1","2*b","cos(t)"].every((s) => coordAtom(s) === "locked"));
+// rebuildPointRow preserves siblings + restrictions, changes only the dragged coord
+check("rebuild replaces one point, keeps the other", rebuildPointRow("(1,2), (a, b)", 0, "3.5", "-1") === "(3.5, -1), (a, b)");
+check("rebuild changes only x, keeps y + restriction", rebuildPointRow("(1,2){x>0}", 0, "3", null) === "(3, 2) {x>0}");
+check("rebuild non-pointish is unchanged", rebuildPointRow("y = x^2", 0, "1", "1") === "y = x^2");
+check("rebuild out-of-range index is unchanged", rebuildPointRow("(1, 2)", 5, "9", "9") === "(1, 2)");
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

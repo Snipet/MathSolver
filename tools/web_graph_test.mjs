@@ -237,6 +237,149 @@ try {
   const rSliders = await page.$$eval(".calc .sliders .slot-name", (els) => els.map((e) => e.textContent.trim()));
   check("restriction does not create x/y/theta/t sliders", !["x", "y", "theta", "t"].some((n) => rSliders.includes(n)), rSliders.join(","));
 
+  // --- draggable points ------------------------------------------------------
+  const clickGraph = async () => {
+    await page.evaluate(() => {
+      [...document.querySelectorAll('.mode-switch [role="tab"]')].find((b) => b.textContent.trim() === "Graph")?.click();
+    });
+    await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  };
+  // world (wx,wy) → screen px for a canvas with a known view {cx:0,cy:0,scale}
+  const worldToScreen = (box, wx, wy, scale) => ({
+    x: box.x + box.w / 2 + wx * scale,
+    y: box.y + box.h / 2 - wy * scale,
+  });
+  const canvasBox = () =>
+    page.$eval(".calc .graph canvas", (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    });
+  const varVal = (name) =>
+    page.evaluate((n) => {
+      const li = [...document.querySelectorAll(".sidebar li[data-var-id]")].find(
+        (l) => l.querySelector("input.name")?.value === n,
+      );
+      return li?.querySelector("input.value")?.value ?? null;
+    }, name);
+  const dragOnCanvas = async (from, to) => {
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    for (let s = 1; s <= 8; s++) {
+      await page.mouse.move(from.x + ((to.x - from.x) * s) / 8, from.y + ((to.y - from.y) * s) / 8);
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    await page.mouse.up();
+  };
+
+  // Flagship: a variable-backed point (a, b) — dragging writes the session vars.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({ rows: [{ text: "(a, b)", color: "#2563eb", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
+    );
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  await clickGraph();
+  await page.waitForFunction(
+    () => document.querySelectorAll(".calc .sliders .slot").length >= 2,
+    { timeout: 6000 },
+  );
+  {
+    const box = await canvasBox();
+    const from = worldToScreen(box, 1, 1, 40); // (a,b) start at 1,1
+    const to = worldToScreen(box, 3, 2, 40);
+    await dragOnCanvas(from, to);
+    await page.waitForFunction(
+      () => {
+        const li = [...document.querySelectorAll(".sidebar li[data-var-id]")].find((l) => l.querySelector("input.name")?.value === "a");
+        return Math.abs(Number(li?.querySelector("input.value")?.value) - 3) < 0.3;
+      },
+      { timeout: 6000 },
+    ).catch(() => {});
+    const a = Number(await varVal("a"));
+    const b = Number(await varVal("b"));
+    check("dragging (a,b) moves the session variables app-wide", Math.abs(a - 3) < 0.35 && Math.abs(b - 2) < 0.35, `a=${a} b=${b}`);
+
+    // Release parity: set a := 7 externally; the graph must honor it (override
+    // released, not pinned) — the slider slot value should follow to 7.
+    await page.evaluate(() => {
+      const li = [...document.querySelectorAll(".sidebar li[data-var-id]")].find((l) => l.querySelector("input.name")?.value === "a");
+      const inp = li?.querySelector("input.value");
+      if (inp) {
+        inp.value = "7";
+        inp.dispatchEvent(new Event("input", { bubbles: true }));
+        inp.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    const readSlotA = () =>
+      page.evaluate(() => {
+        const s = [...document.querySelectorAll(".calc .sliders .slot")].find((el) => el.querySelector(".slot-name")?.textContent.trim() === "a");
+        return s?.querySelector(".slot-val")?.value ?? null;
+      });
+    let slotA = false;
+    try {
+      await page.waitForFunction(
+        () => {
+          const s = [...document.querySelectorAll(".calc .sliders .slot")].find((el) => el.querySelector(".slot-name")?.textContent.trim() === "a");
+          const v = Number(s?.querySelector(".slot-val")?.value);
+          return Math.abs(v - 7) < 0.01;
+        },
+        { timeout: 6000 },
+      );
+      slotA = true;
+    } catch {
+      slotA = false;
+    }
+    check("drag override is released, not pinned (external a:=7 honored)", slotA, `slotA=${await readSlotA()}, panelA=${await varVal("a")}`);
+  }
+
+  // Literal point: dragging rewrites the row text.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({ rows: [{ text: "(1, 2)", color: "#dc2626", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
+    );
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  await clickGraph();
+  await new Promise((r) => setTimeout(r, 600));
+  {
+    const box = await canvasBox();
+    const from = worldToScreen(box, 1, 2, 40);
+    const to = worldToScreen(box, -2, 4, 40);
+    await dragOnCanvas(from, to);
+    await new Promise((r) => setTimeout(r, 400));
+    const text = await page.$eval(".calc .expr", (el) => el.value);
+    const m = /\(\s*(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)\s*\)/.exec(text);
+    const okLit = m && Math.abs(Number(m[1]) + 2) < 0.35 && Math.abs(Number(m[2]) - 4) < 0.35;
+    check("dragging a literal point rewrites the row text", !!okLit, text);
+  }
+
+  // Locked point: both coords are expressions → grab falls through to pan.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({ rows: [{ text: "(a+1, b+1)", color: "#16a34a", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
+    );
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  await clickGraph();
+  await new Promise((r) => setTimeout(r, 700));
+  {
+    const before = await page.$eval(".calc .expr", (el) => el.value);
+    const box = await canvasBox();
+    // (a+1, b+1) with a=b=1 → point at (2,2)
+    const from = worldToScreen(box, 2, 2, 40);
+    const to = { x: from.x + 120, y: from.y + 40 };
+    await dragOnCanvas(from, to);
+    await new Promise((r) => setTimeout(r, 300));
+    const after = await page.$eval(".calc .expr", (el) => el.value);
+    check("locked point (expr coords) is not rewritten — drag pans instead", before === after, `${before} -> ${after}`);
+  }
+
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 } catch (e) {

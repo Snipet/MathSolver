@@ -51,6 +51,41 @@ export function splitRestrictions(text: string): { body: string; restrict: strin
   return { body: t, restrict };
 }
 
+/**
+ * How a point coordinate can be dragged: a numeric `literal` (rewrite it), a
+ * bare `ident` (a variable — the component decides if it's settable), or
+ * `locked` (a fraction like 1/2, an expression, or x/y/r — not draggable).
+ */
+export function coordAtom(expr: string): "literal" | "ident" | "locked" {
+  const t = expr.trim();
+  if (/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(t)) return "literal";
+  if (/^[A-Za-z][A-Za-z0-9_]*$/.test(t) && !["x", "y", "r"].includes(t)) return "ident";
+  return "locked";
+}
+
+/**
+ * Rewrite one point's coordinates in a pointish row, preserving the other
+ * points and any `{ … }` restrictions. `x`/`y` are the new coordinate strings
+ * (null = keep). Returns the row text unchanged if it isn't pointish or the
+ * index is out of range. Normalizes interior spacing (e.g. `(1,2)`→`(1, 2)`).
+ */
+export function rebuildPointRow(
+  text: string,
+  coordIndex: number,
+  x: string | null,
+  y: string | null,
+): string {
+  const spec = classifyRow(text);
+  if (spec.t !== "pointish") return text;
+  const coords = spec.coords.map((p) => [...p] as [string, string]);
+  if (coordIndex < 0 || coordIndex >= coords.length) return text;
+  if (x !== null) coords[coordIndex][0] = x;
+  if (y !== null) coords[coordIndex][1] = y;
+  let body = coords.map(([a, b]) => `(${a}, ${b})`).join(", ");
+  for (const r of spec.restrict ?? []) body += ` {${r}}`;
+  return body;
+}
+
 /** Flatten restriction clauses into comparisons, splitting chains a ≤ v ≤ b. */
 export function parseRestriction(clauses: string[]): Comparison[] {
   return clauses.flatMap((c) => parseChain(c));

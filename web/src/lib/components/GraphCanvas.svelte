@@ -7,6 +7,7 @@
   import {
     type View,
     type DrawSeries,
+    type PointHandle,
     xToPx,
     yToPx,
     pxToX,
@@ -23,11 +24,26 @@
   interface Props {
     view: View;
     series?: DrawSeries[];
+    /** Draggable point handles, keyed by points-series id (aligned with xs/ys). */
+    handles?: Record<string, PointHandle[]>;
     /** Console/compact mode uses a shorter graph. */
     height?: number;
+    onPointDragStart?: () => void;
+    onPointDrag?: (rowId: number, coordIndex: number, wx: number, wy: number) => void;
+    onPointCommit?: (rowId: number, coordIndex: number, wx: number, wy: number) => void;
+    onPointDragCancel?: () => void;
   }
 
-  let { view = $bindable(), series = [], height = 0 }: Props = $props();
+  let {
+    view = $bindable(),
+    series = [],
+    handles = {},
+    height = 0,
+    onPointDragStart,
+    onPointDrag,
+    onPointCommit,
+    onPointDragCancel,
+  }: Props = $props();
 
   let host: HTMLDivElement | undefined = $state();
   let canvas: HTMLCanvasElement | undefined = $state();
@@ -74,6 +90,8 @@
     void series;
     void cursor;
     void dragging; // redraw the trace when a drag ends
+    void pointDrag; // and while dragging a point
+    void ghost;
     const c = canvas;
     const w = width;
     const h = H;
@@ -203,21 +221,54 @@
       ctx.stroke();
     }
 
+    let ghostDrawn = false;
     for (const s of series) {
       if (!s.visible || s.kind !== "points") continue;
       ctx.fillStyle = s.color;
       for (let i = 0; i < s.xs.length; i++) {
-        const y = s.ys[i];
-        const x = s.xs[i];
+        const isGhost = !!ghost && ghost.sid === s.id && ghost.i === i;
+        let x = s.xs[i];
+        let y = s.ys[i];
+        if (isGhost && ghost) {
+          x = ghost.x; // draw at the live/committed position, not the stale sample
+          y = ghost.y;
+          ghostDrawn = true;
+        }
         if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
-        ctx.beginPath();
-        ctx.arc(xToPx(x, v, w), yToPx(y, v, h), 4, 0, 2 * Math.PI);
-        ctx.fill();
+        drawPointDot(ctx, xToPx(x, v, w), yToPx(y, v, h), s.color, isGhost);
       }
+    }
+    // The ghost's source point may not be in `series` yet (e.g. just committed);
+    // draw it standalone so it never blinks to a stale position.
+    if (ghost && !ghostDrawn) {
+      const s = series.find((ss) => ss.id === ghost!.sid);
+      drawPointDot(ctx, xToPx(ghost.x, v, w), yToPx(ghost.y, v, h), s?.color ?? "#2563eb", true);
     }
 
     drawTrace(ctx, v, w, h, label, bg);
     ctx.restore();
+  }
+
+  function drawPointDot(
+    ctx: CanvasRenderingContext2D,
+    px: number,
+    py: number,
+    color: string,
+    emphasized: boolean,
+  ): void {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(px, py, emphasized ? 6 : 4, 0, 2 * Math.PI);
+    ctx.fill();
+    if (emphasized) {
+      ctx.beginPath();
+      ctx.arc(px, py, 10, 0, 2 * Math.PI);
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
   }
 
   function drawRegion(
@@ -258,7 +309,7 @@
     label: string,
     bg: string,
   ): void {
-    if (!cursor || dragging) return;
+    if (!cursor || dragging || pointDrag) return;
     let best: { px: number; py: number; x: number; y: number; color: string } | null = null;
     let bestD = 24 * 24;
     for (const s of series) {
@@ -349,16 +400,94 @@
   const pointers = new Map<number, { x: number; y: number }>();
   let pinchDist = 0;
 
+  // Draggable-point state: the grabbed handle and a live ghost position drawn
+  // decoupled from the (debounced) `series` so the dot tracks the cursor.
+  const GRAB = 11; // px hit radius
+  let pointDrag = $state<null | { sid: string; i: number; h: PointHandle }>(null);
+  let ghost = $state<null | { sid: string; i: number; x: number; y: number }>(null);
+  let grabMoved = false;
+  let hoverPoint = $state(false); // cursor hint: hovering a draggable point
+  const cursorStyle = $derived(
+    pointDrag || dragging ? "grabbing" : hoverPoint ? "grab" : "crosshair",
+  );
+
   function localXY(e: PointerEvent): { x: number; y: number } {
     const r = canvas!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
+  function grabbable(h: PointHandle): boolean {
+    return h.x.kind !== "expr" || h.y.kind !== "expr";
+  }
+  function seriesXY(sid: string, i: number): { x: number; y: number } | null {
+    const s = series.find((ss) => ss.id === sid);
+    const x = s?.xs[i];
+    const y = s?.ys[i];
+    return x == null || y == null ? null : { x, y };
+  }
+  function hitPoint(p: { x: number; y: number }): { sid: string; i: number; h: PointHandle } | null {
+    let best: { sid: string; i: number; h: PointHandle } | null = null;
+    let bestD = GRAB * GRAB;
+    for (const s of series) {
+      if (!s.visible || s.kind !== "points") continue;
+      const hs = handles[s.id];
+      if (!hs) continue;
+      for (let i = 0; i < s.xs.length; i++) {
+        const h = hs[i];
+        if (!h || !grabbable(h)) continue;
+        const x = s.xs[i];
+        const y = s.ys[i];
+        if (x == null || y == null) continue;
+        const dx = xToPx(x, view, width) - p.x;
+        const dy = yToPx(y, view, H) - p.y;
+        const d = dx * dx + dy * dy;
+        if (d <= bestD) {
+          bestD = d;
+          best = { sid: s.id, i, h };
+        }
+      }
+    }
+    return best;
+  }
+  // Commit or cancel an in-progress point drag; the ghost is retained until the
+  // next `series` lands (anti-snap-back), cleared by the effect below.
+  function finishPointDrag(cancel: boolean): void {
+    if (!pointDrag) return;
+    const d = pointDrag;
+    pointDrag = null;
+    if (!grabMoved) {
+      ghost = null;
+      return;
+    }
+    if (cancel) {
+      ghost = null;
+      onPointDragCancel?.();
+    } else if (ghost) {
+      onPointCommit?.(d.h.rowId, d.h.coordIndex, ghost.x, ghost.y);
+    }
+  }
+  // Clear the retained ghost once a fresh series (with the committed point) lands.
+  $effect(() => {
+    void series;
+    if (!pointDrag) ghost = null;
+  });
 
   function onPointerDown(e: PointerEvent): void {
     canvas!.setPointerCapture(e.pointerId);
     const p = localXY(e);
+    if (pointDrag) return; // ignore extra fingers while dragging a point
     pointers.set(e.pointerId, p);
     if (pointers.size === 1) {
+      const hit = hitPoint(p);
+      if (hit) {
+        const base = seriesXY(hit.sid, hit.i);
+        if (base) {
+          pointDrag = hit;
+          ghost = { sid: hit.sid, i: hit.i, ...base };
+          grabMoved = false;
+          onPointDragStart?.();
+          return; // do NOT arm pan
+        }
+      }
       dragging = true;
       lastX = p.x;
       lastY = p.y;
@@ -373,6 +502,18 @@
     if (pointers.has(e.pointerId)) pointers.set(e.pointerId, p);
     cursor = { x: p.x, y: p.y };
 
+    if (pointDrag) {
+      const h = pointDrag.h;
+      const base = seriesXY(pointDrag.sid, pointDrag.i);
+      // A free axis follows the cursor; a locked axis holds the series value.
+      const wx = h.x.kind !== "expr" ? pxToX(p.x, view, width) : base?.x ?? pxToX(p.x, view, width);
+      const wy = h.y.kind !== "expr" ? pxToY(p.y, view, H) : base?.y ?? pxToY(p.y, view, H);
+      grabMoved = true;
+      ghost = { sid: pointDrag.sid, i: pointDrag.i, x: wx, y: wy };
+      onPointDrag?.(h.rowId, h.coordIndex, wx, wy);
+      return;
+    }
+
     if (pointers.size >= 2) {
       const [a, b] = [...pointers.values()];
       const d = Math.hypot(a.x - b.x, a.y - b.y);
@@ -383,7 +524,10 @@
       pinchDist = d;
       return;
     }
-    if (!dragging) return;
+    if (!dragging) {
+      hoverPoint = !!hitPoint(p); // grab-cursor hint when over a draggable point
+      return;
+    }
     view = panned(view, p.x - lastX, p.y - lastY);
     lastX = p.x;
     lastY = p.y;
@@ -391,6 +535,7 @@
 
   function onPointerUp(e: PointerEvent): void {
     pointers.delete(e.pointerId);
+    if (pointDrag) finishPointDrag(e.type === "pointercancel");
     if (pointers.size < 2) pinchDist = 0;
     if (pointers.size === 1) {
       // Lifting one finger of a pinch: reseat the pan anchor to the remaining
@@ -418,7 +563,7 @@
   }
 
   const readout = $derived.by(() => {
-    if (!cursor || dragging) return null;
+    if (!cursor || dragging || pointDrag) return null;
     return { x: pxToX(cursor.x, view, width), y: pxToY(cursor.y, view, H) };
   });
 </script>
@@ -426,12 +571,16 @@
 <div class="graph" bind:this={host} style:--gh={height > 0 ? `${height}px` : null}>
   <canvas
     bind:this={canvas}
-    aria-label="Interactive graph — drag to pan, scroll to zoom"
+    style:cursor={cursorStyle}
+    aria-label="Interactive graph — drag to pan, scroll to zoom, drag points to move them"
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
     onpointercancel={onPointerUp}
-    onpointerleave={() => (cursor = null)}
+    onpointerleave={() => {
+      cursor = null;
+      hoverPoint = false;
+    }}
     onwheel={onWheel}
     ondblclick={() => zoomButton(1.6)}
   ></canvas>

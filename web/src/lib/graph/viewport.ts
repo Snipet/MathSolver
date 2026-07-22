@@ -27,6 +27,20 @@ export interface RegionMask {
   mask: Uint8Array;
 }
 
+/** How one coordinate of a plotted point can be moved by dragging it. */
+export type AxisSource =
+  | { kind: "literal" } // a numeric literal in the row text — rewrite it
+  | { kind: "var"; name: string } // a session variable — write it (moves app-wide)
+  | { kind: "expr" }; // a non-atomic expression — locked (not draggable)
+
+/** A draggable point handle, aligned index-for-index with a points series. */
+export interface PointHandle {
+  rowId: number;
+  coordIndex: number; // index into the row's coords list
+  x: AxisSource;
+  y: AxisSource;
+}
+
 /** A drawable in world space: a polyline, a set of points, or a shaded region. */
 export interface DrawSeries {
   id: string;

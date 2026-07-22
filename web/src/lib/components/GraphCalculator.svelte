@@ -9,11 +9,19 @@
   import { vars } from "../vars.svelte";
   import { applyEnv, overrideValue } from "../vars/session";
   import { graph, GRAPH_COLORS } from "../graph/graph.svelte";
-  import { xRange, yRange, type DrawSeries } from "../graph/viewport";
+  import {
+    xRange,
+    yRange,
+    type DrawSeries,
+    type PointHandle,
+    type AxisSource,
+  } from "../graph/viewport";
   import {
     classifyRow,
     splitTopLevelCommas,
     parseRestriction,
+    coordAtom,
+    rebuildPointRow,
     type RowKind,
     type Comparison,
     type RelOp,
@@ -29,6 +37,8 @@
   let { compact = false }: Props = $props();
 
   let series = $state<DrawSeries[]>([]);
+  // Draggable point handles per points-series id (aligned with its xs/ys).
+  let handles = $state<Record<string, PointHandle[]>>({});
   let rowErrors = $state<Record<number, string>>({});
   interface Slot {
     name: string;
@@ -309,9 +319,26 @@
     return mask ? ys.map((y, i) => (mask[i] ? y : null)) : ys;
   }
 
+  // --- draggable-point axis classification -----------------------------------
+  // A bare coordinate is draggable if it's a settable session variable; x/y/r
+  // and non-numeric bindings are never settable.
+  function isSettableVar(name: string): boolean {
+    if (name === "x" || name === "y" || name === "r") return false;
+    if (slots.some((s) => s.name === name)) return true;
+    return vars.active.some((b) => b.name === name && numericValue(b.value) !== null);
+  }
+  function axisSource(raw: string): AxisSource {
+    const t = raw.trim();
+    const a = coordAtom(t);
+    if (a === "literal") return { kind: "literal" };
+    if (a === "ident" && isSettableVar(t)) return { kind: "var", name: t };
+    return { kind: "expr" };
+  }
+
   interface Built {
     series: DrawSeries[];
     error?: string;
+    handles?: PointHandle[];
   }
 
   async function buildDrawable(
@@ -378,16 +405,22 @@
       }
       const xs: number[] = [];
       const ys: (number | null)[] = [];
-      for (const [xe, ye] of spec.coords) {
+      const hs: PointHandle[] = []; // aligned with xs/ys (skip un-evaluable points together)
+      for (let ci = 0; ci < spec.coords.length; ci++) {
+        const [xe, ye] = spec.coords[ci];
         const x = await evalCoord(xe);
         const y = await evalCoord(ye);
         if (x !== null && y !== null) {
           xs.push(x);
           ys.push(y);
+          hs.push({ rowId: id, coordIndex: ci, x: axisSource(xe), y: axisSource(ye) });
         }
       }
       if (xs.length === 0) return { series: [], error: "point coordinates must be numbers" };
-      return { series: [{ id: String(id), color, visible: true, kind: "points", xs, ys }] };
+      return {
+        series: [{ id: String(id), color, visible: true, kind: "points", xs, ys }],
+        handles: hs,
+      };
     }
 
     if (spec.t === "relation") {
@@ -521,6 +554,7 @@
     slots = nextSlots;
 
     const out: DrawSeries[] = [];
+    const nextHandles: Record<string, PointHandle[]> = {};
     for (const { r, spec, syms, err } of analyzed) {
       if (err) continue;
       try {
@@ -528,6 +562,7 @@
         if (my !== seq) return;
         if (built.error) errs[r.id] = built.error;
         for (const s of built.series) out.push(s);
+        if (built.handles && built.handles.length) nextHandles[String(r.id)] = built.handles;
       } catch (e) {
         errs[r.id] = e instanceof Error ? e.message : String(e);
       }
@@ -535,24 +570,128 @@
     rowErrors = errs;
     if (my === seq) {
       series = out;
+      handles = nextHandles;
       if (droppedOverride) overrides = nextOv; // settled overrides released
     }
   }
 
   // --- slider write-through --------------------------------------------------
+  // Round to the session store's stored precision so the committed override
+  // equals numericValue(valuePlain) and the release check (recompute) fires —
+  // otherwise a full-precision override pins the variable forever.
+  const snap = (v: number) => Number(overrideValue(v));
+  // After a commit the session var holds the value, so the override is only a
+  // bridge over the validation debounce. Release it unconditionally soon after
+  // (cleared if a new interaction starts) so a later external edit always wins —
+  // the "drop when equal" pass in recompute can't fire if an external edit
+  // changes the session value before the override and session ever coincide.
+  const releaseTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  function clearRelease(name: string): void {
+    const t = releaseTimers.get(name);
+    if (t) {
+      clearTimeout(t);
+      releaseTimers.delete(name);
+    }
+  }
+  function scheduleRelease(name: string): void {
+    clearRelease(name);
+    releaseTimers.set(
+      name,
+      setTimeout(() => {
+        releaseTimers.delete(name);
+        if (name in overrides) {
+          const { [name]: _drop, ...rest } = overrides;
+          overrides = rest;
+        }
+      }, 350),
+    );
+  }
   function slider(name: string, value: number): void {
+    clearRelease(name); // interaction ongoing — don't let a pending release fire
     overrides = { ...overrides, [name]: value };
   }
   function commitSlider(name: string, value: number): void {
-    overrides = { ...overrides, [name]: value };
-    const row = vars.rows.find((r) => r.status.symbol === name);
+    overrides = { ...overrides, [name]: snap(value) };
+    // Match a pending (not-yet-validated) row by typed name too, so a freshly
+    // auto-created variable still commits on the first drag.
+    const row = vars.rows.find((r) => r.status.symbol === name || r.name.trim() === name);
     if (row) vars.edit(row.id, { value: overrideValue(value) });
+    scheduleRelease(name);
   }
   function setRange(name: string, lo: number, hi: number): void {
     if (!Number.isFinite(lo) || !Number.isFinite(hi) || lo >= hi) return;
     ranges.set(name, { lo, hi });
     // nudge a resample so the slot picks up the new range
     overrides = { ...overrides };
+  }
+
+  // --- draggable points ------------------------------------------------------
+  // Live var writes are throttled so the recompute debounce (90ms) still fires
+  // mid-drag and rows referencing the dragged var move too.
+  let overridesBeforeDrag: Record<string, number> = {};
+  let dragWriteTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastDragWrite = 0;
+  function throttledWrite(fn: () => void): void {
+    const wait = 120 - (Date.now() - lastDragWrite);
+    if (wait <= 0) {
+      lastDragWrite = Date.now();
+      fn();
+    } else {
+      if (dragWriteTimer) clearTimeout(dragWriteTimer);
+      dragWriteTimer = setTimeout(() => {
+        lastDragWrite = Date.now();
+        dragWriteTimer = null;
+        fn();
+      }, wait);
+    }
+  }
+  function clearDragTimer(): void {
+    if (dragWriteTimer) {
+      clearTimeout(dragWriteTimer);
+      dragWriteTimer = null;
+    }
+  }
+  // Resolve the axis kinds at write time from the live row text (never trust a
+  // grab-time snapshot that a recompute could stale).
+  function pointSource(rowId: number, coordIndex: number): { x: AxisSource; y: AxisSource } | null {
+    const row = graph.rows.find((r) => r.id === rowId);
+    if (!row) return null;
+    const spec = classifyRow(row.text.trim());
+    if (spec.t !== "pointish" || coordIndex < 0 || coordIndex >= spec.coords.length) return null;
+    const [xe, ye] = spec.coords[coordIndex];
+    return { x: axisSource(xe), y: axisSource(ye) };
+  }
+  function onPointDragStart(): void {
+    overridesBeforeDrag = { ...overrides };
+  }
+  function onPointDrag(rowId: number, coordIndex: number, wx: number, wy: number): void {
+    const src = pointSource(rowId, coordIndex);
+    if (!src) return;
+    if (src.x.kind === "var") clearRelease(src.x.name);
+    if (src.y.kind === "var") clearRelease(src.y.name);
+    throttledWrite(() => {
+      let ov = overrides;
+      if (src.x.kind === "var") ov = { ...ov, [src.x.name]: snap(wx) };
+      if (src.y.kind === "var") ov = { ...ov, [src.y.name]: snap(wy) };
+      if (ov !== overrides) overrides = ov;
+    });
+  }
+  function onPointCommit(rowId: number, coordIndex: number, wx: number, wy: number): void {
+    clearDragTimer();
+    const src = pointSource(rowId, coordIndex);
+    if (!src) return;
+    if (src.x.kind === "var") commitSlider(src.x.name, wx);
+    if (src.y.kind === "var") commitSlider(src.y.name, wy);
+    const xLit = src.x.kind === "literal" ? String(snap(wx)) : null;
+    const yLit = src.y.kind === "literal" ? String(snap(wy)) : null;
+    if (xLit !== null || yLit !== null) {
+      const row = graph.rows.find((r) => r.id === rowId);
+      if (row) graph.setText(rowId, rebuildPointRow(row.text, coordIndex, xLit, yLit));
+    }
+  }
+  function onPointDragCancel(): void {
+    clearDragTimer();
+    overrides = { ...overridesBeforeDrag };
   }
 
   // A "y =" lead only for a bare function expression (clarifies that a bare
@@ -700,7 +839,16 @@
   </div>
 
   <div class="graph-area" bind:this={graphArea}>
-    <GraphCanvas bind:view={graph.view} {series} height={compact ? 320 : 0} />
+    <GraphCanvas
+      bind:view={graph.view}
+      {series}
+      {handles}
+      height={compact ? 320 : 0}
+      {onPointDragStart}
+      {onPointDrag}
+      {onPointCommit}
+      {onPointDragCancel}
+    />
   </div>
 </div>
 
