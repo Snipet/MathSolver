@@ -189,6 +189,23 @@ class VarsStore {
     this.#persist();
   }
 
+  /** Upsert variables from a shared link, matching existing rows by name. */
+  importVars(list: { name: string; value: string }[]) {
+    for (const { name, value } of list) {
+      if (!name) continue;
+      const typed = symbolToTyped(name);
+      const row = this.rows.find(
+        (r) => r.status.symbol === name || r.name.trim() === name || r.name.trim() === typed,
+      );
+      if (row) {
+        this.edit(row.id, { value });
+      } else {
+        const id = this.add();
+        if (id != null) this.edit(id, { name, value });
+      }
+    }
+  }
+
   /**
    * `name := value` accepted from the main input (§2): both parts are already
    * validated by the caller. REPL semantics — a cycle rejects the definition

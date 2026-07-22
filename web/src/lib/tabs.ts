@@ -8,7 +8,6 @@ export type TabId =
   | "derivative"
   | "integral"
   | "evaluate"
-  | "plot"
   | "wave";
 
 export interface TabDef {
@@ -60,12 +59,6 @@ export const TABS: TabDef[] = [
     label: "Evaluate",
     placeholder: "Expression to evaluate numerically, e.g. pi^2/6",
     examples: ["pi^2/6", "2e-3 + 1e2"],
-  },
-  {
-    id: "plot",
-    label: "Plot",
-    placeholder: "Function of one variable, e.g. sin(x)/x",
-    examples: ["sin(x)/x", "x^3 - 3x"],
   },
   {
     // A full-canvas interactive tool: it has no expression input, so App.svelte

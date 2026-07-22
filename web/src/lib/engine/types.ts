@@ -69,6 +69,11 @@ export type FieldResult =
     }
   | EngineError;
 
+/** A scalar field g(x,y) on a rectangular grid (row-major, y outer). */
+export type GridResult =
+  | { ok: true; nx: number; ny: number; g: (number | null)[] }
+  | EngineError;
+
 export type DsolveResult =
   | ({
       ok: true;
@@ -237,6 +242,20 @@ export interface EngineApi {
       n: number,
     ],
     FieldResult,
+  ];
+  sampleGrid: [
+    [
+      expr: string,
+      xVar: string,
+      yVar: string,
+      x0: number,
+      x1: number,
+      nx: number,
+      y0: number,
+      y1: number,
+      ny: number,
+    ],
+    GridResult,
   ];
   derivative: [[input: string, variable: string], TransformResult];
   laplace: [[input: string, timeVar: string], TransformResult];
