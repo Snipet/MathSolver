@@ -5,6 +5,7 @@
   // console "wave" cell (compact) and as the full Workbench "Wave" tab.
   import { untrack } from "svelte";
   import { WaveSim, type Boundary, type FilterType } from "../wave/sim";
+  import { WAVE_SCENES, buildScene } from "../wave/scenes";
 
   interface Props {
     /** Console cells pass compact=true for a smaller field + condensed controls. */
@@ -57,6 +58,8 @@
   let colormap = $state<"coolwarm" | "fire" | "violet">("coolwarm");
   let energy = $state(0);
   let touched = $state(false);
+  // Structured-media preset (obstacles / variable speed): "empty" = open water.
+  let sceneId = $state("empty");
 
   const HEIGHT = untrack(() => (compact ? 260 : 460));
   const STEPS_PER_FRAME = 2; // temporal oversampling for smoother propagation
@@ -115,9 +118,30 @@
       // Preserve the wave when only the resolution changed: resample the old
       // field into the new grid so a running simulation isn't wiped.
       if (sim) resample(sim, next);
+      // Re-establish the scene geometry on the new grid (without re-seeding the
+      // demo source or wiping the resampled wave).
+      if (sceneId !== "empty") applyScene(next, sceneId, false);
       sim = next;
     });
   });
+
+  /** Apply a structured-media preset. `seed` clears the field and starts the
+   *  scene's demo source (a fresh selection); false just re-lays the geometry
+   *  on an existing field (e.g. after a grid resize). */
+  function applyScene(s: WaveSim, id: string, seed: boolean): void {
+    const sc = buildScene(id, s.nx, s.ny);
+    if (seed) s.reset();
+    s.setMedium(sc.medium ?? null);
+    s.setSolid(sc.solid ?? null);
+    if (seed && sc.boundary) boundaryV = sc.boundary;
+    if (seed) sc.start?.(s);
+  }
+
+  function selectScene(id: string): void {
+    sceneId = id;
+    const s = sim;
+    if (s) applyScene(s, id, true);
+  }
 
   // Push control changes into the live sim without rebuilding it.
   $effect(() => {
@@ -204,6 +228,7 @@
   // Cache the panel-bg read; getComputedStyle is a style-recalc flush, so it
   // is refreshed only every ~30 frames rather than every rAF frame.
   let bgRgb: RGB = [24, 27, 33];
+  let wallRgb: RGB = [120, 124, 132];
   let bgTick = 0;
   function ensureLut(name: string, bg: RGB): void {
     const key = `${name}|${bg.join(",")}`;
@@ -223,6 +248,33 @@
   let imgData: ImageData | null = null;
   let scale = 0.05; // smoothed amplitude normalizer (avoids flicker)
 
+  // Robust peak: the ~97th-percentile of |u| via a coarse histogram (O(n), no
+  // sort). Ignoring a handful of hot cells — the near-field spike of a driven
+  // point source — keeps the color scale on the wave the user cares about.
+  const histBuf = new Int32Array(64);
+  function robustPeak(cur: Float32Array): number {
+    let mx = 0;
+    for (let k = 0; k < cur.length; k++) {
+      const a = cur[k] < 0 ? -cur[k] : cur[k];
+      if (a > mx) mx = a;
+    }
+    if (mx < 1e-9) return mx;
+    const bins = histBuf;
+    bins.fill(0);
+    const s = 63 / mx;
+    for (let k = 0; k < cur.length; k++) {
+      const a = cur[k] < 0 ? -cur[k] : cur[k];
+      bins[(a * s) | 0]++;
+    }
+    const want = cur.length * 0.97;
+    let cum = 0;
+    for (let b = 0; b < 64; b++) {
+      cum += bins[b];
+      if (cum >= want) return ((b + 1) / 64) * mx;
+    }
+    return mx;
+  }
+
   function paint(): void {
     const s = sim;
     const disp = canvas;
@@ -238,33 +290,56 @@
     }
     if (!fieldCtx || !imgData) return;
 
-    // Ease the color scale toward the current peak so faint ripples stay
-    // visible while a big pluck doesn't wash everything out. The floor is set
-    // so a dying/near-rest field fades to the calm background instead of
-    // amplifying residual noise into a saturated blob.
-    const peak = s.maxAbs();
+    // Ease the color scale toward a *robust* peak (a high percentile of |u|,
+    // not the single hottest cell) so faint ripples stay visible while a big
+    // pluck doesn't wash everything out — and, crucially, so the large
+    // near-field of a driven point source (a scene's source) cannot crush the
+    // downstream diffraction/interference pattern to black. The floor keeps a
+    // near-rest field fading to the calm background instead of amplifying noise.
+    const peak = robustPeak(s.cur);
     const target = Math.max(peak, 0.08);
     scale += (target - scale) * 0.08;
     const inv = scale > 1e-6 ? 1 / scale : 0;
 
     // Theme-aware LUT: rest → panel background, so the field blends into the
     // page in light and dark; rebuilt only when the palette or bg changes.
-    if (bgTick++ % 30 === 0) bgRgb = readRgb(disp, "--bg-panel", bgRgb);
+    if (bgTick++ % 30 === 0) {
+      bgRgb = readRgb(disp, "--bg-panel", bgRgb);
+      wallRgb = readRgb(disp, "--fg-muted", wallRgb);
+    }
     ensureLut(colormap, bgRgb);
     const cur = s.cur;
     const px = imgData.data;
+    // Scene overlays: solid cells paint as opaque walls; a slower medium
+    // (cScale < 1) is shaded a touch darker so the "glass" is visible.
+    const solid = s.hasScene ? s.obstacles : null;
+    const med = s.hasScene ? s.medium : null; // per-cell cScale²
     for (let k = 0; k < cur.length; k++) {
+      const o = k * 4;
+      if (solid && solid[k]) {
+        px[o] = wallRgb[0];
+        px[o + 1] = wallRgb[1];
+        px[o + 2] = wallRgb[2];
+        px[o + 3] = 255;
+        continue;
+      }
       let t = cur[k] * inv; // ~[-1, 1]
       t = t < -1 ? -1 : t > 1 ? 1 : t;
       // Signed-gamma boost: emphasize small displacements so ripples read
       // against the near-background rest state.
       const ts = t < 0 ? -((-t) ** 0.7) : t ** 0.7;
       const m = ((ts + 1) * 0.5 * 255) | 0;
-      const o = k * 4;
       const l = m * 3;
-      px[o] = lut[l];
-      px[o + 1] = lut[l + 1];
-      px[o + 2] = lut[l + 2];
+      if (med && med[k] < 0.999) {
+        const dim = 0.62 + 0.38 * Math.sqrt(med[k]); // slower ⇒ darker
+        px[o] = lut[l] * dim;
+        px[o + 1] = lut[l + 1] * dim;
+        px[o + 2] = lut[l + 2] * dim;
+      } else {
+        px[o] = lut[l];
+        px[o + 1] = lut[l + 1];
+        px[o + 2] = lut[l + 2];
+      }
       px[o + 3] = 255;
     }
     fieldCtx.putImageData(imgData, 0, 0);
@@ -471,6 +546,21 @@
     </div>
 
     <div class="bar row2">
+      <div class="tgroup">
+        <span class="glabel">Scene</span>
+        <label class="ctl select" title="Structured-media presets: obstacles, slits, lenses, refraction">
+          <select
+            aria-label="Scene preset"
+            value={sceneId}
+            onchange={(e) => selectScene(e.currentTarget.value)}
+          >
+            {#each WAVE_SCENES as sc (sc.id)}
+              <option value={sc.id} title={sc.hint}>{sc.label}</option>
+            {/each}
+          </select>
+        </label>
+      </div>
+
       <div class="tgroup">
         <span class="glabel">Edge</span>
         <div class="seg" role="group" aria-label="Boundary">

@@ -32,6 +32,9 @@ export interface WaveSimOptions {
 /** Below the 2-D CFL limit 1/√2 with headroom, so every speed is stable. */
 export const MAX_COURANT = 0.7;
 
+/** Slowest medium exposed: cScale below this freezes the field uninterestingly. */
+export const MIN_SCALE = 0.2;
+
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
@@ -58,6 +61,16 @@ export class WaveSim {
   private _filterReflect = 0.85; // overall reflectivity g ∈ [0,1]
   private fOut: Float32Array; // per-boundary-cell filter memory
 
+  // Heterogeneous medium: per-cell (cScale)² where cScale ∈ [MIN_SCALE, 1] is a
+  // slowness (1 = reference/fastest, < 1 = slower/denser → higher index). Since
+  // the local Courant κ·cScale never exceeds the uniform κ ≤ CFL, every scene
+  // stays unconditionally stable. `solid` marks reflecting obstacle cells (held
+  // at 0, i.e. interior Dirichlet). Both default to "off" with a fast path.
+  private scale2: Float32Array;
+  private solid: Uint8Array;
+  private hasMedium = false;
+  private hasSolid = false;
+
   // Continuous driven point source (the "drive"/oscillator gesture).
   private src = { active: false, x: 0, y: 0, r: 3, amp: 0, freq: 0.03, phase: 0 };
 
@@ -69,6 +82,8 @@ export class WaveSim {
     this.prev = new Float32Array(n);
     this.nextBuf = new Float32Array(n);
     this.fOut = new Float32Array(n);
+    this.scale2 = new Float32Array(n).fill(1);
+    this.solid = new Uint8Array(n);
     this._speed = clamp(opts.speed ?? 0.5, 0, 1);
     this._damping = clamp(opts.damping ?? 0, 0, 1);
     this._robin = Math.max(0, opts.robin ?? 0.5);
@@ -127,6 +142,93 @@ export class WaveSim {
     this.src.active = false;
   }
 
+  // --- heterogeneous medium & obstacles (scenes) -----------------------------
+
+  /**
+   * Set the medium: `cScale(i,j)` is a slowness in [MIN_SCALE, 1] (1 = the
+   * reference speed, smaller = slower/denser → refraction toward the normal,
+   * shorter wavelength). Pass a function, a Float32Array of length nx·ny, or
+   * null to clear back to a uniform medium.
+   */
+  setMedium(field: ((i: number, j: number) => number) | Float32Array | null): void {
+    const { nx, ny } = this;
+    if (field === null) {
+      this.scale2.fill(1);
+      this.hasMedium = false;
+      return;
+    }
+    let any = false;
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const k = j * nx + i;
+        const raw = typeof field === "function" ? field(i, j) : field[k];
+        const s = clamp(Number.isFinite(raw) ? raw : 1, MIN_SCALE, 1);
+        this.scale2[k] = s * s;
+        if (s !== 1) any = true;
+      }
+    }
+    this.hasMedium = any;
+  }
+
+  /**
+   * Mark reflecting obstacle cells (held at 0 — an interior Dirichlet wall).
+   * Pass a predicate, a Uint8Array mask, or null to clear.
+   */
+  setSolid(mask: ((i: number, j: number) => boolean) | Uint8Array | null): void {
+    const { nx, ny } = this;
+    if (mask === null) {
+      this.solid.fill(0);
+      this.hasSolid = false;
+      return;
+    }
+    let any = false;
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const k = j * nx + i;
+        const on = typeof mask === "function" ? mask(i, j) : mask[k] !== 0;
+        this.solid[k] = on ? 1 : 0;
+        if (on) {
+          any = true;
+          this.cur[k] = 0;
+          this.prev[k] = 0;
+          this.nextBuf[k] = 0;
+        }
+      }
+    }
+    this.hasSolid = any;
+  }
+
+  /** Restore a uniform, obstacle-free medium. */
+  clearScene(): void {
+    this.scale2.fill(1);
+    this.solid.fill(0);
+    this.hasMedium = false;
+    this.hasSolid = false;
+  }
+
+  get hasScene(): boolean {
+    return this.hasMedium || this.hasSolid;
+  }
+
+  /** Obstacle mask (1 = wall), read-only — for painting. Do not mutate. */
+  get obstacles(): Uint8Array {
+    return this.solid;
+  }
+  /** Per-cell (cScale)², read-only — for shading the medium. Do not mutate. */
+  get medium(): Float32Array {
+    return this.scale2;
+  }
+
+  /** True if cell (i,j) is a solid obstacle — for painting the walls. */
+  isSolid(i: number, j: number): boolean {
+    return this.solid[j * this.nx + i] !== 0;
+  }
+
+  /** Slowness cScale ∈ [MIN_SCALE, 1] at (i,j) — for shading the medium. */
+  scaleAt(i: number, j: number): number {
+    return Math.sqrt(this.scale2[j * this.nx + i]);
+  }
+
   idx(i: number, j: number): number {
     return j * this.nx + i;
   }
@@ -151,16 +253,43 @@ export class WaveSim {
     const prev = this.prev;
     const next = this.nextBuf;
 
-    for (let j = 1; j < ny - 1; j++) {
-      const row = j * nx;
-      for (let i = 1; i < nx - 1; i++) {
-        const k = row + i;
-        const lap = cur[k - 1] + cur[k + 1] + cur[k - nx] + cur[k + nx] - 4 * cur[k];
-        next[k] = (2 * cur[k] - (1 - a) * prev[k] + C * lap) * inv;
+    if (!this.hasMedium && !this.hasSolid) {
+      // Uniform fast path (unchanged).
+      for (let j = 1; j < ny - 1; j++) {
+        const row = j * nx;
+        for (let i = 1; i < nx - 1; i++) {
+          const k = row + i;
+          const lap = cur[k - 1] + cur[k + 1] + cur[k - nx] + cur[k + nx] - 4 * cur[k];
+          next[k] = (2 * cur[k] - (1 - a) * prev[k] + C * lap) * inv;
+        }
+      }
+    } else {
+      // Heterogeneous medium and/or obstacles: per-cell C·scale², solid → 0.
+      // Solid neighbors read as 0 (they are held at 0), so the Laplacian gives
+      // hard reflecting walls with no special casing.
+      const scale2 = this.scale2;
+      const solid = this.solid;
+      for (let j = 1; j < ny - 1; j++) {
+        const row = j * nx;
+        for (let i = 1; i < nx - 1; i++) {
+          const k = row + i;
+          if (solid[k]) {
+            next[k] = 0;
+            continue;
+          }
+          const lap = cur[k - 1] + cur[k + 1] + cur[k - nx] + cur[k + nx] - 4 * cur[k];
+          next[k] = (2 * cur[k] - (1 - a) * prev[k] + C * scale2[k] * lap) * inv;
+        }
       }
     }
 
     this.#applyBoundary(next, cur, kappa);
+
+    // Walls win over the edge BC, so a barrier touching the frame stays a wall.
+    if (this.hasSolid) {
+      const solid = this.solid;
+      for (let k = 0; k < solid.length; k++) if (solid[k]) next[k] = 0;
+    }
 
     // Rotate buffers: prev ← cur, cur ← next, scratch ← old prev.
     this.prev = cur;

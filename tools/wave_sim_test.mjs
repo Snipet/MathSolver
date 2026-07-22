@@ -320,5 +320,66 @@ function gradRatio(sim) {
   check("reset zeroes the field and energy", sim.maxAbs() === 0 && sim.energy() === 0);
 }
 
+// --- 11. obstacles: a solid wall holds zero and blocks the far side --------
+{
+  const sim = new WaveSim(80, 60, { speed: 0.6, boundary: "fixed" });
+  const wx = 40;
+  sim.setSolid((i) => i === wx || i === wx + 1); // full-height 2-cell barrier
+  sim.poke(20, 30, 5, 1); // energy on the left only
+  for (let k = 0; k < 150; k++) sim.step();
+  let wallMax = 0;
+  let right = 0;
+  let left = 0;
+  for (let j = 0; j < sim.ny; j++) {
+    for (let i = 0; i < sim.nx; i++) {
+      const a = Math.abs(sim.cur[sim.idx(i, j)]);
+      if (i === wx || i === wx + 1) wallMax = Math.max(wallMax, a);
+      else if (i > wx + 1) right = Math.max(right, a);
+      else left = Math.max(left, a);
+    }
+  }
+  check(
+    "solid wall holds zero and decouples the two halves",
+    wallMax === 0 && right === 0 && left > 1e-2,
+    `wall=${wallMax}, right=${right}, left=${left.toExponential(2)}`,
+  );
+}
+
+// --- 12. variable media: stable, bounded, and reads back -------------------
+{
+  const sim = new WaveSim(80, 60, { speed: 0.65, boundary: "fixed" });
+  sim.setMedium((i) => (i > 40 ? 0.5 : 1)); // slow right half
+  sim.poke(20, 30, 5, 1);
+  let peak = 0;
+  for (let k = 0; k < 600; k++) {
+    sim.step();
+    peak = Math.max(peak, sim.maxAbs());
+  }
+  check(
+    "variable media stays stable and bounded",
+    Number.isFinite(peak) && peak < 3 && sim.maxAbs() > 5e-3,
+    `peak=${peak.toFixed(3)}`,
+  );
+  sim.setMedium(() => 0.01); // below MIN_SCALE
+  check(
+    "medium reads back, clamped to [MIN_SCALE, 1]",
+    Math.abs(sim.scaleAt(10, 30) - 0.2) < 1e-6,
+    `scale=${sim.scaleAt(10, 30)}`,
+  );
+}
+
+// --- 13. scene lifecycle: hasScene / clearScene ----------------------------
+{
+  const sim = new WaveSim(40, 40);
+  sim.setSolid((i) => i === 20);
+  sim.setMedium(() => 0.5);
+  check("hasScene true once a medium/obstacle is set", sim.hasScene === true);
+  sim.clearScene();
+  check(
+    "clearScene restores a uniform, obstacle-free medium",
+    sim.hasScene === false && sim.scaleAt(20, 20) === 1 && !sim.isSolid(20, 20),
+  );
+}
+
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

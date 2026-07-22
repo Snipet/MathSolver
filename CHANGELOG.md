@@ -7,6 +7,16 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Wave system, Phase 1 — structured media** (docs/proposals/wave-system.md):
+  the interactive wave field gains a heterogeneous medium (per-cell wave speed
+  `c(x,y)`) and solid reflecting obstacles, plus a **Scene** preset menu —
+  double-slit and single-slit diffraction, a converging lens, a waveguide, and
+  refraction at an interface — each self-demonstrating with a driven source.
+  Slower regions are shaded and refract/shorten wavelengths; obstacles render
+  as walls. The color scale is now a robust high-percentile of |u|, so a driven
+  source's near-field no longer crushes the downstream pattern. Every scene
+  stays unconditionally stable (slowness `cScale ∈ (0,1]`). New sim tests cover
+  wall decoupling, variable-media stability, and the scene lifecycle.
 - **Variable assignment** (docs/proposals/variable-assignment.md): a session
   environment of `name := value` bindings in the REPL and the web app.
   - Values are expressions or equations (`E_1 := x + y = 3`), stored as
