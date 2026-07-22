@@ -1029,6 +1029,14 @@ Expr apply_fn_rules(const Expr& e) {
             }
             return e;
         }
+        case FunctionId::Conj:
+        case FunctionId::Re:
+        case FunctionId::Im:
+        case FunctionId::Arg:
+            // Complex accessors: a numeric (Gaussian) argument is folded in
+            // fold_complex; a symbolic argument stays unevaluated — a symbol's
+            // realness is not assumed here.
+            return e;
     }
     return e;
 }
@@ -1144,8 +1152,42 @@ Expr gaussian_to_expr(const Gaussian& z) {
 /// canonical form.
 std::optional<Expr> fold_complex(const Expr& n) {
     const Kind k = n->kind();
-    if (k != Kind::Add && k != Kind::Mul && k != Kind::Pow) return std::nullopt;
     if (!contains_imaginary_unit(n)) return std::nullopt;
+
+    // Complex accessors on a numeric argument: conj(2+3i) -> 2-3i, re/im
+    // extract, abs is the modulus sqrt(a^2+b^2) (the radical rule normalizes
+    // it on the next pass, so abs(3+4i) -> 5). arg is left for numeric eval.
+    if (k == Kind::Function) {
+        const FunctionId id = n->function();
+        if (id != FunctionId::Conj && id != FunctionId::Re &&
+            id != FunctionId::Im && id != FunctionId::Abs) {
+            return std::nullopt;
+        }
+        std::optional<Gaussian> z;
+        try {
+            z = as_gaussian(n->arg(0));
+        } catch (const OverflowError&) {
+            return std::nullopt;
+        } catch (const DivisionByZeroError&) {
+            return std::nullopt;
+        }
+        if (!z) return std::nullopt;
+        switch (id) {
+            case FunctionId::Conj: return gaussian_to_expr({z->re, -z->im});
+            case FunctionId::Re: return make_num(z->re);
+            case FunctionId::Im: return make_num(z->im);
+            case FunctionId::Abs:
+                try {
+                    return make_pow(make_num(z->re * z->re + z->im * z->im),
+                                    make_num(Rational(1, 2)));
+                } catch (const OverflowError&) {
+                    return std::nullopt;
+                }
+            default: return std::nullopt;
+        }
+    }
+
+    if (k != Kind::Add && k != Kind::Mul && k != Kind::Pow) return std::nullopt;
     std::optional<Gaussian> z;
     try {
         z = as_gaussian(n);

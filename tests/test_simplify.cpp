@@ -721,6 +721,24 @@ TEST_CASE("simplify: complex folding is scoped — symbolic and real untouched")
     expect_unchanged("1/(x + 1)");
 }
 
+TEST_CASE("simplify: complex accessors on numeric arguments") {
+    const auto S = [](std::string_view s) {
+        return to_string(simplify(parse_expression(s)), PrintStyle::Plain);
+    };
+    // conj/Re/Im fold on Gaussian arguments; abs is the modulus.
+    CHECK(S("conj(2+3i)") == "-3*i + 2");
+    CHECK(S("Re(2+3i)") == "2");
+    CHECK(S("Im(2+3i)") == "3");
+    CHECK(S("conj(i)") == "-i");
+    CHECK(S("conj(conj(2+3i))") == "3*i + 2");
+    CHECK(S("abs(3+4i)") == "5");    // sqrt(25) normalized
+    CHECK(S("abs(1+i)") == "sqrt(2)");
+    // A symbolic argument stays unevaluated (a symbol's realness is not assumed).
+    CHECK(S("conj(x)") == "conj(x)");
+    CHECK(S("Re(x + i)") == "Re(i + x)");
+    CHECK(S("Im(x)") == "Im(x)");
+}
+
 TEST_CASE("simplify: complex folding is idempotent") {
     const auto S = [](std::string_view s) {
         return simplify(parse_expression(s));

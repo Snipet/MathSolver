@@ -1,6 +1,7 @@
 #include "mathsolver/derivative.hpp"
 
 #include <cstddef>
+#include <format>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -83,6 +84,15 @@ Expr chain_factor(FunctionId id, const Expr& u) {
     case FunctionId::Abs:
         // d(abs(u)) = u' * u / abs(u); undefined at u == 0 (documented).
         return make_mul({u, make_pow(make_fn(FunctionId::Abs, u), make_num(-1))});
+    case FunctionId::Conj:
+    case FunctionId::Re:
+    case FunctionId::Im:
+    case FunctionId::Arg:
+        // These are not complex-analytic (no single f'(u) chain factor). An
+        // honest error beats a wrong answer (DESIGN.md doctrine).
+        throw Error(std::format(
+            "differentiate: {} is not analytic; its derivative is not supported",
+            function_name(id)));
     }
     throw Error("differentiate: unknown FunctionId");
 }

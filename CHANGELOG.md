@@ -7,6 +7,12 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Complex domain, Phase 3** (docs/proposals/complex-domain.md): the complex
+  accessor functions `conj`, `Re`, `Im`, `arg` (`Re`/`Im` capitalized so
+  lowercase `r*e`/`i*m` products are unaffected). `simplify` folds numeric
+  arguments — `conj(2+3i) → 2-3i`, `Re(2+3i) → 2`, `abs(3+4i) → 5` — while a
+  symbolic argument stays unevaluated. Both evaluators compute them (`eval
+  "arg(i)" → 1.5708`); LaTeX renders `conj` as `\overline{·}`.
 - **Complex domain, Phase 2** (docs/proposals/complex-domain.md): a complex
   numeric evaluator (`evaluate_complex`) running alongside the real one, which
   is unchanged. The CLI `eval` verb evaluates any expression containing `i`

@@ -127,12 +127,25 @@ explicit complex mode). Tests in `tests/test_evaluator.cpp` and
 **Remaining in Phase 2 (follow-up):** the wasm binding + web Evaluate tab
 (the `EvaluateResult` shape currently carries only a real `value`).
 
-### Phase 3 — complex functions as first-class
+### Phase 3 — complex functions as first-class ✅
 
-New `FunctionId`s `Conj`, `Re`, `Im`, `Arg` (and complex-aware `Abs`): touches
-the enum, parser names, printer, evaluator, simplify (`conj(2+3i) → 2-3i`,
-`Re/Im` extraction from a Gaussian, `abs(3+4i) → 5`), and derivative
-(non-analytic → error/piecewise). Mechanical but wide. **M.**
+New `FunctionId`s `Conj`, `Re`, `Im`, `Arg`:
+
+- Parser: `conj`, `arg`, and the **capitalized** `Re`/`Im` are registered
+  known names (`src/parser.cpp`) — capitalized so the lowercase products `r*e`
+  and `i*m` keep their meaning (no existing input reparses).
+- Printer: Plain `conj/Re/Im/arg`; LaTeX `\overline{z}`, `\operatorname{Re}`,
+  `\operatorname{Im}`, `\arg`.
+- Evaluators: real (`conj`/`Re` identity, `Im` = 0, `arg` ∈ {0, π}) and complex
+  (`std::conj`/`real`/`imag`/`arg`).
+- `simplify` folds numeric-complex arguments via the Phase 1 Gaussian machinery:
+  `conj(2+3i) → 2-3i`, `Re/Im` extract, `abs(3+4i) → 5` (modulus, normalized by
+  the radical rule). A **symbolic** argument stays unevaluated — a symbol's
+  realness is not assumed (`conj(x)`, `Re(x+i)` are left as-is).
+- Derivative: non-analytic → honest error (no wrong answer).
+- Solver: not invertible → `IsoStatus::Fail`.
+
+Tests in `tests/test_simplify.cpp` and `tests/test_evaluator.cpp`.
 
 ### Phase 4 — Euler's formula & transcendental simplification
 

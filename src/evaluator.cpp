@@ -121,6 +121,12 @@ double eval_function(FunctionId id, double u) {
             }
             return std::log(u);
         case FunctionId::Abs: return std::fabs(u);
+        // Complex accessors on a real argument: conj/re are identity, im is 0,
+        // arg is 0 for u >= 0 and pi for u < 0.
+        case FunctionId::Conj:
+        case FunctionId::Re: return u;
+        case FunctionId::Im: return 0.0;
+        case FunctionId::Arg: return u < 0.0 ? std::numbers::pi : 0.0;
     }
     throw std::logic_error("evaluate: invalid FunctionId");
 }
@@ -180,6 +186,10 @@ Complex eval_function_complex(FunctionId id, Complex z) {
             return std::log(z); // principal branch
         case FunctionId::Abs:
             return Complex(std::abs(z), 0.0); // modulus |z|
+        case FunctionId::Conj: return std::conj(z);
+        case FunctionId::Re: return Complex(z.real(), 0.0);
+        case FunctionId::Im: return Complex(z.imag(), 0.0);
+        case FunctionId::Arg: return Complex(std::arg(z), 0.0); // (-pi, pi]
         // No complex implementation: fall back to the real one when the
         // argument is (numerically) real, otherwise report honestly.
         case FunctionId::Gamma:

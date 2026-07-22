@@ -259,6 +259,25 @@ TEST_CASE("evaluate_complex: arithmetic and Euler's formula", "[evaluator][compl
     CHECK(near(C("cos(i)"), {std::cosh(1.0), 0.0}));
 }
 
+TEST_CASE("evaluate_complex: complex accessor functions", "[evaluator][complex]") {
+    const auto C = [](std::string_view s) {
+        return evaluate_complex(parse_expression(s));
+    };
+    const auto near = [](std::complex<double> got, std::complex<double> want) {
+        return std::abs(got - want) < 1e-12;
+    };
+    CHECK(near(C("conj(2+3i)"), {2.0, -3.0}));
+    CHECK(near(C("Re(2+3i)"), {2.0, 0.0}));
+    CHECK(near(C("Im(2+3i)"), {3.0, 0.0}));
+    CHECK(near(C("arg(i)"), {std::numbers::pi / 2.0, 0.0}));
+    CHECK(near(C("arg(-1 + 0*i)"), {std::numbers::pi, 0.0}));
+    // Real-domain accessors agree with the real evaluator.
+    CHECK(evaluate(parse_expression("Re(x)"), {{"x", 4.0}}) == Approx(4.0));
+    CHECK(evaluate(parse_expression("Im(x)"), {{"x", 4.0}}) == Approx(0.0));
+    CHECK(evaluate(parse_expression("conj(x)"), {{"x", 4.0}}) == Approx(4.0));
+    CHECK(evaluate(parse_expression("arg(x)"), {{"x", -2.0}}) == Approx(std::numbers::pi));
+}
+
 TEST_CASE("evaluate_complex: bindings and error surfaces", "[evaluator][complex]") {
     // A real binding participates in a complex expression.
     const Expr e = parse_expression("z*i");
