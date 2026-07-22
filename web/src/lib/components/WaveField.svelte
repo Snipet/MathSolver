@@ -1381,14 +1381,19 @@
   .seg.wide .seg-btn {
     flex: 1;
   }
-  /* Fixed-option segmented control with more items than fit one row: lay it
-     out as an even grid (a clean 3+2) instead of an orphan-wrapping flex. */
+  /* Fixed-option segmented control with more items than fit one row: wrap it
+     and let each row's buttons grow to fill the full width, so five options
+     read as an even 3-over-2 instead of a grid with an orphaned empty cell. */
   .seg.wrap {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    display: flex;
+    flex-wrap: wrap;
   }
   .seg.wrap .seg-btn {
+    flex: 1 1 auto;
     text-align: center;
+  }
+  .wave:not(.compact) .seg.wrap .seg-btn {
+    min-width: 3.5rem;
   }
   .seg-btn {
     flex: 0 0 auto;
