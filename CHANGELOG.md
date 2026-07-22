@@ -7,6 +7,18 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Wave system, Phase 4 — authoring & analytics** (docs/proposals/wave-system.md):
+  the wave lab can now be **saved, shared, and driven by the CAS**. A **Share
+  link** button encodes the whole setup — scene, boundary, every knob, the
+  physics model, appearance, and the initial condition — into a URL that
+  reproduces the experiment on load (validated and clamped on decode). An
+  **Initial condition** input seeds `u(x,y,0)=f(x,y)` from any CAS expression,
+  sampled onto the grid. A new **Drumhead** scene rings a circular-membrane
+  **Bessel eigenmode**, and a numeric ⇄ analytic **verification bridge** in the
+  tests confirms the FDTD matches the continuous rectangular-membrane frequency
+  (<0.01%), the Bessel eigenfrequency, and the exact discrete d'Alembert
+  travelling wave. (The wave overhaul — structured media, instrumentation,
+  physics packs, redesign, and authoring — is now complete.)
 - **Wave system — control surface redesign.** The Workbench "Wave" tab moves
   from a dense two-row toolbar to a grouped **left control rail** beside a
   hero canvas: a prominent transport with a live Running/Paused status and

@@ -1,6 +1,6 @@
 # Proposal: Overhauling the Wave System
 
-Status: **in progress** — Phases 1–3 shipped. This document is the roadmap for
+Status: **shipped** — Phases 1–4 complete. This document is the roadmap for
 turning the interactive wave field from a "ripple tank" into a "wave
 laboratory". Grounded in `web/src/lib/wave/sim.ts`, `WaveField.svelte`, the
 console `wave` command, and the analytical `pde.wave` (plugins/pde).
@@ -89,9 +89,21 @@ analytic modes.
   stencil and the mass into the CFL so the speed slider stays stable for every
   model. **Deferred:** a true split-field **PML** (the 1st-order Mur "Open"
   edge already covers most needs).
-- **Phase 4 — Authoring & analytics.** Scene share-links, CAS-driven ICs, and
-  `pde.wave` extensions (d'Alembert + 2-D Bessel drumhead) with the verification
-  bridge.
+- **Phase 4 — Authoring & analytics.** **✓ shipped:** **scene share-links**
+  (`web/src/lib/wave/share.ts`) encode the whole setup — scene, boundary, the
+  sim/source knobs, the physics model, appearance, and the CAS initial
+  condition — into a URL-safe string (validated/clamped on decode) that a Share
+  button copies and the field restores on load; **CAS-driven initial
+  conditions** sample `u(x,y,0)=f(x,y)` onto the grid via the engine
+  `sampleGrid` and seed it at rest; and a **numeric ⇄ analytic verification
+  bridge** — a circular **Bessel drumhead** eigenmode (`seedDrumheadMode`, a
+  "Drumhead" scene) that rings at `ω = c·α_{m,n}/R`, with tests confirming the
+  FDTD matches the continuous rectangular-membrane frequency (<0.01%), the
+  Bessel eigenfrequency (a few %), and the exact discrete **d'Alembert**
+  travelling wave (machine precision). The analytic `pde.wave` **plugin**
+  extension (exposing drumhead modes as a console command) remains for a future
+  pass — it needs a C++/wasm rebuild — but the analytic modes and the bridge
+  now live in the sim and its test suite.
 
 Each phase is independently shippable; later phases reuse the `dsp` FFT/filters,
 the `fem` eigen-solver, `sampleGrid`, and the graph `share.ts`. New physics
