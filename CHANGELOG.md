@@ -7,6 +7,17 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console verb suggestions**: when a console line names no command, a quiet
+  "try:" row of chips appears beside the parsed-math preview, offering the
+  verbs worth running on it, tailored via `analyze` — `factor`/`expand` and
+  `solve = 0` for a polynomial, `apart` for a rational function, `series` for a
+  transcendental one, `diff`/`integrate` for anything with a variable, and
+  `eval` for a pure number, and `dsolve` for an ODE-shaped line (whose prime
+  notation otherwise reads as a parse error — the chip is the rescue). After
+  running a bare expression, the same picks reappear as a "next:" row under its
+  result, so you can keep going without retyping. Clicking a chip runs `<verb>
+  <line>` (with a ` = 0` suffix for `solve`); **Tab** fills the first
+  suggestion. Suggestions stay hidden once a verb is typed.
 - **Complex domain, Phase 3** (docs/proposals/complex-domain.md): the complex
   accessor functions `conj`, `Re`, `Im`, `arg` (`Re`/`Im` capitalized so
   lowercase `r*e`/`i*m` products are unaffected). `simplify` folds numeric
