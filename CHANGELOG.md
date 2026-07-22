@@ -7,6 +7,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Complex domain, Phase 1** (docs/proposals/complex-domain.md): `simplify`
+  now folds exact complex (Gaussian-rational) constants to canonical `a + b·i`,
+  including rationalized denominators — `1/(1+i) → 1/2 - i/2`, `(3+i)/(1-i) →
+  1 + 2i`, `(1+i)*(1-i) → 2`, `1/(3+4i) → 3/25 - 4i/25`. Confluent with
+  `expand`; scoped to expressions containing `i`, so real arithmetic and
+  symbolic complex (`x + i`, `1/(x+i)`) are untouched. First slice of the
+  flagship ℂ project (see docs/proposals/next-features.md).
 - **Variable assignment** (docs/proposals/variable-assignment.md): a session
   environment of `name := value` bindings in the REPL and the web app.
   - Values are expressions or equations (`E_1 := x + y = 3`), stored as
