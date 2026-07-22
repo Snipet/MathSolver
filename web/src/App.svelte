@@ -851,7 +851,8 @@
           Type functions, points, or relations on the left. Undefined
           variables (like <code>a</code>) become sliders here and in the app;
           define reusable expressions with <code>f = x^2</code>, and plot
-          <code>diff(f)</code> or <code>integral(f)</code>.
+          <code>diff(f)</code> or <code>integral(f)</code>. Restrict a curve's
+          domain with a trailing clause, e.g. <code>{"{"}0 &lt;= t &lt;= 6pi{"}"}</code>.
         </p>
       {:else}
         <History onrestore={restore} />
