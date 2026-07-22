@@ -73,6 +73,7 @@
     void themeTick;
     void series;
     void cursor;
+    void dragging; // redraw the trace when a drag ends
     const c = canvas;
     const w = width;
     const h = H;
@@ -191,7 +192,9 @@
         }
         const px = xToPx(x, v, w);
         const py = yToPx(y, v, h);
-        if (pen && Math.abs(py) < 1e7) ctx.lineTo(px, py);
+        // Bound both pixels: an x=f(y) asymptote blows up px, not py, so a
+        // py-only guard would draw a spurious near-horizontal spike.
+        if (pen && Math.abs(px) < 1e7 && Math.abs(py) < 1e7) ctx.lineTo(px, py);
         else {
           ctx.moveTo(px, py);
           pen = true;
@@ -225,17 +228,20 @@
     s: DrawSeries,
   ): void {
     const rg = s.region!;
-    const cw = (rg.x1 - rg.x0) / rg.nx;
-    const ch = (rg.y1 - rg.y0) / rg.ny;
+    // Grid nodes are spaced across [x0,x1] inclusive (/(n-1)), matching
+    // sampleGrid + marchingSquares, so the fill aligns with its own contour.
+    const cw = (rg.x1 - rg.x0) / (rg.nx - 1);
+    const ch = (rg.y1 - rg.y0) / (rg.ny - 1);
     ctx.fillStyle = s.color;
     ctx.globalAlpha = 0.18;
     for (let j = 0; j < rg.ny; j++) {
       for (let i = 0; i < rg.nx; i++) {
         if (!rg.mask[j * rg.nx + i]) continue;
-        const wx0 = rg.x0 + i * cw;
-        const wy0 = rg.y0 + j * ch;
-        const px = xToPx(wx0, v, w);
-        const py = yToPx(wy0 + ch, v, h);
+        // Center the fill cell on its sample node (node ± half a cell).
+        const cx = rg.x0 + i * cw;
+        const cy = rg.y0 + j * ch;
+        const px = xToPx(cx - cw / 2, v, w);
+        const py = yToPx(cy + ch / 2, v, h);
         ctx.fillRect(px, py, Math.abs(cw * v.scale) + 1, Math.abs(ch * v.scale) + 1);
       }
     }
@@ -337,7 +343,7 @@
   }
 
   // --- pointer interaction ---------------------------------------------------
-  let dragging = false;
+  let dragging = $state(false);
   let lastX = 0;
   let lastY = 0;
   const pointers = new Map<number, { x: number; y: number }>();
@@ -386,6 +392,13 @@
   function onPointerUp(e: PointerEvent): void {
     pointers.delete(e.pointerId);
     if (pointers.size < 2) pinchDist = 0;
+    if (pointers.size === 1) {
+      // Lifting one finger of a pinch: reseat the pan anchor to the remaining
+      // pointer so the next single-finger move doesn't jump by the finger gap.
+      const [p] = [...pointers.values()];
+      lastX = p.x;
+      lastY = p.y;
+    }
     if (pointers.size === 0) dragging = false;
     if (canvas?.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
   }
@@ -433,9 +446,7 @@
 
   {#if readout}
     <div class="readout" aria-hidden="true">
-      ({readout.x.toPrecision(4).replace(/\.?0+$/, "")}, {readout.y
-        .toPrecision(4)
-        .replace(/\.?0+$/, "")})
+      ({fmtCoord(readout.x)}, {fmtCoord(readout.y)})
     </div>
   {/if}
 </div>

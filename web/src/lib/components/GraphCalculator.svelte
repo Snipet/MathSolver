@@ -63,6 +63,13 @@
     return q !== 0 && Number.isFinite(Number(m[1]) / q) ? Number(m[1]) / q : null;
   }
 
+  // Persist the viewport on pan/zoom/reset (each reassigns graph.view to a new
+  // object). Debounced so a drag doesn't write every frame.
+  $effect(() => {
+    void graph.view;
+    graph.persistSoon();
+  });
+
   // --- reactive resample -----------------------------------------------------
   let seq = 0;
   $effect(() => {
@@ -72,11 +79,13 @@
     const activeSig = vars.active.map((b) => `${b.name}=${b.value}`).join("|");
     const ovSig = Object.entries(overrides).map(([k, x]) => `${k}=${x}`).join("|");
     const w = graphW;
+    const h = graphH;
     void rowsSig;
     void v;
     void activeSig;
     void ovSig;
     void w;
+    void h;
     const my = ++seq;
     const timer = setTimeout(() => void recompute(my), 90);
     return () => clearTimeout(timer);
@@ -137,7 +146,9 @@
     untrack(() => {
       for (const name of freeVars) {
         if (definedByGraph.has(name)) continue; // a defined name, not a slider
-        const exists = vars.rows.some((r) => r.status.symbol === name);
+        // Match a pending (not-yet-validated) row by its typed name too, so a
+        // sub-debounce race can't create a duplicate that shadows a user var.
+        const exists = vars.rows.some((r) => r.status.symbol === name || r.name.trim() === name);
         if (!exists && !autoCreated.has(name)) {
           const id = vars.add();
           if (id != null) {
@@ -148,8 +159,11 @@
       }
       for (const name of [...autoCreated]) {
         if (!freeVars.has(name)) {
-          const row = vars.rows.find((r) => r.status.symbol === name);
-          if (row) vars.remove(row.id);
+          const row = vars.rows.find((r) => r.status.symbol === name || r.name.trim() === name);
+          // Only reclaim a still-pristine slider that nothing else references —
+          // never delete a value the user adopted or a var others depend on.
+          const referenced = vars.active.some((b) => b.name !== name && b.symbols.includes(name));
+          if (row && row.value.trim() === "1" && !referenced) vars.remove(row.id);
           autoCreated.delete(name);
         }
       }
@@ -160,6 +174,10 @@
   const ANGLE_VARS = ["theta", "θ", "t"];
   function angleVar(syms: string[]): string {
     return syms.find((s) => ANGLE_VARS.includes(s)) ?? "theta";
+  }
+  /** The parameter of a `(x(u), y(u))` row (t/theta/θ), or null for plain points. */
+  function paramVar(syms: string[]): string | null {
+    return syms.find((s) => ANGLE_VARS.includes(s)) ?? null;
   }
   // The plot/parameter variables of a row (never turned into sliders). Depends
   // on the row's free symbols (the polar angle, or `t` for a parametric point).
@@ -175,8 +193,10 @@
         return new Set(["x", "y"]);
       case "define":
         return new Set(["x", "y"]); // x/y in a definition are the graph axes
-      case "pointish":
-        return syms.includes("t") ? new Set(["t"]) : new Set();
+      case "pointish": {
+        const p = paramVar(syms);
+        return p ? new Set([p]) : new Set();
+      }
       default:
         return new Set();
     }
@@ -250,18 +270,19 @@
     }
 
     if (spec.t === "pointish") {
-      if (syms.includes("t")) {
-        // Parametric curve (x(t), y(t)) over t ∈ [0, 2π] — sample each
-        // coordinate over t in one engine call.
+      const param = paramVar(syms);
+      if (param) {
+        // Parametric curve (x(u), y(u)) over u ∈ [0, 2π] — sample each
+        // coordinate over the parameter (t/theta/θ) in one engine call.
         if (spec.coords.length !== 1)
           return { series: [], error: "a parametric curve is a single (x(t), y(t)) pair" };
         const [xe0, ye0] = spec.coords[0];
         const [xe, ye] = [await resolveCalculus(xe0), await resolveCalculus(ye0)];
         const n = 720;
-        const ex = await applyEnv(xe, ["t"], "expr", overrides);
-        const sx = await call("sample", [ex.text, "t", 0, TWO_PI, n]);
-        const ey = await applyEnv(ye, ["t"], "expr", overrides);
-        const sy = await call("sample", [ey.text, "t", 0, TWO_PI, n]);
+        const ex = await applyEnv(xe, [param], "expr", overrides);
+        const sx = await call("sample", [ex.text, param, 0, TWO_PI, n]);
+        const ey = await applyEnv(ye, [param], "expr", overrides);
+        const sy = await call("sample", [ey.text, param, 0, TWO_PI, n]);
         if (!sx.ok) return { series: [], error: sx.error };
         if (!sy.ok) return { series: [], error: sy.error };
         return { series: [{ id: String(id), color, visible: true, kind: "line", xs: sx.ys, ys: sy.ys }] };
@@ -384,10 +405,18 @@
 
     const active = untrack(() => vars.active);
     const nextSlots: Slot[] = [];
+    const nextOv = { ...overrides };
+    let droppedOverride = false;
     for (const name of freeVars) {
       const b = active.find((x) => x.name === name && x.kind === "expression");
       const sessionVal = b ? numericValue(b.value) : null;
-      const val = overrides[name] ?? sessionVal;
+      // Release a slider override once write-through has settled (the session
+      // value now matches it) so a later external edit moves the graph again.
+      if (name in nextOv && sessionVal !== null && nextOv[name] === sessionVal) {
+        delete nextOv[name];
+        droppedOverride = true;
+      }
+      const val = nextOv[name] ?? sessionVal;
       if (val === null || val === undefined) continue;
       const rg = ranges.get(name) ?? { lo: -10, hi: 10 };
       ranges.set(name, rg);
@@ -408,7 +437,10 @@
       }
     }
     rowErrors = errs;
-    if (my === seq) series = out;
+    if (my === seq) {
+      series = out;
+      if (droppedOverride) overrides = nextOv; // settled overrides released
+    }
   }
 
   // --- slider write-through --------------------------------------------------
@@ -497,6 +529,14 @@
                   }}
                 ></button>
               {/each}
+              <input
+                class="swatch-custom"
+                type="color"
+                value={row.color}
+                title="Custom color"
+                aria-label="Custom color"
+                oninput={(e) => graph.setColor(row.id, (e.currentTarget as HTMLInputElement).value)}
+              />
             </div>
           {/if}
           {#if rowErrors[row.id]}
@@ -693,6 +733,22 @@
     border-radius: 50%;
     border: 1px solid color-mix(in srgb, var(--fg) 15%, transparent);
     cursor: pointer;
+  }
+  .swatch-custom {
+    width: 1.3rem;
+    height: 1.3rem;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--fg) 15%, transparent);
+    border-radius: 50%;
+    background: none;
+    cursor: pointer;
+  }
+  .swatch-custom::-webkit-color-swatch-wrapper {
+    padding: 1px;
+  }
+  .swatch-custom::-webkit-color-swatch {
+    border: none;
+    border-radius: 50%;
   }
   .row-err {
     margin: 0.1rem 0 0 2.2rem;

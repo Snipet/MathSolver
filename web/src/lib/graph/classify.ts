@@ -100,6 +100,9 @@ export function classifyRow(text: string): RowKind {
   if (rel) {
     const { lhs, op, rhs } = rel;
     if (op === "=") {
+      // A chained `y = x = 2` — the right side still holds a relation. Treat the
+      // whole row as a relation rather than folding the second '=' into a body.
+      if (splitRelation(rhs)) return { t: "relation", lhs: lhs.trim(), rhs: rhs.trim(), op };
       if (isVar(lhs, "y")) return { t: "function", expr: rhs.trim() };
       if (isVar(rhs, "y")) return { t: "function", expr: lhs.trim() };
       if (isVar(lhs, "x")) return { t: "functionY", expr: rhs.trim() };

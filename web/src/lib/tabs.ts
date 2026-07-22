@@ -8,7 +8,6 @@ export type TabId =
   | "derivative"
   | "integral"
   | "evaluate"
-  | "plot"
   | "wave";
 
 export interface TabDef {

@@ -100,7 +100,7 @@ class GraphStore {
     const r = this.rows.find((x) => x.id === id);
     if (r) {
       r.text = text;
-      this.persist();
+      this.persistSoon(); // coalesce keystrokes into one write
     }
   }
   setColor(id: number, color: string): void {
@@ -118,11 +118,21 @@ class GraphStore {
     }
   }
 
-  setView(v: View): void {
-    this.view = v;
+  #persistTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Debounced write for high-frequency changes (typing, pan/zoom frames). */
+  persistSoon(): void {
+    if (this.#persistTimer !== null) clearTimeout(this.#persistTimer);
+    this.#persistTimer = setTimeout(() => {
+      this.#persistTimer = null;
+      this.persist();
+    }, 250);
   }
 
   persist(): void {
+    if (this.#persistTimer !== null) {
+      clearTimeout(this.#persistTimer);
+      this.#persistTimer = null;
+    }
     try {
       const data: Persisted = {
         rows: this.rows.map((r) => ({ text: r.text, color: r.color, visible: r.visible })),

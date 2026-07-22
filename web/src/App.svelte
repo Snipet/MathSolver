@@ -24,7 +24,6 @@
   import ExpressionInput from "./lib/components/ExpressionInput.svelte";
   import ParsePreview from "./lib/components/ParsePreview.svelte";
   import ResultCard from "./lib/components/ResultCard.svelte";
-  import Plot from "./lib/components/Plot.svelte";
   import WaveField from "./lib/components/WaveField.svelte";
   import GraphCalculator from "./lib/components/GraphCalculator.svelte";
   import History from "./lib/components/History.svelte";
@@ -91,12 +90,6 @@
   let intFrom = $state("0");
   let intTo = $state("1");
   let bindings = $state<Record<string, number>>({});
-  let plotLo = $state(-10);
-  let plotHi = $state(10);
-  let plotD = $state(false);
-  let plotA = $state(false);
-  let plotNonce = $state(0);
-  let antiAvailable = $state(true);
 
   // --- live parse preview (debounced analyze) --------------------------------
   let analysis = $state<AnalyzeResult | null>(null);
@@ -199,7 +192,6 @@
         return isSystem ? [...systemVars] : [variable];
       case "derivative":
       case "integral":
-      case "plot":
         return [variable];
       default:
         return [];
@@ -214,8 +206,6 @@
         return `differentiating with respect to ${v}`;
       case "integral":
         return `integrating with respect to ${v}`;
-      case "plot":
-        return `plot variable`;
       default:
         return "not applied";
     }
@@ -535,27 +525,6 @@
           });
           break;
         }
-        case "plot": {
-          const v = await pickVariable(text);
-          if (v !== variable) variable = v;
-          const lo = numOr(plotLo, -10);
-          const hi = numOr(plotHi, 10);
-          outcome = null;
-          plotNonce++;
-          history.add({
-            tab: op,
-            input: text,
-            params: {
-              variable: v,
-              lo,
-              hi,
-              showDerivative: plotD,
-              showAntiderivative: plotA,
-            },
-            summary: `plot on [${lo}, ${hi}]`,
-          });
-          break;
-        }
       }
     } catch (e) {
       outcome = {
@@ -582,35 +551,6 @@
     void compute();
   }
 
-  // Plot samples continuously, so its input resolves reactively (worker
-  // round-trip) rather than per Compute click; null = resolution in flight.
-  let plotResolved = $state<string | null>(null);
-  let plotSeq = 0;
-  $effect(() => {
-    if (tab !== "plot") return;
-    const text = input.trim();
-    const v = variable;
-    const act = vars.active;
-    const my = ++plotSeq;
-    if (!text || act.length === 0) {
-      plotResolved = text;
-      return;
-    }
-    if (splitAssignment(text)) {
-      plotResolved = "";
-      return;
-    }
-    plotResolved = null;
-    void (async () => {
-      try {
-        const env = await applyEnv(text, [v], "expr");
-        if (my === plotSeq) plotResolved = env.text;
-      } catch {
-        if (my === plotSeq) plotResolved = text;
-      }
-    })();
-  });
-
   let exprInput: ReturnType<typeof ExpressionInput> | undefined = $state();
 
   // Example chips fill the input, then hand focus back to the textarea with
@@ -624,7 +564,8 @@
   // --- history restore ---------------------------------------------------------
   function restore(e: HistoryEntry) {
     mode = "workbench";
-    tab = e.tab;
+    // Guard against stale persisted entries (e.g. the retired "plot" tab).
+    tab = TABS.some((t) => t.id === e.tab) ? e.tab : "simplify";
     input = e.input;
     const p = e.params ?? {};
     if (typeof p.variable === "string") variable = p.variable;
@@ -634,22 +575,14 @@
     if (typeof p.definite === "boolean") definite = p.definite;
     if (typeof p.from === "string") intFrom = p.from;
     if (typeof p.to === "string") intTo = p.to;
-    if (typeof p.lo === "number") {
-      if (e.tab === "plot") plotLo = p.lo;
-      else rangeLo = p.lo;
-    }
-    if (typeof p.hi === "number") {
-      if (e.tab === "plot") plotHi = p.hi;
-      else rangeHi = p.hi;
-    }
+    if (typeof p.lo === "number") rangeLo = p.lo;
+    if (typeof p.hi === "number") rangeHi = p.hi;
     if (p.bindings && typeof p.bindings === "object" && !Array.isArray(p.bindings)) {
       const nb: Record<string, number> = {};
       for (const [k, v] of Object.entries(p.bindings as Record<string, unknown>))
         if (typeof v === "number") nb[k] = v;
       bindings = nb;
     }
-    if (typeof p.showDerivative === "boolean") plotD = p.showDerivative;
-    if (typeof p.showAntiderivative === "boolean") plotA = p.showAntiderivative;
     outcome = null;
     void compute();
   }
@@ -886,59 +819,6 @@
               {/each}
             </div>
           {/if}
-        {:else if tab === "plot"}
-          <div class="ctl-row">
-            {@render variableSelect()}
-            <label class="ctl">
-              <span>From</span>
-              <input
-                type="number"
-                step="any"
-                bind:value={plotLo}
-                onkeydown={ctlKeydown}
-              />
-            </label>
-            <label class="ctl">
-              <span>To</span>
-              <input
-                type="number"
-                step="any"
-                bind:value={plotHi}
-                onkeydown={ctlKeydown}
-              />
-            </label>
-            <label class="ctl checkbox">
-              <input type="checkbox" bind:checked={plotD} />
-              <span>f′ overlay</span>
-            </label>
-            <label class="ctl checkbox">
-              <input
-                type="checkbox"
-                bind:checked={plotA}
-                disabled={!antiAvailable}
-              />
-              <span>Antiderivative</span>
-            </label>
-            {#if !antiAvailable}
-              <span class="ctl-hint">no closed form</span>
-            {/if}
-          </div>
-        {/if}
-
-        {#if tab === "plot"}
-          <Plot
-            input={plotResolved ?? ""}
-            {variable}
-            lo={numOr(plotLo, -10)}
-            hi={numOr(plotHi, 10)}
-            showDerivative={plotD}
-            showAntiderivative={plotA}
-            resampleNonce={plotNonce}
-            onantiavailable={(ok) => {
-              antiAvailable = ok;
-              if (!ok && plotA) plotA = false;
-            }}
-          />
         {/if}
 
         <ResultCard {outcome} />

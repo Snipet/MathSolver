@@ -20,6 +20,8 @@ check("comma inside a function is not a point", kind("max(x, 2)") === "function"
 check("relation not split inside parens", splitRelation("f(x, y)") === null);
 check("<= detected before <", splitRelation("y <= 2").op === "<=");
 check("splitTopLevelCommas respects parens", splitTopLevelCommas("cos(t), sin(t)").length === 2 && splitTopLevelCommas("f(a,b)").length === 1);
+check("chained 'y = x = 2' → relation, not folded function", kind("y = x = 2") === "relation");
+check("define 'f = x^2' → define", (() => { const r = classifyRow("f = x^2"); return r.t === "define" && r.name === "f" && r.expr === "x^2"; })());
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
