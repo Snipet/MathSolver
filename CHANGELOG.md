@@ -7,6 +7,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Wave system — control surface redesign.** The Workbench "Wave" tab moves
+  from a dense two-row toolbar to a grouped **left control rail** beside a
+  hero canvas: a prominent transport with a live Running/Paused status and
+  energy readout, and labelled sections — Simulation, Source, Scene, Physics,
+  Measure, Appearance — with value-readout filled sliders, refined segmented
+  controls, and styled dropdowns. The inline console `wave` cell keeps a slim
+  single-row toolbar. No behavior change — same controls, clearer hierarchy.
 - **Wave system, Phase 3 — physics packs** (docs/proposals/wave-system.md): a
   **field-model** selector changes the PDE the field obeys. **Klein–Gordon**
   adds a mass term `−m²u` — a dispersive medium where short waves outrun long

@@ -96,7 +96,7 @@
   const massMax = $derived(modelV === "sine-gordon" ? MAX_COUPLING_SINE : MAX_MASS);
   const massLabel = $derived(modelV === "sine-gordon" ? "Coupling" : "Mass");
 
-  const HEIGHT = untrack(() => (compact ? 260 : 460));
+  const HEIGHT = untrack(() => (compact ? 240 : 604));
   const STEPS_PER_FRAME = 2; // temporal oversampling for smoother propagation
 
   // --- sizing ----------------------------------------------------------------
@@ -681,6 +681,16 @@
   function togglePlay(): void {
     running = !running;
   }
+  /** Fill fraction (0–100%) of a slider, for the custom filled-track style. */
+  function pct(v: number, min: number, max: number): string {
+    const f = max > min ? (v - min) / (max - min) : 0;
+    return `${Math.max(0, Math.min(1, f)) * 100}%`;
+  }
+  const MODEL_LABELS: Record<FieldModel, string> = {
+    linear: "Linear",
+    "klein-gordon": "Klein–Gordon",
+    "sine-gordon": "sine-Gordon",
+  };
   const BOUNDARIES: { id: Boundary; label: string; title: string }[] = [
     { id: "fixed", label: "Fixed", title: "Clamped edge (drum) — reflects with inversion" },
     { id: "free", label: "Free", title: "Free edge — reflects without inversion" },
@@ -691,444 +701,524 @@
 </script>
 
 <div class="wave" class:compact bind:this={host}>
-  <div class="panel" role="group" aria-label="Wave field controls">
-    <div class="bar">
-      <div class="tgroup transport">
-        <button
-          class="icon-btn primary"
-          onclick={togglePlay}
-          aria-pressed={running}
-          aria-label={running ? "Pause" : "Play"}
-          title={running ? "Pause" : "Play"}
-        >
-          {#if running}
-            <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4.5" y="3.5" width="2.4" height="9" rx="0.6" /><rect x="9.1" y="3.5" width="2.4" height="9" rx="0.6" /></svg>
-          {:else}
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.6v8.8l7-4.4z" /></svg>
-          {/if}
-        </button>
-        <button class="icon-btn" onclick={reset} aria-label="Reset field" title="Reset field">
-          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 8a4.5 4.5 0 1 1-1.4-3.26" /><path d="M12.6 3.2v2.6h-2.6" /></svg>
-        </button>
-      </div>
-
-      <span class="sep"></span>
-
-      <div class="tgroup">
-        <label class="ctl" title="Wave propagation speed (Courant number)">
-          <span>Speed</span>
-          <input type="range" min="0.05" max="1" step="0.01" bind:value={speedV} />
-        </label>
-        <label class="ctl" title="Energy loss over time">
-          <span>Damping</span>
-          <input type="range" min="0" max="0.6" step="0.01" bind:value={dampingV} />
-        </label>
-      </div>
-
-      <span class="sep"></span>
-
-      <div class="tgroup">
-        <label class="ctl" title="Frequency of the injected wave: low = long waves, high = short">
-          <span>Freq</span>
-          <input type="range" min="0" max="1" step="0.01" bind:value={freqV} />
-        </label>
-        <div class="seg" role="group" aria-label="Source mode">
-          <button
-            class="seg-btn"
-            class:active={srcMode === "ripple"}
-            title="Click or drag emits a wavelet at the set frequency"
-            onclick={() => (srcMode = "ripple")}
-          >
-            Ripple
-          </button>
-          <button
-            class="seg-btn"
-            class:active={srcMode === "drive"}
-            title="Hold to run a continuous oscillator (ripple-tank dipper)"
-            onclick={() => (srcMode = "drive")}
-          >
-            Drive
-          </button>
-        </div>
-      </div>
-
-      {#if !compact}
-        <span class="sep"></span>
-        <div class="tgroup">
-          <label class="ctl" title="Source size">
-            <span>Brush</span>
-            <input type="range" min="1" max="12" step="1" bind:value={brush} />
-          </label>
-          <label class="ctl" title="Injection strength">
-            <span>Strength</span>
-            <input type="range" min="0.2" max="2.5" step="0.1" bind:value={strength} />
-          </label>
-        </div>
-      {/if}
-
-      <span
-        class="stat"
-        title="Total field energy (kinetic + potential, arb. units)"
+  <div class="rail" role="group" aria-label="Wave field controls">
+    <!-- Transport + live status ------------------------------------------- -->
+    <div class="transport">
+      <button
+        class="play"
+        onclick={togglePlay}
+        aria-pressed={running}
+        aria-label={running ? "Pause" : "Play"}
+        title={running ? "Pause" : "Play"}
       >
-        <span class="stat-k">E</span>
-        <span class="stat-v">{Math.max(0, Math.round(energy * 1000))}</span>
-      </span>
+        {#if running}
+          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="4.5" y="3.5" width="2.4" height="9" rx="0.7" /><rect x="9.1" y="3.5" width="2.4" height="9" rx="0.7" /></svg>
+        {:else}
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5.5 3.6v8.8l7-4.4z" /></svg>
+        {/if}
+      </button>
+      <button class="ghost-btn" onclick={reset} aria-label="Reset field" title="Reset field">
+        <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 8a4.5 4.5 0 1 1-1.4-3.26" /><path d="M12.6 3.2v2.6h-2.6" /></svg>
+      </button>
+      <div class="status" title="Total field energy (kinetic + potential, arb. units)">
+        <span class="status-state"><span class="dot" class:live={running}></span>{running ? "Running" : "Paused"}</span>
+        <span class="status-energy"><span class="ek">E</span>{Math.max(0, Math.round(energy * 1000))}</span>
+      </div>
     </div>
 
-    <div class="bar row2">
-      <div class="tgroup">
-        <span class="glabel">Scene</span>
-        <label class="ctl select" title="Structured-media presets: obstacles, slits, lenses, refraction">
-          <select
-            aria-label="Scene preset"
-            value={sceneId}
-            onchange={(e) => selectScene(e.currentTarget.value)}
-          >
-            {#each WAVE_SCENES as sc (sc.id)}
-              <option value={sc.id} title={sc.hint}>{sc.label}</option>
-            {/each}
-          </select>
+    <!-- Simulation -------------------------------------------------------- -->
+    <section class="group">
+      <h3 class="group-title">Simulation</h3>
+      <label class="field" title="Wave propagation speed (Courant number)">
+        <span class="field-head"><span class="field-label">Speed</span><span class="field-val">{speedV.toFixed(2)}</span></span>
+        <input class="slider" type="range" min="0.05" max="1" step="0.01" bind:value={speedV} style="--pct:{pct(speedV, 0.05, 1)}" />
+      </label>
+      <label class="field" title="Energy loss over time">
+        <span class="field-head"><span class="field-label">Damping</span><span class="field-val">{dampingV.toFixed(2)}</span></span>
+        <input class="slider" type="range" min="0" max="0.6" step="0.01" bind:value={dampingV} style="--pct:{pct(dampingV, 0, 0.6)}" />
+      </label>
+    </section>
+
+    <!-- Source ------------------------------------------------------------ -->
+    <section class="group">
+      <h3 class="group-title">Source</h3>
+      <label class="field" title="Frequency of the injected wave: low = long waves, high = short">
+        <span class="field-head"><span class="field-label">Frequency</span><span class="field-val">{freqV.toFixed(2)}</span></span>
+        <input class="slider" type="range" min="0" max="1" step="0.01" bind:value={freqV} style="--pct:{pct(freqV, 0, 1)}" />
+      </label>
+      <div class="seg wide" role="group" aria-label="Source mode">
+        <button class="seg-btn" class:active={srcMode === "ripple"} title="Click or drag emits a wavelet at the set frequency" onclick={() => (srcMode = "ripple")}>Ripple</button>
+        <button class="seg-btn" class:active={srcMode === "drive"} title="Hold to run a continuous oscillator (ripple-tank dipper)" onclick={() => (srcMode = "drive")}>Drive</button>
+      </div>
+      {#if !compact}
+        <label class="field" title="Source size">
+          <span class="field-head"><span class="field-label">Brush</span><span class="field-val">{brush}</span></span>
+          <input class="slider" type="range" min="1" max="12" step="1" bind:value={brush} style="--pct:{pct(brush, 1, 12)}" />
         </label>
-      </div>
+        <label class="field" title="Injection strength">
+          <span class="field-head"><span class="field-label">Strength</span><span class="field-val">{strength.toFixed(1)}</span></span>
+          <input class="slider" type="range" min="0.2" max="2.5" step="0.1" bind:value={strength} style="--pct:{pct(strength, 0.2, 2.5)}" />
+        </label>
+      {/if}
+    </section>
 
-      <div class="tgroup">
-        <span class="glabel">Edge</span>
-        <div class="seg" role="group" aria-label="Boundary">
-          {#each BOUNDARIES as b (b.id)}
-            <button
-              class="seg-btn"
-              class:active={boundaryV === b.id}
-              title={b.title}
-              onclick={() => (boundaryV = b.id)}
-            >
-              {b.label}
-            </button>
+    <!-- Scene + boundary -------------------------------------------------- -->
+    <section class="group">
+      <h3 class="group-title">Scene</h3>
+      <div class="select-field" title="Structured-media presets: obstacles, slits, lenses, refraction">
+        <select aria-label="Scene preset" value={sceneId} onchange={(e) => selectScene(e.currentTarget.value)}>
+          {#each WAVE_SCENES as sc (sc.id)}
+            <option value={sc.id} title={sc.hint}>{sc.label}</option>
           {/each}
-        </div>
-
-        {#if boundaryV === "robin"}
-          <label class="ctl" title="Edge stiffness k: 0 ≈ free, large ≈ fixed">
-            <span>Stiffness</span>
-            <input type="range" min="0" max="8" step="0.1" bind:value={robinV} />
-          </label>
-        {/if}
-
-        {#if boundaryV === "filtered"}
-          <div class="seg" role="group" aria-label="Reflection filter">
-            <button
-              class="seg-btn"
-              class:active={filterType === "lowpass"}
-              title="Low-pass: reflect low frequencies, absorb highs (muffling wall)"
-              onclick={() => (filterType = "lowpass")}
-            >
-              LP
-            </button>
-            <button
-              class="seg-btn"
-              class:active={filterType === "highpass"}
-              title="High-pass: reflect high frequencies, absorb lows"
-              onclick={() => (filterType = "highpass")}
-            >
-              HP
-            </button>
-          </div>
-          <label class="ctl" title="Filter cutoff — higher reflects more">
-            <span>Cutoff</span>
-            <input type="range" min="0.02" max="1" step="0.01" bind:value={filterCutoffV} />
-          </label>
-          <label class="ctl" title="Overall reflectivity — 0 fully absorbs">
-            <span>Reflect</span>
-            <input type="range" min="0" max="1" step="0.01" bind:value={filterReflectV} />
-          </label>
-        {/if}
+        </select>
       </div>
+      <span class="subhead">Boundary</span>
+      <div class="seg wrap" role="group" aria-label="Boundary">
+        {#each BOUNDARIES as b (b.id)}
+          <button class="seg-btn" class:active={boundaryV === b.id} title={b.title} onclick={() => (boundaryV = b.id)}>{b.label}</button>
+        {/each}
+      </div>
+      {#if boundaryV === "robin"}
+        <label class="field" title="Edge stiffness k: 0 ≈ free, large ≈ fixed">
+          <span class="field-head"><span class="field-label">Stiffness</span><span class="field-val">{robinV.toFixed(1)}</span></span>
+          <input class="slider" type="range" min="0" max="8" step="0.1" bind:value={robinV} style="--pct:{pct(robinV, 0, 8)}" />
+        </label>
+      {/if}
+      {#if boundaryV === "filtered"}
+        <div class="seg wide" role="group" aria-label="Reflection filter">
+          <button class="seg-btn" class:active={filterType === "lowpass"} title="Low-pass: reflect low frequencies, absorb highs (muffling wall)" onclick={() => (filterType = "lowpass")}>Low-pass</button>
+          <button class="seg-btn" class:active={filterType === "highpass"} title="High-pass: reflect high frequencies, absorb lows" onclick={() => (filterType = "highpass")}>High-pass</button>
+        </div>
+        <label class="field" title="Filter cutoff — higher reflects more">
+          <span class="field-head"><span class="field-label">Cutoff</span><span class="field-val">{filterCutoffV.toFixed(2)}</span></span>
+          <input class="slider" type="range" min="0.02" max="1" step="0.01" bind:value={filterCutoffV} style="--pct:{pct(filterCutoffV, 0.02, 1)}" />
+        </label>
+        <label class="field" title="Overall reflectivity — 0 fully absorbs">
+          <span class="field-head"><span class="field-label">Reflect</span><span class="field-val">{filterReflectV.toFixed(2)}</span></span>
+          <input class="slider" type="range" min="0" max="1" step="0.01" bind:value={filterReflectV} style="--pct:{pct(filterReflectV, 0, 1)}" />
+        </label>
+      {/if}
+    </section>
 
-      {#if !compact}
-        <span class="sep"></span>
-        <div class="tgroup">
-          <span class="glabel">Measure</span>
-          <div class="seg" role="group" aria-label="Field view">
-            <button
-              class="seg-btn"
-              class:active={viewMode === "wave"}
-              title="Show the live wave displacement"
-              onclick={() => (viewMode = "wave")}
-            >
-              Wave
-            </button>
-            <button
-              class="seg-btn"
-              class:active={viewMode === "intensity"}
-              title="Time-averaged intensity ⟨u²⟩ — freezes interference/diffraction fringes into a heatmap"
-              onclick={() => (viewMode = "intensity")}
-            >
-              Intensity
-            </button>
-          </div>
-          <div class="seg" role="group" aria-label="Probe tool">
-            <button
-              class="seg-btn"
-              class:active={probeTool}
-              aria-pressed={probeTool}
-              title="Probe tool: click the field to drop a receiver that records u(t) and shows its spectrum"
-              onclick={() => (probeTool = !probeTool)}
-            >
-              <svg class="probe-ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><circle cx="8" cy="8" r="5.2" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
-              Probe
-            </button>
-          </div>
+    {#if !compact}
+      <!-- Physics --------------------------------------------------------- -->
+      <section class="group">
+        <h3 class="group-title">Physics</h3>
+        <div class="select-field" title="Which wave equation the field obeys">
+          <select bind:value={modelV} aria-label="Field model">
+            <option value="linear">Linear wave</option>
+            <option value="klein-gordon">Klein–Gordon</option>
+            <option value="sine-gordon">sine-Gordon</option>
+          </select>
+        </div>
+        {#if modelV !== "linear"}
+          <label
+            class="field"
+            title={modelV === "sine-gordon"
+              ? "Nonlinear coupling m² — the kink width scales as 1/√m"
+              : "Mass m²: adds dispersion; a rest frequency √m and a wavelength-dependent phase speed"}
+          >
+            <span class="field-head"><span class="field-label">{massLabel}</span><span class="field-val">{massV.toFixed(2)}</span></span>
+            <input class="slider" type="range" min="0" max={massMax} step="0.01" bind:value={massV} style="--pct:{pct(massV, 0, massMax)}" />
+          </label>
+        {/if}
+        {#if modelV === "sine-gordon"}
+          <button class="action-btn" title="Seed a kink soliton — a 2π twist that glides without spreading" onclick={seedKink}>
+            <svg viewBox="0 0 20 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 10 C 7 10, 8 2, 13 2 L 18 2" /></svg>
+            Seed kink soliton
+          </button>
+        {/if}
+        <span class="subhead">Laplacian stencil</span>
+        <div class="seg wide" role="group" aria-label="Laplacian stencil">
+          <button class="seg-btn" class:active={stencilV === "five"} title="5-point Laplacian (standard star stencil)" onclick={() => (stencilV = "five")}>5-point</button>
+          <button class="seg-btn" class:active={stencilV === "nine"} title="9-point isotropic Laplacian — reduced grid anisotropy (rounder wavefronts)" onclick={() => (stencilV = "nine")}>9-point</button>
+        </div>
+      </section>
+
+      <!-- Measure --------------------------------------------------------- -->
+      <section class="group">
+        <h3 class="group-title">Measure</h3>
+        <div class="seg wide" role="group" aria-label="Field view">
+          <button class="seg-btn" class:active={viewMode === "wave"} title="Show the live wave displacement" onclick={() => (viewMode = "wave")}>Wave</button>
+          <button class="seg-btn" class:active={viewMode === "intensity"} title="Time-averaged intensity ⟨u²⟩ — freezes interference/diffraction fringes into a heatmap" onclick={() => (viewMode = "intensity")}>Intensity</button>
+        </div>
+        <div class="probe-row">
+          <button
+            class="action-btn"
+            class:on={probeTool}
+            aria-pressed={probeTool}
+            title="Probe tool: click the field to drop a receiver that records u(t) and shows its spectrum"
+            onclick={() => (probeTool = !probeTool)}
+          >
+            <svg class="probe-ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><circle cx="8" cy="8" r="5.2" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
+            {probeTool ? "Placing probes…" : "Add probe"}
+          </button>
           {#if probes.length > 0}
-            <button class="mini-btn" title="Remove all probes" onclick={clearProbes}>
-              Clear ({probes.length})
-            </button>
+            <button class="mini-btn" title="Remove all probes" onclick={clearProbes}>Clear {probes.length}</button>
           {/if}
         </div>
-      {/if}
+      </section>
 
-      {#if !compact}
-        <span class="sep"></span>
-        <div class="tgroup">
-          <span class="glabel">Physics</span>
-          <label class="ctl select" title="Which wave equation the field obeys">
-            <select bind:value={modelV}>
-              <option value="linear">Linear</option>
-              <option value="klein-gordon">Klein–Gordon</option>
-              <option value="sine-gordon">sine-Gordon</option>
-            </select>
-          </label>
-          {#if modelV !== "linear"}
-            <label
-              class="ctl"
-              title={modelV === "sine-gordon"
-                ? "Nonlinear coupling m² — the kink width scales as 1/√m"
-                : "Mass m²: adds dispersion; a rest frequency √m and a wavelength-dependent phase speed"}
-            >
-              <span>{massLabel}</span>
-              <input type="range" min="0" max={massMax} step="0.01" bind:value={massV} />
-            </label>
-          {/if}
-          {#if modelV === "sine-gordon"}
-            <button
-              class="mini-btn"
-              title="Seed a kink soliton — a 2π twist that glides without spreading"
-              onclick={seedKink}
-            >
-              Seed kink
-            </button>
-          {/if}
-          <div class="seg" role="group" aria-label="Laplacian stencil">
-            <button
-              class="seg-btn"
-              class:active={stencilV === "five"}
-              title="5-point Laplacian (standard star stencil)"
-              onclick={() => (stencilV = "five")}
-            >
-              5-pt
-            </button>
-            <button
-              class="seg-btn"
-              class:active={stencilV === "nine"}
-              title="9-point isotropic Laplacian — reduced grid anisotropy (rounder wavefronts)"
-              onclick={() => (stencilV = "nine")}
-            >
-              9-pt
-            </button>
-          </div>
+      <!-- Appearance ------------------------------------------------------ -->
+      <section class="group">
+        <h3 class="group-title">Appearance</h3>
+        <label class="field" title="Grid resolution">
+          <span class="field-head"><span class="field-label">Detail</span><span class="field-val">{cols}</span></span>
+          <input class="slider" type="range" min="64" max="300" step="4" bind:value={cols} style="--pct:{pct(cols, 64, 300)}" />
+        </label>
+        <div class="select-field" title="Color map">
+          <select bind:value={colormap} aria-label="Color map">
+            <option value="coolwarm">Coolwarm</option>
+            <option value="fire">Fire</option>
+            <option value="violet">Violet</option>
+          </select>
         </div>
-      {/if}
-
-      {#if !compact}
-        <span class="sep"></span>
-        <div class="tgroup">
-          <label class="ctl" title="Grid resolution">
-            <span>Detail</span>
-            <input type="range" min="64" max="300" step="4" bind:value={cols} />
-          </label>
-          <label class="ctl select" title="Color map">
-            <span>Color</span>
-            <select bind:value={colormap}>
-              <option value="coolwarm">coolwarm</option>
-              <option value="fire">fire</option>
-              <option value="violet">violet</option>
-            </select>
-          </label>
-        </div>
-      {/if}
-    </div>
-  </div>
-
-  <div class="stage">
-    <canvas
-      bind:this={canvas}
-      aria-label="Interactive 2-D wave field — drag to add energy"
-      onpointerdown={onPointerDown}
-      onpointermove={onPointerMove}
-      onpointerup={onPointerUp}
-      onpointercancel={onPointerUp}
-    ></canvas>
-    {#if !touched}
-      <div class="hint" aria-hidden="true">
-        <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.4" /><circle cx="8" cy="8" r="5.4" fill="none" stroke="currentColor" stroke-width="1" opacity="0.55" /></svg>
-        <span>Click to pluck · drag to launch a wavefront</span>
-      </div>
-    {/if}
-    {#if probeTool}
-      <div class="hint probe-hint" aria-hidden="true">
-        <span>Probe tool — click the field to drop a receiver</span>
-      </div>
+      </section>
     {/if}
   </div>
 
-  {#if !compact && probes.length > 0}
-    <div class="probes" aria-label="Probe spectra">
-      {#each probes as p, idx (p.id)}
-        <div class="probe">
-          <div class="probe-head">
-            <span class="probe-badge">{idx + 1}</span>
-            <span class="probe-peak" title="Dominant frequency (cycles/step) and period (steps)">
-              {peakLabel(probePeaks[idx] ?? 0)}
-            </span>
-            <button
-              class="probe-x"
-              title="Remove this probe"
-              aria-label={`Remove probe ${idx + 1}`}
-              onclick={() => removeProbe(idx)}
-            >
-              ×
-            </button>
-          </div>
-          <canvas class="spec" bind:this={specCanvases[idx]} aria-label={`Probe ${idx + 1} spectrum`}></canvas>
+  <div class="main">
+    <div class="stage">
+      <canvas
+        bind:this={canvas}
+        aria-label="Interactive 2-D wave field — drag to add energy"
+        onpointerdown={onPointerDown}
+        onpointermove={onPointerMove}
+        onpointerup={onPointerUp}
+        onpointercancel={onPointerUp}
+      ></canvas>
+      {#if !touched}
+        <div class="hint" aria-hidden="true">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.4" /><circle cx="8" cy="8" r="5.4" fill="none" stroke="currentColor" stroke-width="1" opacity="0.55" /></svg>
+          <span>Click to pluck · drag to launch a wavefront</span>
         </div>
-      {/each}
+      {/if}
+      {#if probeTool}
+        <div class="hint probe-hint" aria-hidden="true">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><circle cx="8" cy="8" r="5.2" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
+          <span>Probe tool — click the field to drop a receiver</span>
+        </div>
+      {/if}
     </div>
-  {/if}
+
+    {#if !compact && probes.length > 0}
+      <div class="probes" aria-label="Probe spectra">
+        {#each probes as p, idx (p.id)}
+          <div class="probe">
+            <div class="probe-head">
+              <span class="probe-badge">{idx + 1}</span>
+              <span class="probe-peak" title="Dominant frequency (cycles/step) and period (steps)">
+                {peakLabel(probePeaks[idx] ?? 0)}
+              </span>
+              <button class="probe-x" title="Remove this probe" aria-label={`Remove probe ${idx + 1}`} onclick={() => removeProbe(idx)}>×</button>
+            </div>
+            <canvas class="spec" bind:this={specCanvases[idx]} aria-label={`Probe ${idx + 1} spectrum`}></canvas>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
 </div>
 
 <style>
+  /* Layout: control rail + hero canvas (full) / stacked toolbar (compact) --- */
   .wave {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr);
+    gap: 0.85rem;
+    align-items: start;
+    min-width: 0;
+  }
+  .wave.compact {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+  .main {
     display: flex;
     flex-direction: column;
     gap: 0.6rem;
     min-width: 0;
   }
 
-  /* Control card ------------------------------------------------------------ */
-  .panel {
+  /* Control rail ------------------------------------------------------------ */
+  .rail {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 0.85rem 0.85rem 0.95rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: color-mix(in srgb, var(--bg-panel) 55%, transparent);
+    background: var(--bg-panel);
+    min-width: 0;
   }
-  .bar {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem 0.7rem;
+  .wave.compact .rail {
+    flex-direction: row;
     flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.65rem;
     padding: 0.5rem 0.65rem;
   }
-  .bar.row2 {
-    border-top: 1px solid var(--border);
-  }
-  .tgroup {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem 0.7rem;
-    flex-wrap: wrap;
-  }
-  .sep {
-    width: 1px;
-    align-self: stretch;
-    min-height: 1.3rem;
-    background: var(--border);
-  }
-  .glabel {
-    font-size: 0.66rem;
-    font-weight: 700;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--fg-muted);
-  }
 
-  /* Transport icon buttons -------------------------------------------------- */
-  .icon-btn {
+  /* Transport + status ------------------------------------------------------ */
+  .transport {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .play {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2rem;
-    height: 2rem;
-    color: var(--fg-muted);
-    background: var(--bg-panel);
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) / 1.5);
+    width: 2.4rem;
+    height: 2.4rem;
+    flex: 0 0 auto;
+    color: var(--accent-fg, #fff);
+    background: var(--accent);
+    border: none;
+    border-radius: calc(var(--radius) / 1.4);
     cursor: pointer;
-    transition: color 100ms ease, border-color 100ms ease, background 100ms ease;
+    box-shadow: 0 2px 9px color-mix(in srgb, var(--accent) 34%, transparent);
+    transition: filter 120ms ease, transform 120ms ease;
   }
-  .icon-btn svg {
-    width: 15px;
-    height: 15px;
+  .play:hover {
+    filter: brightness(1.07);
+  }
+  .play:active {
+    transform: scale(0.96);
+  }
+  .play svg {
+    width: 17px;
+    height: 17px;
     fill: currentColor;
   }
-  .icon-btn:hover {
+  .ghost-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.1rem;
+    height: 2.1rem;
+    flex: 0 0 auto;
+    color: var(--fg-muted);
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) / 1.6);
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+  .ghost-btn:hover {
     color: var(--accent);
     border-color: var(--accent);
   }
-  .icon-btn.primary {
-    color: var(--accent-fg, #fff);
-    background: var(--accent);
-    border-color: var(--accent);
-    box-shadow: 0 1px 5px color-mix(in srgb, var(--accent) 40%, transparent);
+  .ghost-btn svg {
+    width: 15px;
+    height: 15px;
   }
-  .icon-btn.primary:hover {
-    filter: brightness(1.06);
+  .status {
+    margin-left: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 1px;
+    text-align: right;
   }
-
-  /* Labeled sliders --------------------------------------------------------- */
-  .ctl {
+  .wave.compact .status {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .status-state {
     display: inline-flex;
     align-items: center;
-    gap: 0.4rem;
-    font-size: 0.75rem;
+    gap: 0.35rem;
+    font-size: 0.68rem;
+    font-weight: 600;
     color: var(--fg-muted);
   }
-  .ctl > span {
-    white-space: nowrap;
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--fg-muted);
+    opacity: 0.45;
   }
-  .ctl input[type="range"] {
-    width: 5.4rem;
-    height: 1.1rem;
-    accent-color: var(--accent);
-    cursor: pointer;
+  .dot.live {
+    background: #46c26a;
+    opacity: 1;
+    box-shadow: 0 0 0 3px color-mix(in srgb, #46c26a 22%, transparent);
   }
-  .ctl.select select {
-    font: inherit;
-    font-size: 0.75rem;
+  .status-energy {
+    font-family: var(--font-mono);
+    font-size: 0.84rem;
+    font-variant-numeric: tabular-nums;
     color: var(--fg);
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: calc(var(--radius) / 2);
-    padding: 0.12rem 0.35rem;
+  }
+  .ek {
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--fg-muted);
+    margin-right: 0.3rem;
+  }
+
+  /* Groups ------------------------------------------------------------------ */
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding-top: 0.65rem;
+    border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+  }
+  .group-title {
+    margin: 0;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+  }
+  .subhead {
+    font-size: 0.68rem;
+    color: var(--fg-muted);
+    margin-top: 0.05rem;
+  }
+  .wave.compact .group {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+    padding-top: 0;
+    border-top: none;
+  }
+  .wave.compact .group + .group {
+    padding-left: 0.65rem;
+    border-left: 1px solid var(--border);
+  }
+  .wave.compact .group-title,
+  .wave.compact .subhead {
+    display: none;
+  }
+
+  /* Sliders ----------------------------------------------------------------- */
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
     cursor: pointer;
+  }
+  .field-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+  }
+  .field-label {
+    font-size: 0.76rem;
+    color: var(--fg);
+  }
+  .field-val {
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--fg-muted);
+  }
+  .slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 16px;
+    background: transparent;
+    cursor: pointer;
+  }
+  .slider::-webkit-slider-runnable-track {
+    height: 5px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--accent) 0 var(--pct, 50%),
+      color-mix(in srgb, var(--fg-muted) 26%, transparent) var(--pct, 50%) 100%
+    );
+  }
+  .slider::-moz-range-track {
+    height: 5px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--accent) 0 var(--pct, 50%),
+      color-mix(in srgb, var(--fg-muted) 26%, transparent) var(--pct, 50%) 100%
+    );
+  }
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -4.5px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg-panel);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
+  }
+  .slider::-moz-range-thumb {
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg-panel);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
+  }
+  .slider:focus-visible {
+    outline: none;
+  }
+  .slider:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 32%, transparent);
+  }
+  .wave.compact .field {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.45rem;
+  }
+  .wave.compact .field-head {
+    flex: 0 0 auto;
+  }
+  .wave.compact .field-val {
+    display: none;
+  }
+  .wave.compact .slider {
+    width: 5rem;
+    flex: 0 0 auto;
   }
 
   /* Segmented controls ------------------------------------------------------ */
   .seg {
     display: inline-flex;
-    padding: 2px;
+    padding: 3px;
     gap: 2px;
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: calc(var(--radius) / 1.3);
+  }
+  .seg.wide {
+    display: flex;
+  }
+  .seg.wide .seg-btn {
+    flex: 1;
+  }
+  .seg.wrap {
+    flex-wrap: wrap;
   }
   .seg-btn {
+    flex: 0 0 auto;
     font: inherit;
-    font-size: 0.73rem;
+    font-size: 0.74rem;
     font-weight: 600;
     color: var(--fg-muted);
     background: transparent;
     border: none;
-    border-radius: 999px;
-    padding: 0.16rem 0.6rem;
+    border-radius: calc(var(--radius) / 1.8);
+    padding: 0.3rem 0.55rem;
     cursor: pointer;
-    transition: color 100ms ease, background 100ms ease;
+    white-space: nowrap;
+    transition: color 120ms ease, background 120ms ease;
   }
   .seg-btn:hover {
     color: var(--fg);
@@ -1136,33 +1226,114 @@
   .seg-btn.active {
     color: var(--accent-fg, #fff);
     background: var(--accent);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 34%, transparent);
+  }
+  .wave.compact .seg-btn {
+    padding: 0.2rem 0.5rem;
+    font-size: 0.72rem;
   }
 
-  /* Energy stat chip -------------------------------------------------------- */
-  .stat {
-    margin-left: auto;
-    display: inline-flex;
-    align-items: baseline;
-    gap: 0.35rem;
-    padding: 0.16rem 0.6rem;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--bg);
+  /* Selects ----------------------------------------------------------------- */
+  .select-field {
+    position: relative;
+    display: block;
   }
-  .stat-k {
-    font-size: 0.64rem;
-    font-weight: 700;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    color: var(--fg-muted);
-  }
-  .stat-v {
-    font-family: var(--font-mono);
-    font-size: 0.82rem;
-    font-variant-numeric: tabular-nums;
+  .select-field select {
+    width: 100%;
+    font: inherit;
+    font-size: 0.78rem;
     color: var(--fg);
-    min-width: 2ch;
-    text-align: right;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) / 1.5);
+    padding: 0.42rem 1.9rem 0.42rem 0.6rem;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color 120ms ease;
+  }
+  .select-field select:hover {
+    border-color: var(--accent);
+  }
+  .select-field::after {
+    content: "";
+    position: absolute;
+    right: 0.7rem;
+    top: 50%;
+    width: 0.44rem;
+    height: 0.44rem;
+    border-right: 1.5px solid var(--fg-muted);
+    border-bottom: 1.5px solid var(--fg-muted);
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+  }
+  .wave.compact .select-field select {
+    padding: 0.26rem 1.7rem 0.26rem 0.5rem;
+    font-size: 0.75rem;
+  }
+
+  /* Action / mini buttons --------------------------------------------------- */
+  .action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.45rem;
+    width: 100%;
+    font: inherit;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) / 1.5);
+    padding: 0.44rem 0.6rem;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  }
+  .action-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .action-btn.on {
+    color: var(--accent-fg, #fff);
+    background: var(--accent);
+    border-color: var(--accent);
+  }
+  .action-btn svg {
+    width: 17px;
+    height: 12px;
+    flex: 0 0 auto;
+  }
+  .probe-ico {
+    width: 14px;
+    height: 14px;
+    fill: currentColor;
+  }
+  .probe-row {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  .probe-row .action-btn {
+    flex: 1;
+  }
+  .mini-btn {
+    flex: 0 0 auto;
+    font: inherit;
+    font-size: 0.73rem;
+    font-weight: 600;
+    color: var(--fg-muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) / 1.5);
+    padding: 0.44rem 0.6rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+  .mini-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   /* Canvas stage ------------------------------------------------------------ */
@@ -1173,16 +1344,15 @@
     overflow: hidden;
     background: var(--bg-panel);
     line-height: 0;
-    box-shadow: inset 0 1px 24px rgb(0 0 0 / 22%);
+    box-shadow: inset 0 1px 30px rgb(0 0 0 / 24%);
   }
-  /* Subtle vignette for depth; never intercepts pointer energy injection. */
   .stage::after {
     content: "";
     position: absolute;
     inset: 0;
     pointer-events: none;
     border-radius: inherit;
-    box-shadow: inset 0 0 60px rgb(0 0 0 / 20%);
+    box-shadow: inset 0 0 70px rgb(0 0 0 / 22%);
   }
   canvas {
     display: block;
@@ -1194,21 +1364,21 @@
   .hint {
     position: absolute;
     left: 50%;
-    bottom: 0.8rem;
+    bottom: 0.85rem;
     transform: translateX(-50%);
     z-index: 1;
     display: inline-flex;
     align-items: center;
     gap: 0.45rem;
     margin: 0;
-    padding: 0.3rem 0.8rem;
+    padding: 0.34rem 0.85rem;
     font-size: 0.78rem;
     line-height: 1;
     color: var(--fg-muted);
-    background: color-mix(in srgb, var(--bg-panel) 82%, transparent);
+    background: color-mix(in srgb, var(--bg-panel) 84%, transparent);
     border: 1px solid var(--border);
     border-radius: 999px;
-    backdrop-filter: blur(3px);
+    backdrop-filter: blur(4px);
     pointer-events: none;
     white-space: nowrap;
   }
@@ -1221,61 +1391,42 @@
   }
   .probe-hint {
     bottom: auto;
-    top: 0.8rem;
+    top: 0.85rem;
     color: var(--accent);
     border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
   }
-
-  /* Measure controls -------------------------------------------------------- */
-  .probe-ico {
-    width: 13px;
-    height: 13px;
-    fill: currentColor;
-    margin-right: 0.25rem;
-    vertical-align: -2px;
-  }
-  .mini-btn {
-    font: inherit;
-    font-size: 0.72rem;
-    font-weight: 600;
-    color: var(--fg-muted);
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 0.18rem 0.6rem;
-    cursor: pointer;
-    transition: color 100ms ease, border-color 100ms ease;
-  }
-  .mini-btn:hover {
-    color: var(--accent);
-    border-color: var(--accent);
+  .probe-hint svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.2;
+    opacity: 1;
   }
 
-  /* Probe spectra panel ----------------------------------------------------- */
+  /* Probe spectra ----------------------------------------------------------- */
   .probes {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
     gap: 0.5rem;
   }
   .probe {
     border: 1px solid var(--border);
     border-radius: var(--radius);
-    background: color-mix(in srgb, var(--bg-panel) 55%, transparent);
-    padding: 0.4rem 0.5rem 0.3rem;
+    background: var(--bg-panel);
+    padding: 0.45rem 0.55rem 0.35rem;
     min-width: 0;
   }
   .probe-head {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.3rem;
   }
   .probe-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.15rem;
-    height: 1.15rem;
+    width: 1.2rem;
+    height: 1.2rem;
     flex: 0 0 auto;
     font-family: var(--font-mono);
     font-size: 0.66rem;
@@ -1295,17 +1446,17 @@
   }
   .probe-x {
     flex: 0 0 auto;
-    width: 1.1rem;
-    height: 1.1rem;
+    width: 1.2rem;
+    height: 1.2rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.95rem;
+    font-size: 1rem;
     line-height: 1;
     color: var(--fg-muted);
     background: transparent;
     border: none;
-    border-radius: 4px;
+    border-radius: 5px;
     cursor: pointer;
   }
   .probe-x:hover {
@@ -1315,6 +1466,18 @@
   .spec {
     display: block;
     width: 100%;
-    height: 40px;
+    height: 42px;
+  }
+
+  /* Narrow screens: collapse the rail above the canvas --------------------- */
+  @media (max-width: 640px) {
+    .wave:not(.compact) {
+      grid-template-columns: 1fr;
+    }
+    .wave:not(.compact) .rail {
+      flex-direction: row;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
   }
 </style>
