@@ -597,6 +597,14 @@ bool contains_symbol(const Expr& e, std::string_view name) {
                                [&](const Expr& a) { return contains_symbol(a, name); });
 }
 
+bool contains_constant(const Expr& e, ConstantId id) {
+    if (e->kind() == Kind::Constant) {
+        return e->constant() == id;
+    }
+    return std::ranges::any_of(e->args(),
+                               [&](const Expr& a) { return contains_constant(a, id); });
+}
+
 namespace {
 
 void collect_symbols(const Expr& e, std::set<std::string>& out) {

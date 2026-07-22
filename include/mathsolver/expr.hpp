@@ -125,6 +125,9 @@ std::size_t hash_expr(const Expr& e);
 
 bool contains_symbol(const Expr& e, std::string_view name);
 
+/// True if the constant `id` (e.g. ConstantId::I) occurs anywhere in `e`.
+bool contains_constant(const Expr& e, ConstantId id);
+
 std::set<std::string> free_symbols(const Expr& e);
 
 /// Replace every occurrence of the symbol `name` with `replacement`,

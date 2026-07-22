@@ -1,6 +1,7 @@
 #include "mathsolver/evaluator.hpp"
 
 #include <cmath>
+#include <complex>
 #include <format>
 #include <numbers>
 #include <optional>
@@ -124,6 +125,78 @@ double eval_function(FunctionId id, double u) {
     throw std::logic_error("evaluate: invalid FunctionId");
 }
 
+// --- complex domain (Phase 2) ----------------------------------------------
+//
+// A parallel evaluator over std::complex<double>. The real `evaluate` above is
+// untouched, so the solver/integrator verification paths (which call it) keep
+// their real-domain guarantees.
+
+using Complex = std::complex<double>;
+
+Complex check_finite_c(Complex z) {
+    if (!std::isfinite(z.real()) || !std::isfinite(z.imag())) {
+        throw EvalError("non-finite result");
+    }
+    return z;
+}
+
+Complex eval_pow_complex(Complex base, Complex exponent) {
+    if (base == Complex(0.0, 0.0)) {
+        if (exponent == Complex(0.0, 0.0)) {
+            return Complex(1.0, 0.0); // 0^0 == 1 (DESIGN.md §2)
+        }
+        if (exponent.imag() == 0.0 && exponent.real() > 0.0) {
+            return Complex(0.0, 0.0);
+        }
+        throw EvalError("division by zero (0 raised to a non-positive power)");
+    }
+    // Exact real integer exponent: the (complex, int) overload is both faster
+    // and more accurate than the general branch-cut power.
+    if (exponent.imag() == 0.0 && exponent.real() == std::trunc(exponent.real()) &&
+        std::abs(exponent.real()) <= 1e6) {
+        return std::pow(base, static_cast<int>(exponent.real()));
+    }
+    return std::pow(base, exponent); // principal branch
+}
+
+Complex eval_function_complex(FunctionId id, Complex z) {
+    switch (id) {
+        case FunctionId::Sin: return std::sin(z);
+        case FunctionId::Cos: return std::cos(z);
+        case FunctionId::Tan: return std::tan(z);
+        case FunctionId::Asin: return std::asin(z);
+        case FunctionId::Acos: return std::acos(z);
+        case FunctionId::Atan: return std::atan(z);
+        case FunctionId::Sinh: return std::sinh(z);
+        case FunctionId::Cosh: return std::cosh(z);
+        case FunctionId::Tanh: return std::tanh(z);
+        case FunctionId::Asinh: return std::asinh(z);
+        case FunctionId::Acosh: return std::acosh(z);
+        case FunctionId::Atanh: return std::atanh(z);
+        case FunctionId::Ln:
+            if (z == Complex(0.0, 0.0)) {
+                throw EvalError("ln of zero");
+            }
+            return std::log(z); // principal branch
+        case FunctionId::Abs:
+            return Complex(std::abs(z), 0.0); // modulus |z|
+        // No complex implementation: fall back to the real one when the
+        // argument is (numerically) real, otherwise report honestly.
+        case FunctionId::Gamma:
+        case FunctionId::Digamma:
+        case FunctionId::Erf:
+        case FunctionId::Erfc:
+        case FunctionId::Fib:
+        case FunctionId::Harmonic:
+            if (std::abs(z.imag()) < 1e-12) {
+                return Complex(eval_function(id, z.real()), 0.0);
+            }
+            throw EvalError(
+                "this special function is not supported for complex arguments yet");
+    }
+    throw std::logic_error("evaluate_complex: invalid FunctionId");
+}
+
 /// Exact fold. Reuses the n-ary factory folding (order-independent 128-bit
 /// accumulation, exact rational roots); OverflowError/DivisionByZeroError
 /// escaping the factories are caught by the public entry point below.
@@ -217,6 +290,56 @@ double evaluate(const Expr& e, const Bindings& bindings) {
             return check_finite(eval_function(e->function(), evaluate(e->arg(0), bindings)));
     }
     throw std::logic_error("evaluate: invalid Kind");
+}
+
+std::complex<double> evaluate_complex(const Expr& e, const ComplexBindings& bindings) {
+    using C = std::complex<double>;
+    switch (e->kind()) {
+        case Kind::Number:
+            return C(e->number().to_double(), 0.0);
+        case Kind::Symbol: {
+            const auto it = bindings.find(e->symbol_name());
+            if (it == bindings.end()) {
+                throw EvalError(std::format("unbound symbol '{}'", e->symbol_name()));
+            }
+            return check_finite_c(it->second);
+        }
+        case Kind::Constant:
+            switch (e->constant()) {
+                case ConstantId::I: return C(0.0, 1.0);
+                case ConstantId::Pi: return C(std::numbers::pi, 0.0);
+                case ConstantId::E: return C(std::numbers::e, 0.0);
+            }
+            throw std::logic_error("evaluate_complex: invalid ConstantId");
+        case Kind::Add: {
+            C sum(0.0, 0.0);
+            for (const Expr& a : e->args()) {
+                sum += evaluate_complex(a, bindings);
+            }
+            return check_finite_c(sum);
+        }
+        case Kind::Mul: {
+            C product(1.0, 0.0);
+            for (const Expr& a : e->args()) {
+                product *= evaluate_complex(a, bindings);
+            }
+            return check_finite_c(product);
+        }
+        case Kind::Pow: {
+            // e^w == exp(w): more accurate than pow(e, w), and it makes
+            // Euler's formula come out clean (eval "e^(i*pi)" -> -1).
+            const Expr& base = e->arg(0);
+            if (base->kind() == Kind::Constant && base->constant() == ConstantId::E) {
+                return check_finite_c(std::exp(evaluate_complex(e->arg(1), bindings)));
+            }
+            return check_finite_c(eval_pow_complex(evaluate_complex(base, bindings),
+                                                   evaluate_complex(e->arg(1), bindings)));
+        }
+        case Kind::Function:
+            return check_finite_c(eval_function_complex(
+                e->function(), evaluate_complex(e->arg(0), bindings)));
+    }
+    throw std::logic_error("evaluate_complex: invalid Kind");
 }
 
 std::optional<Rational> try_exact_numeric(const Expr& e) {

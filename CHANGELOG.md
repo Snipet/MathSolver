@@ -7,6 +7,12 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Complex domain, Phase 2** (docs/proposals/complex-domain.md): a complex
+  numeric evaluator (`evaluate_complex`) running alongside the real one, which
+  is unchanged. The CLI `eval` verb evaluates any expression containing `i`
+  over ℂ and prints `a + b*i`, chopping rounding dust — `eval "e^(i*pi)" → -1`,
+  `eval "(2+3i)*(1-i)" → 5 + i`, `eval "1/(1+i)" → 0.5 - 0.5*i`, `eval
+  "abs(3+4i)" → 5`. Principal branch for the multivalued functions.
 - **Complex domain, Phase 1** (docs/proposals/complex-domain.md): `simplify`
   now folds exact complex (Gaussian-rational) constants to canonical `a + b·i`,
   including rationalized denominators — `1/(1+i) → 1/2 - i/2`, `(3+i)/(1-i) →

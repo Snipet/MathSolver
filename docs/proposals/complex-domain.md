@@ -94,13 +94,38 @@ Confluent with `expand` (both reach the same `a + b·i` via the same
 factories); idempotent; tested in `tests/test_simplify.cpp` (folding, scope
 guards, idempotence).
 
-### Phase 2 — complex numeric evaluation
+### Phase 2 — complex numeric evaluation ✅ (core + CLI)
 
-`evaluate_complex(Expr) -> std::complex<double>` alongside the real evaluator
-(the real path unchanged). Powers Euler's formula numerically (`eval
-"e^(i*pi)"` with a tolerance clean-up of the ~1e-16 residue), the web
-Evaluate tab, and complex sampling. Branch cuts for `sqrt`/`ln`/`pow` follow
-the principal value. **M–L.**
+`evaluate_complex(Expr, ComplexBindings) -> std::complex<double>`
+(`src/evaluator.cpp`, `include/mathsolver/evaluator.hpp`) runs alongside the
+real `evaluate`, which is untouched — so the solver/integrator verification
+paths keep their real-domain guarantees. Elementary, hyperbolic, and inverse
+functions use the `std::complex` overloads (principal branch); `abs` is the
+modulus; the special functions with no complex form (gamma, digamma, erf/erfc,
+fib, harmonic) fall back to the real impl when the argument is numerically
+real and otherwise throw. `e^w` is evaluated as `exp(w)` for accuracy, so
+Euler's formula comes out clean.
+
+The CLI `eval` verb (`apps/main.cpp`) routes to it whenever the expression
+contains `i` (detected via the new `contains_constant`), and prints `a + b*i`
+with a chop that snaps rounding dust so `e^(i*pi) -> -1`:
+
+```
+eval "(2+3i)*(1-i)"  => 5 + i
+eval "e^(i*pi)"      => -1
+eval "1/(1+i)"       => 0.5 - 0.5*i
+eval "abs(3+4i)"     => 5
+eval "e^(i*pi/2)"    => i
+```
+
+Boundary (by design): an expression with no `i` stays on the real path, so
+`eval "sqrt(-1)"` still reports the real-domain error rather than returning
+`i`. Lifting that waits on Phase 3 (`sqrt`/`ln` of a real negative under an
+explicit complex mode). Tests in `tests/test_evaluator.cpp` and
+`tests/test_cli.cpp`.
+
+**Remaining in Phase 2 (follow-up):** the wasm binding + web Evaluate tab
+(the `EvaluateResult` shape currently carries only a real `value`).
 
 ### Phase 3 — complex functions as first-class
 
