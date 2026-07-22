@@ -103,11 +103,19 @@
   .card {
     background: var(--bg-panel);
     border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
     border-radius: var(--radius);
-    padding: 1rem 1.1rem;
+    padding: 1rem 1.25rem;
+    box-shadow: var(--shadow-sm);
+  }
+  /* Tighten the typeset display so a short answer doesn't float in a tall,
+     empty frame — the result should read as confident, not lonely. */
+  .card:not(.flat) :global(.katex-display) {
+    margin: 0.3em 0 0.1em;
   }
   .error-card {
     border-color: color-mix(in srgb, var(--error) 50%, var(--border));
+    border-left-color: var(--error);
     background: color-mix(in srgb, var(--error) 6%, var(--bg-panel));
   }
   /* Console cells render flat: no box, results sit directly on the page. */
