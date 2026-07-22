@@ -470,6 +470,53 @@ std::string ms_sample_field(std::string fx, std::string fy, std::string xvar,
     });
 }
 
+/// sampleGrid(expr, xVar, yVar, x0, x1, nx, y0, y1, ny): evaluate a scalar
+/// field g(x, y) on a rectangular nx×ny grid (row-major, y outer). Returns a
+/// flat array `g` (null where non-finite). Used for implicit-curve contouring
+/// and inequality shading in the graphing calculator.
+std::string ms_sample_grid(std::string expr, std::string xvar, std::string yvar,
+                           double x0, double x1, int nx, double y0, double y1,
+                           int ny) {
+    return guarded([&]() -> std::string {
+        if (nx < 2 || ny < 2 || nx > 400 || ny > 400) {
+            return err_json("grid dimensions must be in [2, 400]");
+        }
+        const Expr g = parse_expression(expr);
+        const std::string xv = trim(xvar).empty() ? "x" : trim(xvar);
+        const std::string yv = trim(yvar).empty() ? "y" : trim(yvar);
+        std::set<std::string> extras = free_symbols(g);
+        extras.erase(xv);
+        extras.erase(yv);
+        if (!extras.empty()) {
+            std::string list;
+            for (const std::string& s : extras) {
+                if (!list.empty()) list += ", ";
+                list += s;
+            }
+            return err_json("the relation contains symbols other than " + xv +
+                            " and " + yv + ": " + list);
+        }
+        std::string out = std::format("{{\"ok\":true,\"nx\":{},\"ny\":{},\"g\":[", nx, ny);
+        bool first = true;
+        for (int j = 0; j < ny; ++j) {
+            const double y = y0 + (y1 - y0) * j / (ny - 1);
+            for (int i = 0; i < nx; ++i) {
+                const double x = x0 + (x1 - x0) * i / (nx - 1);
+                double val = std::numeric_limits<double>::quiet_NaN();
+                try {
+                    val = evaluate(g, Bindings{{xv, x}, {yv, y}});
+                } catch (const Error&) {
+                }
+                if (!first) out += ",";
+                first = false;
+                out += jnum(val);
+            }
+        }
+        out += "]}";
+        return out;
+    });
+}
+
 std::string sum_result_json(const SumResult& r) {
     const char* status = r.status == SumResult::Status::Exact ? "exact"
                          : r.status == SumResult::Status::Diverges
@@ -1009,6 +1056,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("product", &ms_product);
     emscripten::function("rsolve", &ms_rsolve);
     emscripten::function("sampleField", &ms_sample_field);
+    emscripten::function("sampleGrid", &ms_sample_grid);
     emscripten::function("laplace", &ms_laplace);
     emscripten::function("ilaplace", &ms_ilaplace);
     emscripten::function("integrate", &ms_integrate);

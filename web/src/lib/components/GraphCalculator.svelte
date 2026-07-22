@@ -11,6 +11,7 @@
   import { graph, GRAPH_COLORS } from "../graph/graph.svelte";
   import { xRange, yRange, type DrawSeries } from "../graph/viewport";
   import { classifyRow, type RowKind } from "../graph/classify";
+  import { marchingSquares, inequalityMask } from "../graph/contour";
   import GraphCanvas from "./GraphCanvas.svelte";
 
   interface Props {
@@ -195,7 +196,42 @@
       return { series: [{ id: String(id), color, visible: true, kind: "points", xs, ys }] };
     }
 
-    if (spec.t === "relation") return { series: [], error: "implicit curves & inequalities — coming in Phase 3" };
+    if (spec.t === "relation") {
+      // g = lhs − rhs, with session vars / slider overrides resolved so only
+      // x and y remain; contour at 0 (implicit curve) or shade the region.
+      const gExpr = `(${spec.lhs}) - (${spec.rhs})`;
+      const env = await applyEnv(gExpr, ["x", "y"], "expr", overrides);
+      const [xlo, xhi] = xRange(graph.view, graphW);
+      const [ylo, yhi] = yRange(graph.view, graphH);
+      const mx = 0.2 * (xhi - xlo);
+      const myy = 0.2 * (yhi - ylo);
+      const x0 = xlo - mx;
+      const x1 = xhi + mx;
+      const y0 = ylo - myy;
+      const y1 = yhi + myy;
+      const nx = Math.max(40, Math.min(220, Math.round(graphW / 5)));
+      const ny = Math.max(40, Math.min(220, Math.round(graphH / 5)));
+      const gr = await call("sampleGrid", [env.text, "x", "y", x0, x1, nx, y0, y1, ny]);
+      if (!gr.ok) return { series: [], error: gr.error };
+      if (spec.op === "=") {
+        const c = marchingSquares(gr.g, nx, ny, x0, x1, y0, y1, 0);
+        return { series: [{ id: String(id), color, visible: true, kind: "line", xs: c.xs, ys: c.ys }] };
+      }
+      const mask = inequalityMask(gr.g, spec.op);
+      return {
+        series: [
+          {
+            id: String(id),
+            color,
+            visible: true,
+            kind: "region",
+            xs: [],
+            ys: [],
+            region: { x0, x1, y0, y1, nx, ny, mask },
+          },
+        ],
+      };
+    }
     if (spec.t === "polar") return { series: [], error: "polar plots — coming in Phase 4" };
     return { series: [] };
   }
