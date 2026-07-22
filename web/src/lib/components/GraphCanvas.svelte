@@ -582,6 +582,14 @@
     view = { cx: 0, cy: 0, scale: 40 };
   }
 
+  /** Rendered graph as a PNG blob (for download). Exposed to the parent. */
+  export function exportBlob(): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      if (!canvas) return resolve(null);
+      canvas.toBlob((b) => resolve(b), "image/png");
+    });
+  }
+
   const readout = $derived.by(() => {
     if (!cursor || dragging || pointDrag) return null;
     return { x: pxToX(cursor.x, view, width), y: pxToY(cursor.y, view, H) };

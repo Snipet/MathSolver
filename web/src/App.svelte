@@ -12,6 +12,8 @@
   import { fmt, hasTopLevelSemicolon, numOr, splitTopLevel } from "./lib/format";
   import { vars } from "./lib/vars.svelte";
   import { closure } from "./lib/vars/resolve";
+  import { graph } from "./lib/graph/graph.svelte";
+  import { decodeState } from "./lib/graph/share";
   import {
     splitAssignment,
     buildAssignPreview,
@@ -63,7 +65,23 @@
       return "workbench";
     }
   }
-  let mode = $state<Mode>(loadMode());
+  // A shared link (#g=…) replaces the graph document and opens Graph mode.
+  function importSharedLink(): boolean {
+    try {
+      const m = /^#g=(.+)$/.exec(location.hash);
+      if (!m) return false;
+      const state = decodeState(m[1]);
+      if (!state) return false;
+      graph.replaceAll(state.rows, state.view);
+      if (state.vars.length) vars.importVars(state.vars);
+      // Drop the hash so a later reload uses the (now-saved) local document.
+      window.history.replaceState(null, "", location.pathname + location.search);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  let mode = $state<Mode>(importSharedLink() ? "graph" : loadMode());
   $effect(() => {
     try {
       localStorage.setItem(MODE_KEY, mode);

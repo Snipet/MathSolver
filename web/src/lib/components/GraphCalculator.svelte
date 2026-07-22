@@ -28,6 +28,7 @@
   } from "../graph/classify";
   import { marchingSquares, inequalityMask } from "../graph/contour";
   import { findInnermostCall, stripCalc } from "../graph/calculus";
+  import { encodeState } from "../graph/share";
   import GraphCanvas from "./GraphCanvas.svelte";
 
   interface Props {
@@ -703,6 +704,48 @@
     return classifyRow(text).t === "function" && !text.includes("=") ? "y =" : "";
   }
 
+  // --- share & export --------------------------------------------------------
+  let canvasComp: ReturnType<typeof GraphCanvas> | undefined = $state();
+  let shareState = $state<"idle" | "copied" | "error">("idle");
+  let shareTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function shareLink(): Promise<void> {
+    const snap = graph.snapshot();
+    // Include the graph's own variables: its sliders and its definitions.
+    const varList = [
+      ...slots.map((s) => ({ name: s.name, value: String(s.value) })),
+      ...[...definedByGraph]
+        .map((name) => {
+          const row = vars.rows.find((r) => r.status.symbol === name || r.name.trim() === name);
+          return row ? { name, value: row.value } : null;
+        })
+        .filter((x): x is { name: string; value: string } => !!x),
+    ];
+    const encoded = encodeState({ v: 1, rows: snap.rows, view: snap.view, vars: varList });
+    const url = `${location.origin}${location.pathname}#g=${encoded}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      shareState = "copied";
+    } catch {
+      shareState = "error";
+    }
+    if (shareTimer) clearTimeout(shareTimer);
+    shareTimer = setTimeout(() => (shareState = "idle"), 2200);
+  }
+
+  async function savePNG(): Promise<void> {
+    const blob = await canvasComp?.exportBlob();
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "mathsolver-graph.png";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   // --- expression list actions ----------------------------------------------
   let editingColor = $state<number | null>(null);
   function num(e: Event): number {
@@ -718,6 +761,14 @@
 
 <div class="calc" class:compact>
   <div class="list" role="group" aria-label="Expressions">
+    {#if !compact}
+      <div class="calc-toolbar">
+        <button class="tool-btn" onclick={shareLink} title="Copy a shareable link to this graph">
+          {shareState === "copied" ? "✓ Link copied" : shareState === "error" ? "Copy failed" : "Share"}
+        </button>
+        <button class="tool-btn" onclick={savePNG} title="Download the graph as a PNG image">Save PNG</button>
+      </div>
+    {/if}
     <ul class="rows">
       {#each graph.rows as row, i (row.id)}
         <li class="row" class:hasError={!!rowErrors[row.id]}>
@@ -843,6 +894,7 @@
 
   <div class="graph-area" bind:this={graphArea}>
     <GraphCanvas
+      bind:this={canvasComp}
       bind:view={graph.view}
       {series}
       {handles}
@@ -877,6 +929,27 @@
     border-radius: var(--radius);
     background: var(--bg-panel);
     overflow: hidden;
+  }
+  .calc-toolbar {
+    display: flex;
+    gap: 0.35rem;
+    padding: 0.4rem 0.5rem;
+    border-bottom: 1px solid var(--border);
+    flex: 0 0 auto;
+  }
+  .tool-btn {
+    font: inherit;
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 0.2rem 0.6rem;
+    cursor: pointer;
+  }
+  .tool-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
   .rows {
     list-style: none;

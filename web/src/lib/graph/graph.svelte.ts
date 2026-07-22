@@ -118,6 +118,26 @@ class GraphStore {
     }
   }
 
+  /** The rows + viewport as a plain snapshot (for a share link). */
+  snapshot(): { rows: { text: string; color: string; visible: boolean }[]; view: View } {
+    return {
+      rows: this.rows.map((r) => ({ text: r.text, color: r.color, visible: r.visible })),
+      view: { ...this.view },
+    };
+  }
+  /** Replace the whole document (from a shared link). */
+  replaceAll(rows: { text: string; color: string; visible: boolean }[], view: View): void {
+    this.rows = rows.length
+      ? rows.slice(0, CAP).map((r) => ({ id: nextId++, text: r.text, color: r.color, visible: r.visible }))
+      : [seedRow()];
+    this.view = {
+      cx: Number.isFinite(view.cx) ? view.cx : DEFAULT_VIEW.cx,
+      cy: Number.isFinite(view.cy) ? view.cy : DEFAULT_VIEW.cy,
+      scale: Number.isFinite(view.scale) && view.scale > 0 ? view.scale : DEFAULT_VIEW.scale,
+    };
+    this.persist();
+  }
+
   #persistTimer: ReturnType<typeof setTimeout> | null = null;
   /** Debounced write for high-frequency changes (typing, pan/zoom frames). */
   persistSoon(): void {

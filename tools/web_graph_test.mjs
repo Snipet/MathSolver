@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import net from "node:net";
+import { encodeState } from "../web/src/lib/graph/share.ts";
 
 const WEB = fileURLToPath(new URL("../web", import.meta.url));
 const require = createRequire(`${WEB}/package.json`);
@@ -399,6 +400,41 @@ try {
     await new Promise((r) => setTimeout(r, 500));
     const a = Number(await varVal("a"));
     check("same-variable point (a,a) drags along y=x (single value)", Math.abs(a - 3) < 0.4, `a=${a}`);
+  }
+
+  // Share link: a #g=… hash restores the graph rows, view, and variables and
+  // opens Graph mode, then clears the hash.
+  {
+    const shared = encodeState({
+      v: 1,
+      rows: [
+        { text: "a*sin(x)", color: "#2563eb", visible: true },
+        { text: "(a, 2)", color: "#dc2626", visible: true },
+      ],
+      view: { cx: 0, cy: 0, scale: 50 },
+      vars: [{ name: "a", value: "4" }],
+    });
+    await page.evaluate(() => localStorage.clear());
+    await page.goto("about:blank"); // force a real document load for the hash URL
+    await page.goto(`${url}#g=${shared}`, { waitUntil: "networkidle0" });
+    await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+    const rowsText = await page.$$eval(".calc .expr", (els) => els.map((e) => e.value));
+    check(
+      "shared link restores the graph rows and opens Graph mode",
+      rowsText.includes("a*sin(x)") && rowsText.some((t) => t.replace(/\s/g, "") === "(a,2)"),
+      rowsText.join(" | "),
+    );
+    const aVal = await page.waitForFunction(
+      () => {
+        const li = [...document.querySelectorAll(".sidebar li[data-var-id]")].find((l) => l.querySelector("input.name")?.value === "a");
+        const v = li?.querySelector("input.value")?.value;
+        return Number(v) === 4 ? v : false;
+      },
+      { timeout: 6000 },
+    ).then(() => true).catch(() => false);
+    check("shared link restores variables (a=4)", aVal, `a=${await varVal("a")}`);
+    const hash = await page.evaluate(() => location.hash);
+    check("shared link hash is cleared after import", hash === "", hash);
   }
 
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
