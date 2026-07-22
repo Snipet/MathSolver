@@ -12,6 +12,8 @@
   import { fmt, hasTopLevelSemicolon, numOr, splitTopLevel } from "./lib/format";
   import { vars } from "./lib/vars.svelte";
   import { closure } from "./lib/vars/resolve";
+  import { graph } from "./lib/graph/graph.svelte";
+  import { decodeState } from "./lib/graph/share";
   import {
     splitAssignment,
     buildAssignPreview,
@@ -24,8 +26,8 @@
   import ExpressionInput from "./lib/components/ExpressionInput.svelte";
   import ParsePreview from "./lib/components/ParsePreview.svelte";
   import ResultCard from "./lib/components/ResultCard.svelte";
-  import Plot from "./lib/components/Plot.svelte";
   import WaveField from "./lib/components/WaveField.svelte";
+  import GraphCalculator from "./lib/components/GraphCalculator.svelte";
   import History from "./lib/components/History.svelte";
   import VariablesPanel from "./lib/components/VariablesPanel.svelte";
   import VarChips, { type Chip } from "./lib/components/VarChips.svelte";
@@ -52,17 +54,56 @@
       engineError = e instanceof Error ? e.message : String(e);
     });
 
-  // --- top-level mode: the tabbed workbench, or the line-by-line console -----
-  type Mode = "workbench" | "console";
+  // --- top-level mode: tabbed workbench, line-by-line console, or graphing ---
+  type Mode = "workbench" | "console" | "graph";
   const MODE_KEY = "mathsolver.mode";
   function loadMode(): Mode {
     try {
-      return localStorage.getItem(MODE_KEY) === "console" ? "console" : "workbench";
+      const m = localStorage.getItem(MODE_KEY);
+      return m === "console" || m === "graph" ? m : "workbench";
     } catch {
       return "workbench";
     }
   }
-  let mode = $state<Mode>(loadMode());
+  // A shared link (#g=…) replaces the graph document and its variables. Because
+  // this overwrites the user's local work (graph + app-wide session vars) and
+  // persists immediately, confirm first when there is existing work.
+  function importSharedLink(): boolean {
+    let matched = false;
+    try {
+      const m = /^#g=(.+)$/.exec(location.hash);
+      if (!m) return false;
+      matched = true;
+      const state = decodeState(m[1]);
+      if (!state) return false;
+      const hasWork =
+        graph.rows.length > 1 || graph.rows.some((r) => r.text.trim()) || vars.rows.length > 0;
+      if (
+        hasWork &&
+        !window.confirm(
+          "Open this shared graph? It will replace your current graph and its variables.",
+        )
+      ) {
+        return false;
+      }
+      graph.replaceAll(state.rows, state.view);
+      if (state.vars.length) vars.importVars(state.vars);
+      return true;
+    } catch {
+      return false;
+    } finally {
+      // Always strip a #g= hash (even on decline/failure) so a reload uses the
+      // local document and a malformed hash doesn't linger in the address bar.
+      if (matched) {
+        try {
+          window.history.replaceState(null, "", location.pathname + location.search);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  }
+  let mode = $state<Mode>(importSharedLink() ? "graph" : loadMode());
   $effect(() => {
     try {
       localStorage.setItem(MODE_KEY, mode);
@@ -89,12 +130,6 @@
   let intFrom = $state("0");
   let intTo = $state("1");
   let bindings = $state<Record<string, number>>({});
-  let plotLo = $state(-10);
-  let plotHi = $state(10);
-  let plotD = $state(false);
-  let plotA = $state(false);
-  let plotNonce = $state(0);
-  let antiAvailable = $state(true);
 
   // --- live parse preview (debounced analyze) --------------------------------
   let analysis = $state<AnalyzeResult | null>(null);
@@ -197,7 +232,6 @@
         return isSystem ? [...systemVars] : [variable];
       case "derivative":
       case "integral":
-      case "plot":
         return [variable];
       default:
         return [];
@@ -212,8 +246,6 @@
         return `differentiating with respect to ${v}`;
       case "integral":
         return `integrating with respect to ${v}`;
-      case "plot":
-        return `plot variable`;
       default:
         return "not applied";
     }
@@ -533,27 +565,6 @@
           });
           break;
         }
-        case "plot": {
-          const v = await pickVariable(text);
-          if (v !== variable) variable = v;
-          const lo = numOr(plotLo, -10);
-          const hi = numOr(plotHi, 10);
-          outcome = null;
-          plotNonce++;
-          history.add({
-            tab: op,
-            input: text,
-            params: {
-              variable: v,
-              lo,
-              hi,
-              showDerivative: plotD,
-              showAntiderivative: plotA,
-            },
-            summary: `plot on [${lo}, ${hi}]`,
-          });
-          break;
-        }
       }
     } catch (e) {
       outcome = {
@@ -580,35 +591,6 @@
     void compute();
   }
 
-  // Plot samples continuously, so its input resolves reactively (worker
-  // round-trip) rather than per Compute click; null = resolution in flight.
-  let plotResolved = $state<string | null>(null);
-  let plotSeq = 0;
-  $effect(() => {
-    if (tab !== "plot") return;
-    const text = input.trim();
-    const v = variable;
-    const act = vars.active;
-    const my = ++plotSeq;
-    if (!text || act.length === 0) {
-      plotResolved = text;
-      return;
-    }
-    if (splitAssignment(text)) {
-      plotResolved = "";
-      return;
-    }
-    plotResolved = null;
-    void (async () => {
-      try {
-        const env = await applyEnv(text, [v], "expr");
-        if (my === plotSeq) plotResolved = env.text;
-      } catch {
-        if (my === plotSeq) plotResolved = text;
-      }
-    })();
-  });
-
   let exprInput: ReturnType<typeof ExpressionInput> | undefined = $state();
 
   // Example chips fill the input, then hand focus back to the textarea with
@@ -622,7 +604,8 @@
   // --- history restore ---------------------------------------------------------
   function restore(e: HistoryEntry) {
     mode = "workbench";
-    tab = e.tab;
+    // Guard against stale persisted entries (e.g. the retired "plot" tab).
+    tab = TABS.some((t) => t.id === e.tab) ? e.tab : "simplify";
     input = e.input;
     const p = e.params ?? {};
     if (typeof p.variable === "string") variable = p.variable;
@@ -632,22 +615,14 @@
     if (typeof p.definite === "boolean") definite = p.definite;
     if (typeof p.from === "string") intFrom = p.from;
     if (typeof p.to === "string") intTo = p.to;
-    if (typeof p.lo === "number") {
-      if (e.tab === "plot") plotLo = p.lo;
-      else rangeLo = p.lo;
-    }
-    if (typeof p.hi === "number") {
-      if (e.tab === "plot") plotHi = p.hi;
-      else rangeHi = p.hi;
-    }
+    if (typeof p.lo === "number") rangeLo = p.lo;
+    if (typeof p.hi === "number") rangeHi = p.hi;
     if (p.bindings && typeof p.bindings === "object" && !Array.isArray(p.bindings)) {
       const nb: Record<string, number> = {};
       for (const [k, v] of Object.entries(p.bindings as Record<string, unknown>))
         if (typeof v === "number") nb[k] = v;
       bindings = nb;
     }
-    if (typeof p.showDerivative === "boolean") plotD = p.showDerivative;
-    if (typeof p.showAntiderivative === "boolean") plotA = p.showAntiderivative;
     outcome = null;
     void compute();
   }
@@ -667,7 +642,11 @@
   </label>
 {/snippet}
 
-<div class="app" class:console-mode={mode === "console"}>
+<div
+  class="app"
+  class:console-mode={mode === "console"}
+  class:graph-mode={mode === "graph"}
+>
   <header class="site-header">
     <div class="header-inner">
       <span class="wordmark">MathSolver</span>
@@ -683,16 +662,30 @@
           aria-selected={mode === "workbench"}
           class:active={mode === "workbench"}
           onclick={() => (mode = "workbench")}
+          title="Workbench — step-by-step tools"
         >
-          Workbench
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><rect x="1.5" y="1.5" width="5.4" height="5.4" rx="1.2" /><rect x="9.1" y="1.5" width="5.4" height="5.4" rx="1.2" /><rect x="1.5" y="9.1" width="5.4" height="5.4" rx="1.2" /><rect x="9.1" y="9.1" width="5.4" height="5.4" rx="1.2" /></svg>
+          <span>Workbench</span>
+        </button>
+        <button
+          role="tab"
+          aria-selected={mode === "graph"}
+          class:active={mode === "graph"}
+          onclick={() => (mode = "graph")}
+          title="Graph — interactive graphing calculator"
+        >
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 2v11.5H14" /><path d="M3 11c2.5 0 3-7 5.5-7s3 5 5.5 5" /></svg>
+          <span>Graph</span>
         </button>
         <button
           role="tab"
           aria-selected={mode === "console"}
           class:active={mode === "console"}
           onclick={() => (mode = "console")}
+          title="Console — line-by-line REPL"
         >
-          Console
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5 6.5 8 3 11.5" /><path d="M8.5 11.5H13" /></svg>
+          <span>Console</span>
         </button>
       </div>
       <ThemeToggle />
@@ -703,6 +696,8 @@
     <main class="column">
       {#if mode === "console"}
         <Notebook {ready} {engineError} />
+      {:else if mode === "graph"}
+        <GraphCalculator />
       {:else}
       <Tabs tabs={TABS} active={tab} onselect={selectTab} />
 
@@ -864,59 +859,6 @@
               {/each}
             </div>
           {/if}
-        {:else if tab === "plot"}
-          <div class="ctl-row">
-            {@render variableSelect()}
-            <label class="ctl">
-              <span>From</span>
-              <input
-                type="number"
-                step="any"
-                bind:value={plotLo}
-                onkeydown={ctlKeydown}
-              />
-            </label>
-            <label class="ctl">
-              <span>To</span>
-              <input
-                type="number"
-                step="any"
-                bind:value={plotHi}
-                onkeydown={ctlKeydown}
-              />
-            </label>
-            <label class="ctl checkbox">
-              <input type="checkbox" bind:checked={plotD} />
-              <span>f′ overlay</span>
-            </label>
-            <label class="ctl checkbox">
-              <input
-                type="checkbox"
-                bind:checked={plotA}
-                disabled={!antiAvailable}
-              />
-              <span>Antiderivative</span>
-            </label>
-            {#if !antiAvailable}
-              <span class="ctl-hint">no closed form</span>
-            {/if}
-          </div>
-        {/if}
-
-        {#if tab === "plot"}
-          <Plot
-            input={plotResolved ?? ""}
-            {variable}
-            lo={numOr(plotLo, -10)}
-            hi={numOr(plotHi, 10)}
-            showDerivative={plotD}
-            showAntiderivative={plotA}
-            resampleNonce={plotNonce}
-            onantiavailable={(ok) => {
-              antiAvailable = ok;
-              if (!ok && plotA) plotA = false;
-            }}
-          />
         {/if}
 
         <ResultCard {outcome} />
@@ -944,13 +886,23 @@
       {#if mode === "console"}
         <NotebooksPanel />
         <CommandReference />
+      {:else if mode === "graph"}
+        <p class="graph-tip">
+          Type functions, points, or relations on the left. Undefined
+          variables (like <code>a</code>) become sliders here and in the app;
+          define reusable expressions with <code>f = x^2</code>, and plot
+          <code>diff(f)</code> or <code>integral(f)</code>. Restrict a curve's
+          domain with a trailing clause, e.g. <code>{"{"}0 &lt;= t &lt;= 6pi{"}"}</code>.
+          Drag a point to move it — a point like <code>(a, b)</code> moves its
+          variables everywhere.
+        </p>
       {:else}
         <History onrestore={restore} />
       {/if}
     </aside>
   </div>
 
-  {#if mode !== "console"}
+  {#if mode === "workbench"}
     <footer class="site-footer">
       <p>
         All computation runs locally in your browser via WebAssembly — nothing
@@ -1024,25 +976,47 @@
   .mode-switch {
     display: inline-flex;
     gap: 0.15rem;
-    padding: 0.15rem;
+    padding: 0.2rem;
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius);
   }
   .mode-switch button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
     font: inherit;
     font-size: 0.82rem;
     font-weight: 600;
     color: var(--fg-muted);
     background: transparent;
     border: none;
-    border-radius: 999px;
-    padding: 0.25rem 0.85rem;
+    border-radius: calc(var(--radius) - 0.2rem);
+    padding: 0.3rem 0.75rem;
     cursor: pointer;
+    transition: color 120ms ease, background 120ms ease;
+  }
+  .mode-switch button svg {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 auto;
+  }
+  .mode-switch button:hover:not(.active) {
+    color: var(--fg);
+    background: color-mix(in srgb, var(--fg) 6%, transparent);
   }
   .mode-switch button.active {
     color: var(--accent-fg, #fff);
     background: var(--accent);
+    box-shadow: 0 1px 4px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+  @media (max-width: 680px) {
+    .mode-switch button span {
+      display: none;
+    }
+    .mode-switch button {
+      padding: 0.35rem 0.5rem;
+    }
   }
 
   .layout {
@@ -1121,6 +1095,57 @@
       padding-top: 0.9rem;
       scrollbar-width: thin;
     }
+  }
+
+  /* Graph mode: like the console, the graphing calculator owns the whole
+     viewport so there's maximum room to work with expressions and sliders. */
+  .app.graph-mode {
+    height: 100dvh;
+    overflow: hidden;
+  }
+  .app.graph-mode .header-inner {
+    max-width: none;
+  }
+  .app.graph-mode .layout {
+    min-height: 0;
+    max-width: none;
+    padding-top: 0.6rem;
+    padding-bottom: 0.6rem;
+  }
+  .app.graph-mode .column {
+    max-width: none;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .app.graph-mode :global(.calc) {
+    flex: 1;
+    min-height: 0;
+  }
+  @media (min-width: 1100px) {
+    .app.graph-mode .layout {
+      grid-template-columns: minmax(0, 1fr) 260px;
+    }
+    .app.graph-mode .sidebar {
+      overflow-y: auto;
+      min-height: 0;
+      padding-top: 0.6rem;
+      scrollbar-width: thin;
+    }
+  }
+  .graph-tip {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--fg-muted);
+  }
+  .graph-tip code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.02em 0.3em;
   }
 
   .loading-note {
