@@ -34,7 +34,7 @@ export interface NotebookMessage {
 /** What one evaluated cell renders: a normal result card, or a message. */
 export type CellResult = Outcome | NotebookMessage;
 
-const MATH_VERBS = new Set([
+export const MATH_VERBS = new Set([
   "simplify",
   "expand",
   "factor",

@@ -1029,11 +1029,181 @@ Expr apply_fn_rules(const Expr& e) {
             }
             return e;
         }
+        case FunctionId::Conj:
+        case FunctionId::Re:
+        case FunctionId::Im:
+        case FunctionId::Arg:
+            // Complex accessors: a numeric (Gaussian) argument is folded in
+            // fold_complex; a symbolic argument stays unevaluated — a symbol's
+            // realness is not assumed here.
+            return e;
     }
     return e;
 }
 
+// --- exact complex (Gaussian-rational) folding -----------------------------
+//
+// The imaginary unit is a first-class constant (ConstantId::I) and integer
+// powers already cycle mod 4 (apply_pow_rules). This lifts that to full exact
+// arithmetic: any node built only from Numbers and i collapses to the
+// canonical a + b*i — INCLUDING rationalized denominators, so 1/(1+i) ->
+// 1/2 - i/2 and (3+i)/(1-i) -> 1 + 2i. It is scoped to genuinely complex
+// numeric nodes (as_gaussian succeeds only when every leaf is a Number or i),
+// so the entire real-arithmetic path is untouched, and it is built through the
+// same factories expand() uses, so the two agree on one normal form. Overflow
+// or a zero denominator leaves the node unfolded (DESIGN.md §3 doctrine).
+struct Gaussian {
+    Rational re;
+    Rational im;
+};
+
+Gaussian gaussian_mul(const Gaussian& a, const Gaussian& b) {
+    return {a.re * b.re - a.im * b.im, a.re * b.im + a.im * b.re};
+}
+
+/// (a + b*i)^-1 = (a - b*i)/(a^2 + b^2); caller guarantees a^2 + b^2 != 0.
+Gaussian gaussian_inverse(const Gaussian& z) {
+    const Rational d = z.re * z.re + z.im * z.im;
+    return {z.re / d, -z.im / d};
+}
+
+/// z^n by square-and-multiply (O(log n) exact multiplies, so i^1000000 does
+/// not spin). Negative n inverts first. May throw OverflowError.
+Gaussian gaussian_pow(Gaussian z, long long n) {
+    if (n < 0) {
+        z = gaussian_inverse(z);
+        n = -n;
+    }
+    Gaussian acc{Rational(1), Rational(0)};
+    while (n > 0) {
+        if (n & 1) acc = gaussian_mul(acc, z);
+        n >>= 1;
+        if (n > 0) z = gaussian_mul(z, z);
+    }
+    return acc;
+}
+
+/// Interpret e as an exact Gaussian rational a + b*i, or nullopt if any leaf
+/// is not a Number or i (a symbol, pi, e, a function, or a non-integer power).
+std::optional<Gaussian> as_gaussian(const Expr& e) {
+    switch (e->kind()) {
+        case Kind::Number:
+            return Gaussian{e->number(), Rational(0)};
+        case Kind::Constant:
+            if (e->constant() == ConstantId::I) {
+                return Gaussian{Rational(0), Rational(1)};
+            }
+            return std::nullopt;
+        case Kind::Add: {
+            Gaussian acc{Rational(0), Rational(0)};
+            for (const Expr& t : e->args()) {
+                const auto g = as_gaussian(t);
+                if (!g) return std::nullopt;
+                acc.re = acc.re + g->re;
+                acc.im = acc.im + g->im;
+            }
+            return acc;
+        }
+        case Kind::Mul: {
+            Gaussian acc{Rational(1), Rational(0)};
+            for (const Expr& f : e->args()) {
+                const auto g = as_gaussian(f);
+                if (!g) return std::nullopt;
+                acc = gaussian_mul(acc, *g);
+            }
+            return acc;
+        }
+        case Kind::Pow: {
+            const auto base = as_gaussian(e->arg(0));
+            const Rational* exp = as_number(e->arg(1));
+            if (!base || exp == nullptr || !exp->is_integer()) return std::nullopt;
+            if (exp->is_negative() &&
+                (base->re * base->re + base->im * base->im).is_zero()) {
+                return std::nullopt; // 0^negative: leave for the divide-by-zero path
+            }
+            return gaussian_pow(*base, exp->num());
+        }
+        default:
+            return std::nullopt;
+    }
+}
+
+bool contains_imaginary_unit(const Expr& e) {
+    if (is_constant(e, ConstantId::I)) return true;
+    for (const Expr& a : e->args()) {
+        if (contains_imaginary_unit(a)) return true;
+    }
+    return false;
+}
+
+/// Canonical a + b*i, using the same factories expand() reaches so the two
+/// paths are confluent.
+Expr gaussian_to_expr(const Gaussian& z) {
+    Expr real = make_num(z.re);
+    if (z.im.is_zero()) return real;
+    Expr imag = z.im.is_one() ? make_const(ConstantId::I)
+                              : make_mul({make_num(z.im), make_const(ConstantId::I)});
+    if (z.re.is_zero()) return imag;
+    return make_add({std::move(real), std::move(imag)});
+}
+
+/// Fold a fully-numeric complex node to a + b*i. Returns nullopt unless the
+/// node contains i and is a genuine Gaussian rational that is not already in
+/// canonical form.
+std::optional<Expr> fold_complex(const Expr& n) {
+    const Kind k = n->kind();
+    if (!contains_imaginary_unit(n)) return std::nullopt;
+
+    // Complex accessors on a numeric argument: conj(2+3i) -> 2-3i, re/im
+    // extract, abs is the modulus sqrt(a^2+b^2) (the radical rule normalizes
+    // it on the next pass, so abs(3+4i) -> 5). arg is left for numeric eval.
+    if (k == Kind::Function) {
+        const FunctionId id = n->function();
+        if (id != FunctionId::Conj && id != FunctionId::Re &&
+            id != FunctionId::Im && id != FunctionId::Abs) {
+            return std::nullopt;
+        }
+        std::optional<Gaussian> z;
+        try {
+            z = as_gaussian(n->arg(0));
+        } catch (const OverflowError&) {
+            return std::nullopt;
+        } catch (const DivisionByZeroError&) {
+            return std::nullopt;
+        }
+        if (!z) return std::nullopt;
+        switch (id) {
+            case FunctionId::Conj: return gaussian_to_expr({z->re, -z->im});
+            case FunctionId::Re: return make_num(z->re);
+            case FunctionId::Im: return make_num(z->im);
+            case FunctionId::Abs:
+                try {
+                    return make_pow(make_num(z->re * z->re + z->im * z->im),
+                                    make_num(Rational(1, 2)));
+                } catch (const OverflowError&) {
+                    return std::nullopt;
+                }
+            default: return std::nullopt;
+        }
+    }
+
+    if (k != Kind::Add && k != Kind::Mul && k != Kind::Pow) return std::nullopt;
+    std::optional<Gaussian> z;
+    try {
+        z = as_gaussian(n);
+    } catch (const OverflowError&) {
+        return std::nullopt;
+    } catch (const DivisionByZeroError&) {
+        return std::nullopt;
+    }
+    if (!z) return std::nullopt;
+    Expr rebuilt = gaussian_to_expr(*z);
+    if (structurally_equal(rebuilt, n)) return std::nullopt;
+    return rebuilt;
+}
+
 Expr apply_rules(const Expr& n) {
+    if (auto z = fold_complex(n)) return *z;
     switch (n->kind()) {
         case Kind::Add: return apply_add_rules(n);
         case Kind::Mul: return apply_mul_rules(n);

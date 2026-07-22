@@ -70,10 +70,14 @@ struct KnownName {
     NameKind kind;
 };
 
-constexpr std::array<KnownName, 48> kKnownNames{{
+constexpr std::array<KnownName, 52> kKnownNames{{
     {"factorial", NameKind::Function}, {"fibonacci", NameKind::Function},
     {"binomial", NameKind::Function}, {"harmonic", NameKind::Function},
     {"fib", NameKind::Function},
+    // Complex accessors (complex-domain Phase 3): Re/Im are capitalized so the
+    // lowercase products r*e and i*m keep their existing meaning.
+    {"conj", NameKind::Function},   {"Re", NameKind::Function},
+    {"Im", NameKind::Function},     {"arg", NameKind::Function},
     {"digamma", NameKind::Function}, {"erfc", NameKind::Function},
     {"erf", NameKind::Function},     {"psi", NameKind::Greek},
     {"arcsinh", NameKind::Function}, {"arccosh", NameKind::Function},
