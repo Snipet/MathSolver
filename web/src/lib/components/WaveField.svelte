@@ -112,21 +112,27 @@
   // --- sizing ----------------------------------------------------------------
   let host: HTMLDivElement | undefined = $state();
   let canvas: HTMLCanvasElement | undefined = $state();
+  let stage: HTMLElement | undefined = $state();
   let width = $state(0);
   let visible = $state(true);
 
   $effect(() => {
-    const el = host;
-    if (!el) return;
+    const vis = host;
+    const box = stage;
+    if (!vis || !box) return;
+    // Measure the canvas's own column (.stage), NOT the whole rail+canvas grid
+    // (host): the field is drawn to `width` px wide, so measuring the full grid
+    // sized the canvas for rail+canvas and the browser then squashed it back
+    // into its narrower column — warping the square cells into ellipses.
     const ro = new ResizeObserver((entries) => {
       width = Math.max(0, Math.floor(entries[0].contentRect.width));
     });
-    ro.observe(el);
+    ro.observe(box);
     const io = new IntersectionObserver(
       (entries) => (visible = entries[0].isIntersecting),
       { threshold: 0 },
     );
-    io.observe(el);
+    io.observe(vis);
     return () => {
       ro.disconnect();
       io.disconnect();
@@ -1053,7 +1059,7 @@
   </div>
 
   <div class="main">
-    <div class="stage">
+    <div class="stage" bind:this={stage}>
       <canvas
         bind:this={canvas}
         aria-label="Interactive 2-D wave field — drag to add energy"
