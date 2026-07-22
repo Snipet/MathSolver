@@ -207,6 +207,36 @@ try {
   );
   check("definition does not create a stray slider", !sliderNames.includes("f") && !sliderNames.includes("x"), sliderNames.join(","));
 
+  // Domain restrictions: a clipped function, an extended-domain spiral, and a
+  // parametric arc — all plot without error.
+  await page.evaluate(() => {
+    try {
+      localStorage.removeItem("mathsolver.graph");
+    } catch {}
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  await page.evaluate(() => {
+    [...document.querySelectorAll('.mode-switch [role="tab"]')].find((b) => b.textContent.trim() === "Graph")?.click();
+  });
+  await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  const restricted = [
+    "x {0 < x < 5}", // a line segment
+    "r = theta {0 <= theta <= 6*pi}", // 3-turn spiral (domain past 2pi)
+    "(cos(t), sin(t)) {0 <= t <= pi}", // upper semicircle
+  ];
+  for (let i = 0; i < restricted.length; i++) {
+    if (i > 0) await page.click(".calc .add-row");
+    const inputs = await page.$$(".calc .expr");
+    await inputs[i].click({ clickCount: 3 });
+    await inputs[i].type(restricted[i]);
+  }
+  await new Promise((r) => setTimeout(r, 1800));
+  const restrErrs = await page.$$eval(".calc .row-err", (els) => els.map((e) => e.textContent));
+  check("domain restrictions {…} plot without error", restrErrs.length === 0, restrErrs.join(" | "));
+  // The restriction must not spawn a slider for the sample var / output var.
+  const rSliders = await page.$$eval(".calc .sliders .slot-name", (els) => els.map((e) => e.textContent.trim()));
+  check("restriction does not create x/y/theta/t sliders", !["x", "y", "theta", "t"].some((n) => rSliders.includes(n)), rSliders.join(","));
+
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 } catch (e) {

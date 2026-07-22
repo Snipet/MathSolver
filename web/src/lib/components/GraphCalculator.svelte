@@ -10,7 +10,14 @@
   import { applyEnv, overrideValue } from "../vars/session";
   import { graph, GRAPH_COLORS } from "../graph/graph.svelte";
   import { xRange, yRange, type DrawSeries } from "../graph/viewport";
-  import { classifyRow, splitTopLevelCommas, type RowKind } from "../graph/classify";
+  import {
+    classifyRow,
+    splitTopLevelCommas,
+    parseRestriction,
+    type RowKind,
+    type Comparison,
+    type RelOp,
+  } from "../graph/classify";
   import { marchingSquares, inequalityMask } from "../graph/contour";
   import { findInnermostCall, stripCalc } from "../graph/calculus";
   import GraphCanvas from "./GraphCanvas.svelte";
@@ -184,9 +191,9 @@
   function plotVars(spec: RowKind, syms: string[]): Set<string> {
     switch (spec.t) {
       case "function":
-        return new Set(["x"]);
+        return new Set(["x", "y"]); // y is the axis, not a slider (restrictions may name it)
       case "functionY":
-        return new Set(["y"]);
+        return new Set(["x", "y"]);
       case "polar":
         return new Set([angleVar(syms)]);
       case "relation":
@@ -203,20 +210,28 @@
   }
   // Expressions within a row whose symbols matter for free-variable detection.
   function specExprs(spec: RowKind): string[] {
+    let base: string[];
     switch (spec.t) {
       case "function":
       case "functionY":
       case "polar":
-        return [spec.expr];
+        base = [spec.expr];
+        break;
       case "relation":
-        return [spec.lhs, spec.rhs];
+        base = [spec.lhs, spec.rhs];
+        break;
       case "define":
-        return [spec.expr];
+        base = [spec.expr];
+        break;
       case "pointish":
-        return spec.coords.flatMap((c) => c);
+        base = spec.coords.flatMap((c) => c);
+        break;
       default:
         return [];
     }
+    // Restriction sides carry symbols too (e.g. `a` in `{a < x}` → a slider).
+    const rExprs = parseRestriction(spec.restrict ?? []).flatMap((c) => [c.lhs, c.rhs]);
+    return [...base, ...rExprs];
   }
 
   function linspace(lo: number, hi: number, n: number): number[] {
@@ -237,6 +252,61 @@
     } catch {
       return null;
     }
+  }
+
+  // --- domain restrictions ({ … }) -------------------------------------------
+  function cmpTrue(op: RelOp, d: number): boolean {
+    switch (op) {
+      case "<": return d < 0; // d = lhs − rhs
+      case "<=": return d <= 0;
+      case ">": return d > 0;
+      case ">=": return d >= 0;
+      case "=": return Math.abs(d) < 1e-9;
+    }
+  }
+  function flipOp(op: RelOp): RelOp {
+    return op === "<" ? ">" : op === "<=" ? ">=" : op === ">" ? "<" : op === ">=" ? "<=" : "=";
+  }
+  /** Numeric [lo,hi] bounds a restriction places directly on the sample var. */
+  async function paramBounds(cmps: Comparison[], sv: string): Promise<{ lo?: number; hi?: number }> {
+    let lo: number | undefined;
+    let hi: number | undefined;
+    for (const c of cmps) {
+      const L = c.lhs === sv;
+      const R = c.rhs === sv;
+      if (L === R) continue; // sv on both/neither side → not a plain bound
+      const val = await evalCoord(L ? c.rhs : c.lhs);
+      if (val === null) continue;
+      const op = R ? flipOp(c.op) : c.op; // normalize to `sv op val`
+      if (op === ">" || op === ">=") lo = lo === undefined ? val : Math.max(lo, val);
+      else if (op === "<" || op === "<=") hi = hi === undefined ? val : Math.min(hi, val);
+    }
+    return { lo, hi };
+  }
+  /** Boolean keep-mask over sv ∈ [lo,hi] (n samples); null if nothing evaluable. */
+  async function restrictMask(
+    cmps: Comparison[],
+    sv: string,
+    lo: number,
+    hi: number,
+    n: number,
+  ): Promise<Uint8Array | null> {
+    const mask = new Uint8Array(n).fill(1);
+    let any = false;
+    for (const c of cmps) {
+      const env = await applyEnv(`(${c.lhs}) - (${c.rhs})`, [sv], "expr", overrides);
+      const sr = await call("sample", [env.text, sv, lo, hi, n]);
+      if (!sr.ok) continue; // clause not expressible over sv → fail open
+      any = true;
+      for (let i = 0; i < n; i++) {
+        const d = sr.ys[i];
+        if (d === null || !Number.isFinite(d) || !cmpTrue(c.op, d)) mask[i] = 0;
+      }
+    }
+    return any ? mask : null;
+  }
+  function blank(ys: (number | null)[], mask: Uint8Array | null): (number | null)[] {
+    return mask ? ys.map((y, i) => (mask[i] ? y : null)) : ys;
   }
 
   interface Built {
@@ -261,31 +331,50 @@
       const env = await applyEnv(resolved, [along], "expr", overrides);
       const sr = await call("sample", [env.text, along, lo, hi, n]);
       if (!sr.ok) return { series: [], error: sr.error };
+      const cmps = parseRestriction(spec.restrict ?? []);
+      const masked = blank(sr.ys, cmps.length ? await restrictMask(cmps, along, lo, hi, n) : null);
       const axis = linspace(lo, hi, n);
       const series: DrawSeries =
         spec.t === "function"
-          ? { id: String(id), color, visible: true, kind: "line", xs: axis, ys: sr.ys }
-          : { id: String(id), color, visible: true, kind: "line", xs: sr.ys, ys: axis };
+          ? { id: String(id), color, visible: true, kind: "line", xs: axis, ys: masked }
+          : { id: String(id), color, visible: true, kind: "line", xs: masked, ys: axis };
       return { series: [series] };
     }
 
     if (spec.t === "pointish") {
       const param = paramVar(syms);
       if (param) {
-        // Parametric curve (x(u), y(u)) over u ∈ [0, 2π] — sample each
-        // coordinate over the parameter (t/theta/θ) in one engine call.
+        // Parametric curve (x(u), y(u)); the parameter (t/theta/θ) sweeps
+        // [0, 2π] by default, or the numeric bounds from a `{ … }` restriction.
         if (spec.coords.length !== 1)
           return { series: [], error: "a parametric curve is a single (x(t), y(t)) pair" };
+        const cmps = parseRestriction(spec.restrict ?? []);
+        const b = cmps.length ? await paramBounds(cmps, param) : {};
+        const lo = b.lo ?? 0;
+        const hi = b.hi ?? TWO_PI;
+        if (!(hi > lo)) return { series: [], error: "empty parameter domain" };
         const [xe0, ye0] = spec.coords[0];
         const [xe, ye] = [await resolveCalculus(xe0), await resolveCalculus(ye0)];
         const n = 720;
         const ex = await applyEnv(xe, [param], "expr", overrides);
-        const sx = await call("sample", [ex.text, param, 0, TWO_PI, n]);
+        const sx = await call("sample", [ex.text, param, lo, hi, n]);
         const ey = await applyEnv(ye, [param], "expr", overrides);
-        const sy = await call("sample", [ey.text, param, 0, TWO_PI, n]);
+        const sy = await call("sample", [ey.text, param, lo, hi, n]);
         if (!sx.ok) return { series: [], error: sx.error };
         if (!sy.ok) return { series: [], error: sy.error };
-        return { series: [{ id: String(id), color, visible: true, kind: "line", xs: sx.ys, ys: sy.ys }] };
+        const mask = cmps.length ? await restrictMask(cmps, param, lo, hi, n) : null;
+        return {
+          series: [
+            {
+              id: String(id),
+              color,
+              visible: true,
+              kind: "line",
+              xs: blank(sx.ys, mask),
+              ys: blank(sy.ys, mask),
+            },
+          ],
+        };
       }
       const xs: number[] = [];
       const ys: (number | null)[] = [];
@@ -338,19 +427,26 @@
       };
     }
     if (spec.t === "polar") {
-      // r = f(θ) over θ ∈ [0, 2π], converted to (r·cosθ, r·sinθ).
+      // r = f(θ), converted to (r·cosθ, r·sinθ). θ sweeps [0, 2π] by default,
+      // or the numeric bounds from a `{ … }` restriction (e.g. spirals).
       const ang = angleVar(syms);
       const n = 720;
+      const cmps = parseRestriction(spec.restrict ?? []);
+      const b = cmps.length ? await paramBounds(cmps, ang) : {};
+      const lo = b.lo ?? 0;
+      const hi = b.hi ?? TWO_PI;
+      if (!(hi > lo)) return { series: [], error: "empty angle domain" };
       const resolved = await resolveCalculus(spec.expr);
       const env = await applyEnv(resolved, [ang], "expr", overrides);
-      const sr = await call("sample", [env.text, ang, 0, TWO_PI, n]);
+      const sr = await call("sample", [env.text, ang, lo, hi, n]);
       if (!sr.ok) return { series: [], error: sr.error };
-      const th = linspace(0, TWO_PI, n);
+      const th = linspace(lo, hi, n);
+      const mask = cmps.length ? await restrictMask(cmps, ang, lo, hi, n) : null;
       const xs: (number | null)[] = new Array(n);
       const ys: (number | null)[] = new Array(n);
       for (let i = 0; i < n; i++) {
         const r = sr.ys[i];
-        if (r === null || !Number.isFinite(r)) {
+        if (r === null || !Number.isFinite(r) || (mask && !mask[i])) {
           xs[i] = null;
           ys[i] = null;
         } else {

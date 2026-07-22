@@ -5,14 +5,70 @@
 
 export type RelOp = "=" | "<" | ">" | "<=" | ">=";
 
+/** A Desmos-style domain restriction, one comparison of `{ … }`, e.g. x > 0. */
+export interface Comparison {
+  lhs: string;
+  op: RelOp;
+  rhs: string;
+}
+
+// Every plottable kind may carry `restrict` — trailing `{ … }` domain clauses
+// stripped off the row (e.g. `y = x^2 {x > 0}` → restrict: ["x > 0"]).
 export type RowKind =
   | { t: "empty" }
-  | { t: "function"; expr: string } // y = f(x)  (a bare expression, or "y = …")
-  | { t: "functionY"; expr: string } // x = f(y)
-  | { t: "polar"; expr: string } // r = f(θ)
-  | { t: "pointish"; coords: [string, string][] } // (a,b)[, (c,d)…] — points or parametric
-  | { t: "define"; name: string; expr: string } // name = expr  (a named value/expression)
-  | { t: "relation"; lhs: string; rhs: string; op: RelOp }; // implicit / inequality
+  | { t: "function"; expr: string; restrict?: string[] } // y = f(x)  (bare expr, or "y = …")
+  | { t: "functionY"; expr: string; restrict?: string[] } // x = f(y)
+  | { t: "polar"; expr: string; restrict?: string[] } // r = f(θ)
+  | { t: "pointish"; coords: [string, string][]; restrict?: string[] } // points or parametric
+  | { t: "define"; name: string; expr: string; restrict?: string[] } // name = expr
+  | { t: "relation"; lhs: string; rhs: string; op: RelOp; restrict?: string[] }; // implicit / ineq
+
+/**
+ * Peel trailing `{ … }` restriction clauses off a row, returning the plottable
+ * body and each clause's inner text (in source order). `y = x^2 {x>0}{x<5}` →
+ * { body: "y = x^2", restrict: ["x>0", "x<5"] }.
+ */
+export function splitRestrictions(text: string): { body: string; restrict: string[] } {
+  let t = text.trimEnd();
+  const restrict: string[] = [];
+  while (t.endsWith("}")) {
+    let depth = 0;
+    let start = -1;
+    for (let i = t.length - 1; i >= 0; i--) {
+      if (t[i] === "}") depth++;
+      else if (t[i] === "{") {
+        depth--;
+        if (depth === 0) {
+          start = i;
+          break;
+        }
+      }
+    }
+    if (start < 0) break; // unbalanced — leave as-is
+    restrict.unshift(t.slice(start + 1, t.length - 1).trim());
+    t = t.slice(0, start).trimEnd();
+  }
+  return { body: t, restrict };
+}
+
+/** Flatten restriction clauses into comparisons, splitting chains a ≤ v ≤ b. */
+export function parseRestriction(clauses: string[]): Comparison[] {
+  return clauses.flatMap((c) => parseChain(c));
+}
+
+function parseChain(s: string): Comparison[] {
+  const first = splitRelation(s);
+  if (!first) return [];
+  const rest = splitRelation(first.rhs);
+  if (rest) {
+    // a ≤ v ≤ b → [a ≤ v, v ≤ b] (and continue any further chaining).
+    return [
+      { lhs: first.lhs.trim(), op: first.op, rhs: rest.lhs.trim() },
+      ...parseChain(first.rhs),
+    ];
+  }
+  return [{ lhs: first.lhs.trim(), op: first.op, rhs: first.rhs.trim() }];
+}
 
 /** Split top-level on commas, respecting (), [], {} nesting. */
 export function splitTopLevelCommas(s: string): string[] {
@@ -90,6 +146,12 @@ function isVar(side: string, name: string): boolean {
 }
 
 export function classifyRow(text: string): RowKind {
+  const { body, restrict } = splitRestrictions(text);
+  const kind = classifyBody(body);
+  return restrict.length && kind.t !== "empty" ? { ...kind, restrict } : kind;
+}
+
+function classifyBody(text: string): RowKind {
   const t = text.trim();
   if (!t) return { t: "empty" };
 

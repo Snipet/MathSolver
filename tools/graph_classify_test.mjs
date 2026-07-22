@@ -1,5 +1,5 @@
 // Unit tests for the graph row classifier (web/src/lib/graph/classify.ts).
-import { classifyRow, splitRelation, splitTopLevelCommas } from "../web/src/lib/graph/classify.ts";
+import { classifyRow, splitRelation, splitTopLevelCommas, splitRestrictions, parseRestriction } from "../web/src/lib/graph/classify.ts";
 
 let pass = 0, fail = 0;
 const check = (n, c, e = "") => { if (c) { pass++; console.log("PASS  " + n); } else { fail++; console.log(`FAIL  ${n}${e ? "  [" + e + "]" : ""}`); } };
@@ -22,6 +22,15 @@ check("<= detected before <", splitRelation("y <= 2").op === "<=");
 check("splitTopLevelCommas respects parens", splitTopLevelCommas("cos(t), sin(t)").length === 2 && splitTopLevelCommas("f(a,b)").length === 1);
 check("chained 'y = x = 2' → relation, not folded function", kind("y = x = 2") === "relation");
 check("define 'f = x^2' → define", (() => { const r = classifyRow("f = x^2"); return r.t === "define" && r.name === "f" && r.expr === "x^2"; })());
+
+// Domain restrictions
+check("restriction stripped from function", (() => { const r = classifyRow("x^2 {x > 0}"); return r.t === "function" && r.expr === "x^2" && JSON.stringify(r.restrict) === JSON.stringify(["x > 0"]); })());
+check("multiple restriction clauses", (() => { const { body, restrict } = splitRestrictions("x^2 {x>0}{x<5}"); return body === "x^2" && restrict.length === 2 && restrict[0] === "x>0" && restrict[1] === "x<5"; })());
+check("restriction on polar", (() => { const r = classifyRow("theta {0 <= theta <= 6*pi}"); return r.t === "polar" || (r.t === "function"); })());
+check("chained bound → two comparisons", (() => { const cs = parseRestriction(["0 <= t <= 6*pi"]); return cs.length === 2 && cs[0].lhs === "0" && cs[0].op === "<=" && cs[0].rhs === "t" && cs[1].lhs === "t" && cs[1].rhs === "6*pi"; })());
+check("single comparison", (() => { const cs = parseRestriction(["a < x"]); return cs.length === 1 && cs[0].lhs === "a" && cs[0].op === "<" && cs[0].rhs === "x"; })());
+check("no restriction → empty list", (() => { const { body, restrict } = splitRestrictions("x^2 + 1"); return body === "x^2 + 1" && restrict.length === 0; })());
+check("brace inside stays balanced", (() => { const { body, restrict } = splitRestrictions("x^2"); return body === "x^2" && restrict.length === 0; })());
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
