@@ -7,6 +7,19 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Wave system, Phase 3 — physics packs** (docs/proposals/wave-system.md): a
+  **field-model** selector changes the PDE the field obeys. **Klein–Gordon**
+  adds a mass term `−m²u` — a dispersive medium where short waves outrun long
+  ones, so a pulse spreads into trailing ripples and gains a rest frequency
+  `√m`. **sine-Gordon** adds the nonlinear `−m²sin(u)`, whose 2π twists are
+  **kink solitons**; one click *Seed kink* glides a soliton across the field
+  without spreading. A **9-point isotropic Laplacian** toggle roughly halves the
+  grid anisotropy (rounder wavefronts). The Courant clamp folds the stencil and
+  the mass into the CFL, so the linear and Klein–Gordon fields stay stable at
+  any slider (sine-Gordon's coupling is capped, honest about the nonlinear
+  blow-up an explicit scheme can't avoid). New tests cover the exact dispersion
+  relation, the rest frequency, kink translation, stencil isotropy, and the
+  stability envelope.
 - **Wave system, Phase 2 — instrumentation** (docs/proposals/wave-system.md):
   the wave field can now be *measured*. A **probe** tool drops receivers on the
   field; each records `u(t)` and shows a live **FFT magnitude spectrum** (a

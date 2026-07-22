@@ -4,7 +4,15 @@
   // pluck, drag to launch a directional wavefront. Used both inline as a
   // console "wave" cell (compact) and as the full Workbench "Wave" tab.
   import { untrack } from "svelte";
-  import { WaveSim, type Boundary, type FilterType } from "../wave/sim";
+  import {
+    WaveSim,
+    MAX_MASS,
+    MAX_COUPLING_SINE,
+    type Boundary,
+    type FilterType,
+    type FieldModel,
+    type Stencil,
+  } from "../wave/sim";
   import { WAVE_SCENES, buildScene } from "../wave/scenes";
   import { magnitudeSpectrum } from "../wave/spectrum";
 
@@ -76,6 +84,17 @@
   // Per-probe spectrum sparkline canvases (bound in the {#each}).
   let specCanvases = $state<(HTMLCanvasElement | undefined)[]>([]);
   const measuring = $derived(viewMode === "intensity" || probes.length > 0);
+
+  // --- physics pack (Phase 3): field model + stencil ------------------------
+  // The model adds a reaction term (Klein–Gordon mass → dispersion; sine-Gordon
+  // → nonlinear kink solitons); the stencil selects the Laplacian. Both reshape
+  // the CFL, which the sim folds back into the speed→Courant map so the speed
+  // slider stays stable.
+  let modelV = $state<FieldModel>("linear");
+  let massV = $state(0.1);
+  let stencilV = $state<Stencil>("five");
+  const massMax = $derived(modelV === "sine-gordon" ? MAX_COUPLING_SINE : MAX_MASS);
+  const massLabel = $derived(modelV === "sine-gordon" ? "Coupling" : "Mass");
 
   const HEIGHT = untrack(() => (compact ? 260 : 460));
   const STEPS_PER_FRAME = 2; // temporal oversampling for smoother propagation
@@ -218,7 +237,33 @@
     s.setBoundary(boundaryV);
     s.robin = robinV;
     s.setBoundaryFilter(filterType, filterCutoffV, filterReflectV);
+    s.model = modelV;
+    s.stencil = stencilV;
+    s.mass = massV;
   });
+
+  // Keep the coupling within the model's stable range when the model changes.
+  $effect(() => {
+    const cap = massMax;
+    untrack(() => {
+      if (massV > cap) massV = cap;
+    });
+  });
+
+  /** Seed a sine-Gordon kink soliton (switches to that model) and let it run.
+   *  The kink is uniform in y, so a free (Neumann) edge keeps it a clean
+   *  vertical soliton — a fixed edge would clamp the ±ends and round it off. */
+  function seedKink(): void {
+    const s = sim;
+    if (!s) return;
+    modelV = "sine-gordon";
+    boundaryV = "free";
+    s.seedKink(0.25);
+    massV = s.mass; // seedKink may set a default coupling
+    scale = 0.4;
+    touched = true;
+    running = true;
+  }
 
   function resample(from: WaveSim, to: WaveSim): void {
     for (let j = 0; j < to.ny; j++) {
@@ -837,6 +882,58 @@
               Clear ({probes.length})
             </button>
           {/if}
+        </div>
+      {/if}
+
+      {#if !compact}
+        <span class="sep"></span>
+        <div class="tgroup">
+          <span class="glabel">Physics</span>
+          <label class="ctl select" title="Which wave equation the field obeys">
+            <select bind:value={modelV}>
+              <option value="linear">Linear</option>
+              <option value="klein-gordon">Klein–Gordon</option>
+              <option value="sine-gordon">sine-Gordon</option>
+            </select>
+          </label>
+          {#if modelV !== "linear"}
+            <label
+              class="ctl"
+              title={modelV === "sine-gordon"
+                ? "Nonlinear coupling m² — the kink width scales as 1/√m"
+                : "Mass m²: adds dispersion; a rest frequency √m and a wavelength-dependent phase speed"}
+            >
+              <span>{massLabel}</span>
+              <input type="range" min="0" max={massMax} step="0.01" bind:value={massV} />
+            </label>
+          {/if}
+          {#if modelV === "sine-gordon"}
+            <button
+              class="mini-btn"
+              title="Seed a kink soliton — a 2π twist that glides without spreading"
+              onclick={seedKink}
+            >
+              Seed kink
+            </button>
+          {/if}
+          <div class="seg" role="group" aria-label="Laplacian stencil">
+            <button
+              class="seg-btn"
+              class:active={stencilV === "five"}
+              title="5-point Laplacian (standard star stencil)"
+              onclick={() => (stencilV = "five")}
+            >
+              5-pt
+            </button>
+            <button
+              class="seg-btn"
+              class:active={stencilV === "nine"}
+              title="9-point isotropic Laplacian — reduced grid anisotropy (rounder wavefronts)"
+              onclick={() => (stencilV = "nine")}
+            >
+              9-pt
+            </button>
+          </div>
         </div>
       {/if}
 

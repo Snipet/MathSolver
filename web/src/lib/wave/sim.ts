@@ -19,6 +19,21 @@ export type Boundary = "fixed" | "free" | "absorbing" | "robin" | "filtered";
 /** 1st-order filter shaping a frequency-dependent boundary reflection. */
 export type FilterType = "lowpass" | "highpass";
 
+/**
+ * Which wave PDE the field obeys (Phase 3 physics packs):
+ * - `linear`        — the plain scalar wave `u_tt = c²∇²u − γu_t`.
+ * - `klein-gordon`  — adds a mass term `− m²u`, giving a dispersive medium
+ *                     (a rest frequency `√m` and phase speed that varies with
+ *                     wavelength: short waves outrun long ones, so pulses spread).
+ * - `sine-gordon`   — adds the nonlinear `− m²·sin(u)`, whose 2π twists are
+ *                     topological **kink solitons** that keep their shape.
+ */
+export type FieldModel = "linear" | "klein-gordon" | "sine-gordon";
+
+/** Spatial Laplacian stencil: the 5-point star, or a reduced-anisotropy
+ *  9-point isotropic stencil (orthogonal + diagonal neighbors). */
+export type Stencil = "five" | "nine";
+
 export interface WaveSimOptions {
   /** 0..1, mapped to the Courant number κ ∈ (0, MAX_COURANT]. */
   speed?: number;
@@ -29,11 +44,28 @@ export interface WaveSimOptions {
   robin?: number;
 }
 
-/** Below the 2-D CFL limit 1/√2 with headroom, so every speed is stable. */
+/** Below the 2-D CFL limit 1/√2 with headroom, so every speed is stable. This
+ *  is the reference (5-point, massless) cap; `maxCourant()` scales it for the
+ *  9-point stencil and for the mass term (see the CFL note there). */
 export const MAX_COURANT = 0.7;
 
 /** Slowest medium exposed: cScale below this freezes the field uninterestingly. */
 export const MIN_SCALE = 0.2;
+
+/** Reaction-term ceiling (m² per step²), by model. Klein–Gordon is a linear
+ *  restoring term and stays unconditionally stable up to the CFL cap. The
+ *  sine-Gordon coupling is held lower: its `−m²sin(u)` is *anti*-restoring near
+ *  u = π (a physical hilltop), so — like any explicit nonlinear integrator — a
+ *  large enough excitation can drive it unstable no matter how small the step.
+ *  This ceiling keeps ordinary interaction (seeded kinks, single pokes) stable
+ *  while staying honest that extreme forcing can still blow the nonlinear field
+ *  up (see docs/proposals/wave-system.md, design notes). */
+export const MAX_MASS = 2;
+export const MAX_COUPLING_SINE = 0.5;
+
+/** −h²∇² symbol maxima: 8 (5-point), 16/3 (9-point isotropic). Set the CFL. */
+const LAPLACE_MAX_5 = 8;
+const LAPLACE_MAX_9 = 16 / 3;
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
@@ -53,6 +85,14 @@ export class WaveSim {
   private _damping = 0;
   private _robin = 0.5;
   boundary: Boundary;
+
+  // Physics pack (Phase 3): the field model adds a reaction term to the wave
+  // equation and the stencil selects the Laplacian. Both shift the CFL, which
+  // `maxCourant()` folds back into the speed→Courant mapping so any slider (and
+  // any mass) stays unconditionally stable.
+  private _model: FieldModel = "linear";
+  private _mass = 0; // reaction coefficient m² (per step²); 0 ⇒ plain wave
+  private _stencil: Stencil = "five";
 
   // Frequency-dependent ("filtered") boundary: the reflected wave is the
   // incident wave passed through a 1st-order filter (see #applyBoundary).
@@ -107,7 +147,53 @@ export class WaveSim {
 
   /** Courant number κ = c·dt/h actually used by the integrator. */
   get courant(): number {
-    return MAX_COURANT * this._speed;
+    return this.maxCourant() * this._speed;
+  }
+
+  /**
+   * The largest stable Courant number for the current stencil and mass. The
+   * lossless leapfrog is stable iff `κ²·λmax + R ≤ 4`, where λmax is the −∇²
+   * stencil symbol maximum (8 for the 5-point star, 16/3 for the 9-point) and
+   * `R` is the reaction bound (the mass term; |d/du sin(u)| ≤ 1 makes the
+   * sine-Gordon coupling behave like a mass for stability). So
+   * `κmax = √((4 − R)/λmax)`, times the same headroom factor that makes the
+   * reference 5-point/massless cap MAX_COURANT rather than the bare 1/√2.
+   */
+  maxCourant(): number {
+    const lambda = this._stencil === "nine" ? LAPLACE_MAX_9 : LAPLACE_MAX_5;
+    const headroom = MAX_COURANT / Math.sqrt(4 / LAPLACE_MAX_5); // ≈ 0.99
+    return headroom * Math.sqrt(Math.max(0, 4 - this.#reactionBound()) / lambda);
+  }
+
+  /** The reaction-term stability bound R (0 for the plain linear wave). */
+  #reactionBound(): number {
+    return this._model === "linear" ? 0 : this._mass;
+  }
+
+  get model(): FieldModel {
+    return this._model;
+  }
+  set model(m: FieldModel) {
+    this._model = m;
+    // Re-clamp the coupling into the new model's stable range.
+    this._mass = clamp(this._mass, 0, this.maxMass());
+  }
+  /** The stable ceiling for the reaction coefficient in the current model. */
+  maxMass(): number {
+    return this._model === "sine-gordon" ? MAX_COUPLING_SINE : MAX_MASS;
+  }
+  /** Reaction coefficient m² (Klein–Gordon mass² / sine-Gordon coupling). */
+  get mass(): number {
+    return this._mass;
+  }
+  set mass(v: number) {
+    this._mass = clamp(v, 0, this.maxMass());
+  }
+  get stencil(): Stencil {
+    return this._stencil;
+  }
+  set stencil(s: Stencil) {
+    this._stencil = s;
   }
   get speed(): number {
     return this._speed;
@@ -341,8 +427,10 @@ export class WaveSim {
     const prev = this.prev;
     const next = this.nextBuf;
 
-    if (!this.hasMedium && !this.hasSolid) {
-      // Uniform fast path (unchanged).
+    const linear = this._model === "linear";
+    const five = this._stencil === "five";
+    if (linear && five && !this.hasMedium && !this.hasSolid) {
+      // Uniform linear 5-point fast path (the common case; unchanged).
       for (let j = 1; j < ny - 1; j++) {
         const row = j * nx;
         for (let i = 1; i < nx - 1; i++) {
@@ -352,21 +440,36 @@ export class WaveSim {
         }
       }
     } else {
-      // Heterogeneous medium and/or obstacles: per-cell C·scale², solid → 0.
-      // Solid neighbors read as 0 (they are held at 0), so the Laplacian gives
-      // hard reflecting walls with no special casing.
+      // General path: any 9-point stencil, Klein–Gordon / sine-Gordon reaction,
+      // and/or a heterogeneous medium + obstacles. Per-cell C·scale²; solid
+      // cells are held at 0, and solid neighbors read as 0 (interior Dirichlet),
+      // so obstacles are hard reflecting walls with no special casing.
+      const scene = this.hasMedium || this.hasSolid;
       const scale2 = this.scale2;
       const solid = this.solid;
+      const nine = !five;
+      const mass = this._mass;
+      const react = this.#reactionBound(); // 0, or the mass coupling
+      const sine = this._model === "sine-gordon";
       for (let j = 1; j < ny - 1; j++) {
         const row = j * nx;
         for (let i = 1; i < nx - 1; i++) {
           const k = row + i;
-          if (solid[k]) {
+          if (scene && solid[k]) {
             next[k] = 0;
             continue;
           }
-          const lap = cur[k - 1] + cur[k + 1] + cur[k - nx] + cur[k + nx] - 4 * cur[k];
-          next[k] = (2 * cur[k] - (1 - a) * prev[k] + C * scale2[k] * lap) * inv;
+          // Laplacian: 5-point star, or the isotropic 9-point stencil
+          //   ∇²u ≈ (1/6)[4·(orthogonal) + (diagonal) − 20·u].
+          const lap = nine
+            ? (4 * (cur[k - 1] + cur[k + 1] + cur[k - nx] + cur[k + nx]) +
+                (cur[k - nx - 1] + cur[k - nx + 1] + cur[k + nx - 1] + cur[k + nx + 1]) -
+                20 * cur[k]) / 6
+            : cur[k - 1] + cur[k + 1] + cur[k - nx] + cur[k + nx] - 4 * cur[k];
+          // Reaction term (Klein–Gordon: m²u; sine-Gordon: m²·sin u; else 0).
+          const r = react === 0 ? 0 : sine ? mass * Math.sin(cur[k]) : mass * cur[k];
+          const sc = scene ? scale2[k] : 1;
+          next[k] = (2 * cur[k] - (1 - a) * prev[k] + C * sc * lap - r) * inv;
         }
       }
     }
@@ -534,6 +637,38 @@ export class WaveSim {
   // --- energy injection ------------------------------------------------------
 
   /**
+   * Seed a sine-Gordon **kink soliton**: a 2π twist `u = 4·arctan(e^{m·γ·ξ})`
+   * (with `ξ` measured along x from the centre) — the exact static soliton of
+   * `u_tt = c²u_xx − m²·sin u`, so it holds its shape as it evolves. Switches
+   * the model to `sine-gordon` (and gives the coupling a sensible default if it
+   * is zero, since a soliton needs `m > 0`). A non-zero `velocity` (cells/step)
+   * launches a Lorentz-contracted moving kink that glides without spreading —
+   * the headline demonstration that a soliton is not an ordinary wave packet.
+   */
+  seedKink(velocity = 0): void {
+    this._model = "sine-gordon";
+    if (this._mass <= 0) this._mass = 0.06;
+    this.reset();
+    const C = Math.max(1e-6, this.courant * this.courant); // wave speed² (= c²)
+    const m = Math.sqrt(this._mass / C); // inverse kink width (cells⁻¹)
+    const beta = clamp(velocity / Math.sqrt(C), -0.9, 0.9); // v / c
+    const gamma = 1 / Math.sqrt(1 - beta * beta);
+    const x0 = this.nx * 0.5;
+    const v = velocity;
+    const { nx, ny } = this;
+    for (let i = 0; i < nx; i++) {
+      // Current field at t = 0 and the past field at t = −1 (moving profile).
+      const now = 4 * Math.atan(Math.exp(m * gamma * (i - x0)));
+      const past = 4 * Math.atan(Math.exp(m * gamma * (i - x0 + v)));
+      for (let j = 0; j < ny; j++) {
+        const k = j * nx + i;
+        this.cur[k] = now;
+        this.prev[k] = past;
+      }
+    }
+  }
+
+  /**
    * A rest "pluck": a Gaussian bump added equally to `cur` and `prev` (starts
    * at rest → radiates a symmetric ring). With a finite `wavelength` the bump
    * carries a radial cosine, so it launches waves of that wavelength — the
@@ -640,7 +775,19 @@ export class WaveSim {
         }
       }
     }
-    return 0.5 * kinetic + 0.5 * C * potential;
+    let reaction = 0;
+    if (this._model !== "linear" && this._mass > 0) {
+      // Reaction potential: Klein–Gordon ½m²⟨uⁿ,uⁿ⁻¹⟩ (the staggered form the
+      // scheme conserves); sine-Gordon m²(1 − cos u).
+      if (this._model === "sine-gordon") {
+        for (let k = 0; k < cur.length; k++) reaction += 1 - Math.cos(cur[k]);
+        reaction *= this._mass;
+      } else {
+        for (let k = 0; k < cur.length; k++) reaction += cur[k] * prev[k];
+        reaction *= 0.5 * this._mass;
+      }
+    }
+    return 0.5 * kinetic + 0.5 * C * potential + reaction;
   }
 
   /** Largest absolute displacement — for color scaling and stability checks. */

@@ -1,6 +1,6 @@
 # Proposal: Overhauling the Wave System
 
-Status: **in progress** — Phases 1–2 shipped. This document is the roadmap for
+Status: **in progress** — Phases 1–3 shipped. This document is the roadmap for
 turning the interactive wave field from a "ripple tank" into a "wave
 laboratory". Grounded in `web/src/lib/wave/sim.ts`, `WaveField.svelte`, the
 console `wave` command, and the analytical `pde.wave` (plugins/pde).
@@ -80,7 +80,15 @@ analytic modes.
   paints the running-mean intensity field `⟨u²⟩` that freezes diffraction /
   interference fringes into a quantitative heatmap.
 - **Phase 3 — Physics packs.** Klein–Gordon, sine-Gordon solitons, PML, 9-point
-  Laplacian.
+  Laplacian. **✓ shipped** (except PML — see below): a **field-model** selector
+  adds the Klein–Gordon mass term `−m²u` (a dispersive medium with rest
+  frequency `√m`) and the nonlinear sine-Gordon `−m²sin(u)` whose 2π twists are
+  **kink solitons** (a one-click *Seed kink* glides one across the field
+  without spreading); a **9-point isotropic Laplacian** toggle roughly halves
+  the wavefront anisotropy. The stability clamp (`maxCourant()`) folds the
+  stencil and the mass into the CFL so the speed slider stays stable for every
+  model. **Deferred:** a true split-field **PML** (the 1st-order Mur "Open"
+  edge already covers most needs).
 - **Phase 4 — Authoring & analytics.** Scene share-links, CAS-driven ICs, and
   `pde.wave` extensions (d'Alembert + 2-D Bessel drumhead) with the verification
   bridge.
@@ -98,5 +106,17 @@ test.
   without per-region CFL bookkeeping.
 - **Obstacles** are masked Dirichlet cells (held at 0) — hard reflecting walls,
   exactly what slit/cavity demos need.
+- **Physics-pack stability (Phase 3):** the lossless leapfrog is stable iff
+  `κ²·λmax + R ≤ 4`, where `λmax` is the −∇² stencil-symbol maximum (8 for the
+  5-point star, 16/3 for the 9-point) and `R` is the reaction bound. So
+  `maxCourant()` recomputes `κmax = √((4 − R)/λmax)` for the current stencil and
+  mass, keeping the *linear* and *Klein–Gordon* fields unconditionally stable at
+  any slider. **sine-Gordon is the honest exception:** its `−m²sin(u)` is
+  *anti*-restoring near `u = π` (a physical hilltop), so — like any explicit
+  nonlinear integrator, no matter how small the step — a large enough excitation
+  can drive it unstable. The coupling is therefore capped low
+  (`MAX_COUPLING_SINE`) so ordinary interaction (seeded kinks, single pokes)
+  stays bounded, staying true to the "any slider stable, honest about blow-up"
+  doctrine.
 - Keep the sim DOM-free and deterministic; every scene and physics term is
   covered by `tools/wave_sim_test.mjs`.

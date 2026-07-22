@@ -4,7 +4,12 @@
 // directly, matching the repo's tools/*.mjs convention (wasm_smoke.mjs).
 //
 //   node tools/wave_sim_test.mjs
-import { WaveSim, MAX_COURANT } from "../web/src/lib/wave/sim.ts";
+import {
+  WaveSim,
+  MAX_COURANT,
+  MAX_MASS,
+  MAX_COUPLING_SINE,
+} from "../web/src/lib/wave/sim.ts";
 import { magnitudeSpectrum, fftRadix2 } from "../web/src/lib/wave/spectrum.ts";
 
 let pass = 0;
@@ -511,6 +516,204 @@ function gradRatio(sim) {
     Math.abs(spec.peakFreq - driveFreq) < 3 / spec.n,
     `peak=${spec.peakFreq.toFixed(4)} drive=${driveFreq}`,
   );
+}
+
+// --- 21. Klein–Gordon: exact discrete eigenmode with the mass term ---------
+// Adding mass m shifts the discrete dispersion to cos ω = cos ω₀ − m/2, so a
+// massive standing mode still evolves as mode·cos(ωt) — the strongest check on
+// the reaction term. It also proves DISPERSION: the massive ω exceeds ω₀.
+{
+  const sim = new WaveSim(97, 97, { speed: 0.6, damping: 0, boundary: "fixed" });
+  sim.model = "klein-gordon";
+  const m = 0.25;
+  sim.mass = m;
+  const w0 = discreteOmega(sim, 2, 3); // massless discrete frequency
+  const w = Math.acos(Math.max(-1, Math.min(1, Math.cos(w0) - m / 2)));
+  const mode = new Float32Array(sim.nx * sim.ny);
+  for (let j = 0; j < sim.ny; j++)
+    for (let i = 0; i < sim.nx; i++)
+      mode[sim.idx(i, j)] =
+        Math.sin((2 * Math.PI * i) / (sim.nx - 1)) *
+        Math.sin((3 * Math.PI * j) / (sim.ny - 1));
+  for (let k = 0; k < mode.length; k++) {
+    sim.cur[k] = mode[k];
+    sim.prev[k] = mode[k] * Math.cos(w);
+  }
+  const N = 120;
+  sim.step(N);
+  const expected = new Float32Array(mode.length);
+  const c = Math.cos(w * N);
+  for (let k = 0; k < mode.length; k++) expected[k] = mode[k] * c;
+  check(
+    "Klein–Gordon mass shifts the eigenmode frequency exactly (dispersion)",
+    l2(sim.cur, expected) < 5e-3 && w > w0 + 1e-3,
+    `L2=${l2(sim.cur, expected).toExponential(2)} ω=${w.toFixed(3)} ω₀=${w0.toFixed(3)}`,
+  );
+}
+
+// --- 22. Klein–Gordon rest frequency: the k=0 mode oscillates at √m ---------
+// A spatially uniform field has ∇²u = 0, so u_tt = −m·u — it rings at the rest
+// frequency ω = acos(1 − m/2) with no spatial propagation at all.
+{
+  const m = 0.4;
+  const sim = new WaveSim(24, 24, { speed: 1, damping: 0, boundary: "free" });
+  sim.model = "klein-gordon";
+  sim.mass = m;
+  const w = Math.acos(1 - m / 2);
+  sim.cur.fill(1);
+  sim.prev.fill(Math.cos(w));
+  const N = 60;
+  sim.step(N);
+  const got = sim.cur[sim.idx(12, 12)];
+  check(
+    "Klein–Gordon rest mode rings at ω = acos(1 − m/2)",
+    Math.abs(got - Math.cos(w * N)) < 1e-3,
+    `got=${got.toFixed(5)} want=${Math.cos(w * N).toFixed(5)}`,
+  );
+}
+
+// --- 23. sine-Gordon: nonlinear (≈ KG for small u, differs for large u) -----
+{
+  const run = (model, amp) => {
+    const s = new WaveSim(60, 60, { speed: 0.7, damping: 0, boundary: "fixed" });
+    s.model = model;
+    s.mass = 0.3;
+    for (let j = 0; j < s.ny; j++)
+      for (let i = 0; i < s.nx; i++)
+        s.cur[s.idx(i, j)] = s.prev[s.idx(i, j)] =
+          amp * Math.sin((Math.PI * i) / (s.nx - 1)) * Math.sin((Math.PI * j) / (s.ny - 1));
+    s.step(80);
+    return s.cur;
+  };
+  const small = l2(run("sine-gordon", 0.02), run("klein-gordon", 0.02));
+  const large = l2(run("sine-gordon", 1.6), run("klein-gordon", 1.6));
+  check(
+    "sine-Gordon ≈ Klein–Gordon for small u but nonlinear for large u",
+    small < 1e-3 && large > 30 * (small + 1e-6),
+    `small=${small.toExponential(2)} large=${large.toExponential(2)}`,
+  );
+}
+
+// --- 23b. sine-Gordon kink soliton: a 2π twist that translates, stays bound -
+{
+  const sim = new WaveSim(140, 44, { speed: 1, damping: 0, boundary: "absorbing" });
+  sim.seedKink(0.25); // rightward
+  const mid = 22;
+  const twistOK = (s) => {
+    const left = s.cur[s.idx(2, mid)];
+    const right = s.cur[s.idx(s.nx - 3, mid)];
+    let mono = true;
+    for (let i = 2; i < s.nx - 2; i++)
+      if (s.cur[s.idx(i, mid)] < s.cur[s.idx(i - 1, mid)] - 1e-3) mono = false;
+    return { left, right, mono };
+  };
+  const centroid = (s) => {
+    let sum = 0;
+    let w = 0;
+    for (let i = 1; i < s.nx - 1; i++) {
+      const g = Math.abs(s.cur[s.idx(i, mid)] - s.cur[s.idx(i - 1, mid)]);
+      sum += g * i;
+      w += g;
+    }
+    return sum / w;
+  };
+  const c0 = centroid(sim);
+  let peak = 0;
+  for (let k = 0; k < 500; k++) {
+    sim.step();
+    peak = Math.max(peak, sim.maxAbs());
+  }
+  const t = twistOK(sim);
+  const c1 = centroid(sim);
+  check(
+    "sine-Gordon kink is a stable 2π twist that glides rightward",
+    t.mono &&
+      Math.abs(t.left) < 0.2 &&
+      Math.abs(t.right - 2 * Math.PI) < 0.2 &&
+      c1 - c0 > 4 &&
+      peak < 8,
+    `ends ${t.left.toFixed(2)}..${t.right.toFixed(2)} mono=${t.mono} moved=${(c1 - c0).toFixed(1)} peak=${peak.toFixed(2)}`,
+  );
+}
+
+// --- 24. 9-point Laplacian is more isotropic than the 5-point (at matched κ) -
+{
+  const anisotropy = (stencil) => {
+    const N = 161;
+    const c = (N - 1) / 2;
+    const s = new WaveSim(N, N, { speed: 1, damping: 0, boundary: "absorbing" });
+    s.stencil = stencil;
+    s.speed = 0.5 / s.maxCourant(); // match the wave speed (κ = 0.5) across stencils
+    s.poke(c, c, 3, 1, 9);
+    for (let k = 0; k < 90; k++) s.step();
+    let R = 10;
+    let best = 0;
+    for (let r = 8; r < 70; r++) {
+      const v = Math.abs(s.cur[s.idx(c + r, c)]);
+      if (v > best) {
+        best = v;
+        R = r;
+      }
+    }
+    const M = 72;
+    const vals = [];
+    for (let a = 0; a < M; a++) {
+      const th = (2 * Math.PI * a) / M;
+      vals.push(Math.abs(s.cur[s.idx(Math.round(c + R * Math.cos(th)), Math.round(c + R * Math.sin(th)))]));
+    }
+    const mean = vals.reduce((x, v) => x + v, 0) / M;
+    return Math.sqrt(vals.reduce((x, v) => x + (v - mean) ** 2, 0) / M) / mean;
+  };
+  const cv5 = anisotropy("five");
+  const cv9 = anisotropy("nine");
+  check(
+    "9-point stencil halves the wavefront anisotropy vs the 5-point",
+    cv9 < 0.7 * cv5,
+    `CV5=${cv5.toFixed(4)} CV9=${cv9.toFixed(4)}`,
+  );
+}
+
+// --- 25. stability & CFL: every model × stencil stays bounded, κ ≤ limit ----
+{
+  let bounded = true;
+  let detail = "";
+  for (const model of ["linear", "klein-gordon", "sine-gordon"]) {
+    for (const stencil of ["five", "nine"]) {
+      const s = new WaveSim(70, 70, { speed: 1, damping: 0.02, boundary: "fixed" });
+      s.model = model;
+      s.stencil = stencil;
+      s.mass = MAX_MASS; // clamped per model
+      const cfl = stencil === "nine" ? Math.sqrt(4 / (16 / 3)) : Math.SQRT1_2;
+      if (s.maxCourant() > cfl + 1e-9) {
+        bounded = false;
+        detail = `${model}/${stencil} κ=${s.maxCourant().toFixed(3)} > CFL ${cfl.toFixed(3)}`;
+      }
+      s.poke(35, 35, 6, 1.2);
+      let mx = 0;
+      for (let k = 0; k < 2500; k++) {
+        s.step();
+        mx = Math.max(mx, s.maxAbs());
+      }
+      if (!(Number.isFinite(mx) && mx < 10)) {
+        bounded = false;
+        detail = `${model}/${stencil} maxAbs=${mx}`;
+      }
+    }
+  }
+  check("all models × stencils stay bounded and below their CFL", bounded, detail);
+}
+
+// --- 26. reaction coupling is clamped into each model's stable range --------
+{
+  const s = new WaveSim(10, 10);
+  s.model = "klein-gordon";
+  s.mass = 99;
+  check("Klein–Gordon mass clamps to MAX_MASS", s.mass === MAX_MASS);
+  s.model = "sine-gordon";
+  check("switching to sine-Gordon re-clamps the coupling", s.mass === MAX_COUPLING_SINE);
+  s.mass = 99;
+  check("sine-Gordon coupling clamps to MAX_COUPLING_SINE", s.mass === MAX_COUPLING_SINE);
+  check("the caps are ordered (nonlinear coupling is held lower)", MAX_COUPLING_SINE < MAX_MASS);
 }
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);
