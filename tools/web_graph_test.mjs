@@ -142,6 +142,39 @@ try {
   const afterDel = await page.$$eval(".calc .rows .row", (els) => els.length);
   check("delete removes a row", afterDel === 1, `rows=${afterDel}`);
 
+  // The full Desmos surface: implicit, inequality, polar, parametric all plot
+  // without a per-row error.
+  const surface = [
+    "x^2 + y^2 = 9", // implicit curve
+    "y <= x^2 - 4", // inequality region
+    "r = 2*sin(2*theta)", // polar rose
+    "(3*cos(t), 3*sin(t))", // parametric circle
+  ];
+  // Reset to a single fresh row.
+  await page.evaluate(() => {
+    try {
+      localStorage.removeItem("mathsolver.graph");
+    } catch {}
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  await page.evaluate(() => {
+    [...document.querySelectorAll('[role="tab"]')].find((b) => b.textContent.trim() === "Plot")?.click();
+  });
+  await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  for (let i = 0; i < surface.length; i++) {
+    if (i > 0) await page.click(".calc .add-row");
+    const inputs = await page.$$(".calc .expr");
+    await inputs[i].click({ clickCount: 3 });
+    await inputs[i].type(surface[i]);
+  }
+  await new Promise((r) => setTimeout(r, 1500));
+  const rowErrs = await page.$$eval(".calc .row-err", (els) => els.map((e) => e.textContent));
+  check(
+    "implicit, inequality, polar & parametric all plot without error",
+    rowErrs.length === 0,
+    rowErrs.join(" | "),
+  );
+
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 } catch (e) {

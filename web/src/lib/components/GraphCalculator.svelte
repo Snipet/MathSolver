@@ -102,17 +102,25 @@
     });
   }
 
-  // The plot variables of a row (never turned into sliders).
-  function plotVarsOf(spec: RowKind): Set<string> {
+  const TWO_PI = 2 * Math.PI;
+  const ANGLE_VARS = ["theta", "θ", "t"];
+  function angleVar(syms: string[]): string {
+    return syms.find((s) => ANGLE_VARS.includes(s)) ?? "theta";
+  }
+  // The plot/parameter variables of a row (never turned into sliders). Depends
+  // on the row's free symbols (the polar angle, or `t` for a parametric point).
+  function plotVars(spec: RowKind, syms: string[]): Set<string> {
     switch (spec.t) {
       case "function":
         return new Set(["x"]);
       case "functionY":
         return new Set(["y"]);
       case "polar":
-        return new Set(["theta", "t"]);
+        return new Set([angleVar(syms)]);
       case "relation":
         return new Set(["x", "y"]);
+      case "pointish":
+        return syms.includes("t") ? new Set(["t"]) : new Set();
       default:
         return new Set();
     }
@@ -162,6 +170,7 @@
     id: number,
     color: string,
     spec: RowKind,
+    syms: string[],
   ): Promise<Built> {
     if (spec.t === "function" || spec.t === "functionY") {
       const along = spec.t === "function" ? "x" : "y";
@@ -182,6 +191,21 @@
     }
 
     if (spec.t === "pointish") {
+      if (syms.includes("t")) {
+        // Parametric curve (x(t), y(t)) over t ∈ [0, 2π] — sample each
+        // coordinate over t in one engine call.
+        if (spec.coords.length !== 1)
+          return { series: [], error: "a parametric curve is a single (x(t), y(t)) pair" };
+        const [xe, ye] = spec.coords[0];
+        const n = 720;
+        const ex = await applyEnv(xe, ["t"], "expr", overrides);
+        const sx = await call("sample", [ex.text, "t", 0, TWO_PI, n]);
+        const ey = await applyEnv(ye, ["t"], "expr", overrides);
+        const sy = await call("sample", [ey.text, "t", 0, TWO_PI, n]);
+        if (!sx.ok) return { series: [], error: sx.error };
+        if (!sy.ok) return { series: [], error: sy.error };
+        return { series: [{ id: String(id), color, visible: true, kind: "line", xs: sx.ys, ys: sy.ys }] };
+      }
       const xs: number[] = [];
       const ys: (number | null)[] = [];
       for (const [xe, ye] of spec.coords) {
@@ -232,7 +256,28 @@
         ],
       };
     }
-    if (spec.t === "polar") return { series: [], error: "polar plots — coming in Phase 4" };
+    if (spec.t === "polar") {
+      // r = f(θ) over θ ∈ [0, 2π], converted to (r·cosθ, r·sinθ).
+      const ang = angleVar(syms);
+      const n = 720;
+      const env = await applyEnv(spec.expr, [ang], "expr", overrides);
+      const sr = await call("sample", [env.text, ang, 0, TWO_PI, n]);
+      if (!sr.ok) return { series: [], error: sr.error };
+      const th = linspace(0, TWO_PI, n);
+      const xs: (number | null)[] = new Array(n);
+      const ys: (number | null)[] = new Array(n);
+      for (let i = 0; i < n; i++) {
+        const r = sr.ys[i];
+        if (r === null || !Number.isFinite(r)) {
+          xs[i] = null;
+          ys[i] = null;
+        } else {
+          xs[i] = r * Math.cos(th[i]);
+          ys[i] = r * Math.sin(th[i]);
+        }
+      }
+      return { series: [{ id: String(id), color, visible: true, kind: "line", xs, ys }] };
+    }
     return { series: [] };
   }
 
@@ -265,7 +310,7 @@
         errs[r.id] = err;
         continue;
       }
-      const pv = plotVarsOf(spec);
+      const pv = plotVars(spec, syms);
       for (const s of syms) if (!pv.has(s)) freeVars.add(s);
     }
     reconcileVars(freeVars);
@@ -284,10 +329,10 @@
     slots = nextSlots;
 
     const out: DrawSeries[] = [];
-    for (const { r, spec, err } of analyzed) {
+    for (const { r, spec, syms, err } of analyzed) {
       if (err) continue;
       try {
-        const built = await buildDrawable(r.id, r.color, spec);
+        const built = await buildDrawable(r.id, r.color, spec, syms);
         if (my !== seq) return;
         if (built.error) errs[r.id] = built.error;
         for (const s of built.series) out.push(s);
