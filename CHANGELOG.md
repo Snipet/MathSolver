@@ -7,6 +7,14 @@ per-feature specs are under docs/proposals/.
 
 ### Changed
 
+- **Wave lab — higher maximum simulation resolution.** The **Detail** slider
+  (grid resolution) now reaches **512** columns, up from 300 — roughly triple
+  the cell count for a much finer field on capable machines. Stability is
+  unaffected (the scheme fixes `dx = dt = 1`, so the wave speed enters purely
+  as the Courant number and the CFL margin is resolution-independent), and the
+  share-link decoder's clamp was widened to match. The slider's tooltip notes
+  that high detail is heavier on the CPU, so weaker machines can simply leave
+  it lower.
 - **Web UI — sleek modern restyle.** Replaced the warm-paper / serif
   "scholarly worksheet" theme with a cool, modern, scientific one: an all-sans
   UI (Inter / system stack; the wordmark, tagline, tabs, and headings drop the

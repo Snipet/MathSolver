@@ -104,7 +104,7 @@ export function decodeWave(str: string): WaveConfig | null {
     stencil: pick(obj.stencil, STENCILS, "five"),
     color: pick(obj.color, COLORS, "coolwarm"),
     view: pick(obj.view, VIEWS, "wave"),
-    cols: Math.round(num(obj.cols, 48, 320, 180)),
+    cols: Math.round(num(obj.cols, 48, 512, 180)),
     ic,
   };
 }

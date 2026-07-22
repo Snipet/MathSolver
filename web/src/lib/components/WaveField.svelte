@@ -40,7 +40,7 @@
     return v < 0 ? 0 : v > 1 ? 1 : v;
   }
   function clampCols(v: number): number {
-    return Math.max(48, Math.min(320, Math.round(v)));
+    return Math.max(48, Math.min(512, Math.round(v)));
   }
 
   // --- controls (reactive) ---------------------------------------------------
@@ -1009,9 +1009,9 @@
       <!-- Appearance ------------------------------------------------------ -->
       <section class="group">
         <h3 class="group-title">Appearance</h3>
-        <label class="field" title="Grid resolution">
+        <label class="field" title="Grid resolution — higher is sharper but heavier on the CPU; push it up only on capable machines">
           <span class="field-head"><span class="field-label">Detail</span><span class="field-val">{cols}</span></span>
-          <input class="slider" type="range" min="64" max="300" step="4" bind:value={cols} style="--pct:{pct(cols, 64, 300)}" />
+          <input class="slider" type="range" min="64" max="512" step="4" bind:value={cols} style="--pct:{pct(cols, 64, 512)}" />
         </label>
         <div class="select-field" title="Color map">
           <select bind:value={colormap} aria-label="Color map">

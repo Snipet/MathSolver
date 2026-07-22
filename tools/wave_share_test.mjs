@@ -66,7 +66,7 @@ const full = {
     back &&
       back.speed === 1 &&
       back.mass === 0 &&
-      back.cols === 320 &&
+      back.cols === 512 &&
       back.scene === "empty" &&
       back.model === "linear" &&
       back.boundary === "fixed" &&
