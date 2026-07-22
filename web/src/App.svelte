@@ -24,7 +24,7 @@
   import ExpressionInput from "./lib/components/ExpressionInput.svelte";
   import ParsePreview from "./lib/components/ParsePreview.svelte";
   import ResultCard from "./lib/components/ResultCard.svelte";
-  import Plot from "./lib/components/Plot.svelte";
+  import GraphCalculator from "./lib/components/GraphCalculator.svelte";
   import History from "./lib/components/History.svelte";
   import VariablesPanel from "./lib/components/VariablesPanel.svelte";
   import VarChips, { type Chip } from "./lib/components/VarChips.svelte";
@@ -711,6 +711,9 @@
         role="tabpanel"
         aria-labelledby={"tab-" + tab}
       >
+        {#if tab === "plot"}
+          <GraphCalculator />
+        {:else}
         <ExpressionInput
           bind:this={exprInput}
           bind:value={input}
@@ -860,59 +863,6 @@
               {/each}
             </div>
           {/if}
-        {:else if tab === "plot"}
-          <div class="ctl-row">
-            {@render variableSelect()}
-            <label class="ctl">
-              <span>From</span>
-              <input
-                type="number"
-                step="any"
-                bind:value={plotLo}
-                onkeydown={ctlKeydown}
-              />
-            </label>
-            <label class="ctl">
-              <span>To</span>
-              <input
-                type="number"
-                step="any"
-                bind:value={plotHi}
-                onkeydown={ctlKeydown}
-              />
-            </label>
-            <label class="ctl checkbox">
-              <input type="checkbox" bind:checked={plotD} />
-              <span>f′ overlay</span>
-            </label>
-            <label class="ctl checkbox">
-              <input
-                type="checkbox"
-                bind:checked={plotA}
-                disabled={!antiAvailable}
-              />
-              <span>Antiderivative</span>
-            </label>
-            {#if !antiAvailable}
-              <span class="ctl-hint">no closed form</span>
-            {/if}
-          </div>
-        {/if}
-
-        {#if tab === "plot"}
-          <Plot
-            input={plotResolved ?? ""}
-            {variable}
-            lo={numOr(plotLo, -10)}
-            hi={numOr(plotHi, 10)}
-            showDerivative={plotD}
-            showAntiderivative={plotA}
-            resampleNonce={plotNonce}
-            onantiavailable={(ok) => {
-              antiAvailable = ok;
-              if (!ok && plotA) plotA = false;
-            }}
-          />
         {/if}
 
         <ResultCard {outcome} />
@@ -930,6 +880,7 @@
             <History onrestore={restore} />
           </div>
         </details>
+        {/if}
       </div>
       {/if}
     </main>
