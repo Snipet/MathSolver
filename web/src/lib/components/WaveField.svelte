@@ -1151,9 +1151,9 @@
     color: var(--accent-fg, #fff);
     background: var(--accent);
     border: none;
-    border-radius: calc(var(--radius) / 1.4);
+    border-radius: var(--radius);
     cursor: pointer;
-    box-shadow: 0 2px 9px color-mix(in srgb, var(--accent) 34%, transparent);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 30%, transparent);
     transition: filter 120ms ease, transform 120ms ease;
   }
   .play:hover {
@@ -1171,13 +1171,13 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 2.1rem;
-    height: 2.1rem;
+    width: 2.4rem;
+    height: 2.4rem;
     flex: 0 0 auto;
     color: var(--fg-muted);
     background: transparent;
     border: 1px solid var(--border);
-    border-radius: calc(var(--radius) / 1.6);
+    border-radius: var(--radius);
     cursor: pointer;
     transition: color 120ms ease, border-color 120ms ease;
   }
@@ -1253,7 +1253,10 @@
     color: var(--fg-muted);
   }
   .subhead {
-    font-size: 0.68rem;
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
     color: var(--fg-muted);
     margin-top: 0.05rem;
   }
@@ -1310,7 +1313,7 @@
     background: linear-gradient(
       to right,
       var(--accent) 0 var(--pct, 50%),
-      color-mix(in srgb, var(--fg-muted) 26%, transparent) var(--pct, 50%) 100%
+      var(--track) var(--pct, 50%) 100%
     );
   }
   .slider::-moz-range-track {
@@ -1319,7 +1322,7 @@
     background: linear-gradient(
       to right,
       var(--accent) 0 var(--pct, 50%),
-      color-mix(in srgb, var(--fg-muted) 26%, transparent) var(--pct, 50%) 100%
+      var(--track) var(--pct, 50%) 100%
     );
   }
   .slider::-webkit-slider-thumb {
@@ -1378,8 +1381,14 @@
   .seg.wide .seg-btn {
     flex: 1;
   }
+  /* Fixed-option segmented control with more items than fit one row: lay it
+     out as an even grid (a clean 3+2) instead of an orphan-wrapping flex. */
   .seg.wrap {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .seg.wrap .seg-btn {
+    text-align: center;
   }
   .seg-btn {
     flex: 0 0 auto;
@@ -1398,10 +1407,16 @@
   .seg-btn:hover {
     color: var(--fg);
   }
+  /* A refined soft-tint selected state (matching the top-nav idiom), not a
+     loud solid-blue fill — the solid --accent is reserved for the primary
+     Play/Compute actions. */
   .seg-btn.active {
-    color: var(--accent-fg, #fff);
-    background: var(--accent);
-    box-shadow: 0 1px 3px color-mix(in srgb, var(--accent) 34%, transparent);
+    color: var(--accent);
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px var(--accent-line);
+  }
+  .seg-btn.active:hover {
+    color: var(--accent);
   }
   .wave.compact .seg-btn {
     padding: 0.2rem 0.5rem;

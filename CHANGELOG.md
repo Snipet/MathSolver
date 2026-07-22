@@ -5,6 +5,21 @@ per-feature specs are under docs/proposals/.
 
 ## Unreleased (v0.5)
 
+### Changed
+
+- **Web UI — sleek modern restyle.** Replaced the warm-paper / serif
+  "scholarly worksheet" theme with a cool, modern, scientific one: an all-sans
+  UI (Inter / system stack; the wordmark, tagline, tabs, and headings drop the
+  serif — KaTeX math stays serif), cool neutral surfaces with crisp white/slate
+  panels, a clean blue accent (replacing the pine green), and tighter neutral
+  shadows. Driven almost entirely by the central `app.css` tokens, so every
+  view (workbench, console, graph, wave lab) restyles in both themes. A
+  design-review pass then refined it: darker light-mode muted text for WCAG AA,
+  smaller medium-weight tabs, result cards as soft-tinted output cells (no heavy
+  accent bar), a unified soft-tint "selected" state on segmented controls
+  (solid accent reserved for primary actions), an even Boundary grid, and
+  higher-contrast slider tracks.
+
 ### Added
 
 - **Wave system, Phase 4 — authoring & analytics** (docs/proposals/wave-system.md):

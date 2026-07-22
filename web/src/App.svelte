@@ -940,10 +940,10 @@
     gap: 0.7rem;
   }
   .wordmark {
-    font-family: var(--font-serif);
+    font-family: var(--font-sans);
     font-weight: 700;
-    font-size: 1.42rem;
-    letter-spacing: -0.01em;
+    font-size: 1.34rem;
+    letter-spacing: -0.021em;
     color: var(--fg);
   }
   .version-chip {
@@ -956,12 +956,11 @@
     background: var(--bg);
   }
   .tagline {
-    font-family: var(--font-serif);
-    font-style: italic;
-    font-size: 0.92rem;
+    font-family: var(--font-sans);
+    font-size: 0.86rem;
     color: var(--fg-muted);
-    padding-left: 0.55rem;
-    margin-left: 0.15rem;
+    padding-left: 0.6rem;
+    margin-left: 0.2rem;
     border-left: 1px solid var(--rule);
   }
   @media (max-width: 900px) {
