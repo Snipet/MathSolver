@@ -553,6 +553,58 @@ try {
   );
   await clearPrompt();
 
+  // --- verb suggestions for a bare expression ------------------------------
+  await page.click(TA);
+  await page.type(TA, "x^2 - 5x + 6");
+  await page.waitForSelector("[data-testid='verb-suggest'] .verb-chip", {
+    timeout: 6000,
+  });
+  const suggestChips = await page.$$eval(
+    "[data-testid='verb-suggest'] .verb-chip",
+    (els) => els.map((e) => e.textContent.trim()),
+  );
+  check(
+    "bare expression suggests verbs",
+    ["factor", "diff", "integrate"].every((v) => suggestChips.includes(v)),
+    JSON.stringify(suggestChips),
+  );
+  // Clicking a suggestion runs `<verb> <expr>` as a new cell.
+  const cellsBefore = await page.$$eval(".cells .cell", (els) => els.length);
+  await page.evaluate(() => {
+    const chip = [
+      ...document.querySelectorAll("[data-testid='verb-suggest'] .verb-chip"),
+    ].find((c) => c.textContent.trim() === "factor");
+    chip.click();
+  });
+  await page.waitForFunction(
+    (n) => document.querySelectorAll(".cells .cell").length === n + 1,
+    { timeout: 20000 },
+    cellsBefore,
+  );
+  const factored = await page.$eval(
+    ".cells .cell:last-child",
+    (el) => el.textContent,
+  );
+  check(
+    "clicking a suggestion runs the verb",
+    factored.includes("(x - 3)") && factored.includes("(x - 2)"),
+    factored.slice(0, 80),
+  );
+  await clearPrompt();
+
+  // A line that already names a verb shows no suggestions.
+  await page.click(TA);
+  await page.type(TA, "factor x^2 - 5x + 6");
+  await page.waitForSelector("[data-testid='console-preview'] .katex", {
+    timeout: 6000,
+  });
+  const verbTypedSuggest = await page.$$eval(
+    "[data-testid='verb-suggest'] .verb-chip",
+    (els) => els.length,
+  );
+  check("no suggestions when a command is already typed", verbTypedSuggest === 0);
+  await clearPrompt();
+
   // --- ghost argument hints at the caret -----------------------------------
   const ghostText = () =>
     page

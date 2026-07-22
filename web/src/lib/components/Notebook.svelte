@@ -7,6 +7,7 @@
     buildConsolePreview,
     type ConsolePreview,
   } from "../notebook/preview";
+  import { suggestVerbs, type VerbSuggestion } from "../notebook/suggest";
   import { splitAssignment } from "../vars/session";
   import { vars } from "../vars.svelte";
   import { untrack } from "svelte";
@@ -193,6 +194,31 @@
         if (my === previewSeq) preview = null;
       }
     }, 180);
+    return () => clearTimeout(timer);
+  });
+
+  // --- verb suggestions for a bare line (debounced) -------------------------
+  // When the input names no command, offer the verbs worth trying on it, shown
+  // as chips beside the "as parsed" preview. Empty while the completion popup
+  // is open (the user is already picking a verb).
+  let verbSuggestions = $state<VerbSuggestion[]>([]);
+  let suggestSeq = 0;
+  $effect(() => {
+    const text = input.trim();
+    const popupOpen = suggestions.length > 0;
+    const my = ++suggestSeq;
+    if (!text || popupOpen || !ready) {
+      verbSuggestions = [];
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const s = await suggestVerbs(text);
+        if (my === suggestSeq) verbSuggestions = s;
+      } catch {
+        if (my === suggestSeq) verbSuggestions = [];
+      }
+    }, 200);
     return () => clearTimeout(timer);
   });
 
@@ -410,6 +436,21 @@
           <span class="preview-note">{preview.note}</span>
         {/if}
       </div>
+      {#if verbSuggestions.length > 0}
+        <div class="verb-suggest" role="group" aria-label="Suggested commands" data-testid="verb-suggest">
+          <span class="verb-suggest-lead">try:</span>
+          {#each verbSuggestions as s (s.verb)}
+            <button
+              class="verb-chip"
+              title={s.hint}
+              onmousedown={(e) => e.preventDefault() /* keep focus */}
+              onclick={() => void runText(`${s.verb} ${input.trim()}`)}
+            >
+              {s.label}
+            </button>
+          {/each}
+        </div>
+      {/if}
     {:else if preview && preview.kind === "error"}
       <div class="console-preview has-error" data-testid="console-preview">
         <p class="preview-error">{preview.error}</p>
@@ -717,6 +758,37 @@
     margin: 0;
     font-size: 0.82rem;
     color: var(--error);
+  }
+
+  /* Verb suggestions for a bare line: a quiet row of "try this" chips under
+     the parsed preview. */
+  .verb-suggest {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    margin: -0.15rem 0 0.4rem;
+    padding: 0 0.6rem;
+  }
+  .verb-suggest-lead {
+    font-size: 0.74rem;
+    color: var(--fg-muted);
+    flex: 0 0 auto;
+  }
+  .verb-chip {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.12rem 0.6rem;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+  .verb-chip:hover {
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   .palette {
