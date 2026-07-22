@@ -6,6 +6,7 @@
   import { untrack } from "svelte";
   import { WaveSim, type Boundary, type FilterType } from "../wave/sim";
   import { WAVE_SCENES, buildScene } from "../wave/scenes";
+  import { magnitudeSpectrum } from "../wave/spectrum";
 
   interface Props {
     /** Console cells pass compact=true for a smaller field + condensed controls. */
@@ -60,6 +61,21 @@
   let touched = $state(false);
   // Structured-media preset (obstacles / variable speed): "empty" = open water.
   let sceneId = $state("empty");
+
+  // --- instrumentation (Phase 2): probes + intensity ------------------------
+  // Field view: the live wave, or the time-averaged intensity ⟨u²⟩ (which
+  // freezes interference/diffraction fringes into a quantitative heatmap).
+  let viewMode = $state<"wave" | "intensity">("wave");
+  // When on, a click drops a probe (a receiver recording u(t)) instead of
+  // plucking. Probes carry fractional coords so they survive a grid resize.
+  let probeTool = $state(false);
+  let probes = $state<{ id: number; xf: number; yf: number }[]>([]);
+  let probeSeq = 0;
+  // Peak frequency (cycles/step) per probe, refreshed from the FFT in the loop.
+  let probePeaks = $state<number[]>([]);
+  // Per-probe spectrum sparkline canvases (bound in the {#each}).
+  let specCanvases = $state<(HTMLCanvasElement | undefined)[]>([]);
+  const measuring = $derived(viewMode === "intensity" || probes.length > 0);
 
   const HEIGHT = untrack(() => (compact ? 260 : 460));
   const STEPS_PER_FRAME = 2; // temporal oversampling for smoother propagation
@@ -121,8 +137,23 @@
       // Re-establish the scene geometry on the new grid (without re-seeding the
       // demo source or wiping the resampled wave).
       if (sceneId !== "empty") applyScene(next, sceneId, false);
+      // Re-place probes on the new grid and carry the measurement flag over.
+      next.setMeasuring(measuring);
+      for (const p of probes) {
+        next.addProbe(Math.round(p.xf * (nx - 1)), Math.round(p.yf * (ny - 1)));
+      }
       sim = next;
     });
+  });
+
+  // Toggle sim-side measurement (probes + intensity) with the view/probe state.
+  $effect(() => {
+    sim?.setMeasuring(measuring);
+  });
+
+  // Start each intensity average fresh when the view is (re)entered.
+  $effect(() => {
+    if (viewMode === "intensity") untrack(() => sim?.resetIntensity());
   });
 
   /** Apply a structured-media preset. `seed` clears the field and starts the
@@ -141,6 +172,41 @@
     sceneId = id;
     const s = sim;
     if (s) applyScene(s, id, true);
+  }
+
+  // --- probes ---------------------------------------------------------------
+  const MAX_PROBES = 6;
+
+  /** Drop a probe at grid (gx, gy), mirrored into the sim for recording. */
+  function addProbeAt(gx: number, gy: number): void {
+    const s = sim;
+    if (!s || probes.length >= MAX_PROBES) return;
+    probes = [
+      ...probes,
+      { id: probeSeq++, xf: gx / (s.nx - 1), yf: gy / (s.ny - 1) },
+    ];
+    // Array push and sim.addProbe both append, so indices stay aligned.
+    s.setMeasuring(true);
+    s.addProbe(gx, gy);
+  }
+
+  /** Remove one probe; rebuild the sim's probe set so indices realign. */
+  function removeProbe(idx: number): void {
+    probes = probes.filter((_, k) => k !== idx);
+    syncProbes();
+  }
+  function clearProbes(): void {
+    probes = [];
+    syncProbes();
+  }
+  /** Re-seat the sim's probes from the component list (order = index). */
+  function syncProbes(): void {
+    const s = sim;
+    if (!s) return;
+    s.clearProbes();
+    for (const p of probes) {
+      s.addProbe(Math.round(p.xf * (s.nx - 1)), Math.round(p.yf * (s.ny - 1)));
+    }
   }
 
   // Push control changes into the live sim without rebuilding it.
@@ -247,6 +313,7 @@
   let fieldCtx: CanvasRenderingContext2D | null = null;
   let imgData: ImageData | null = null;
   let scale = 0.05; // smoothed amplitude normalizer (avoids flicker)
+  let scaleI = 0.01; // smoothed intensity normalizer (intensity view)
 
   // Robust peak: the ~97th-percentile of |u| via a coarse histogram (O(n), no
   // sort). Ignoring a handful of hot cells — the near-field spike of a driven
@@ -296,10 +363,19 @@
     // near-field of a driven point source (a scene's source) cannot crush the
     // downstream diffraction/interference pattern to black. The floor keeps a
     // near-rest field fading to the calm background instead of amplifying noise.
-    const peak = robustPeak(s.cur);
-    const target = Math.max(peak, 0.08);
-    scale += (target - scale) * 0.08;
-    const inv = scale > 1e-6 ? 1 / scale : 0;
+    // Intensity view paints the time-averaged ⟨u²⟩ (a one-sided heatmap on the
+    // palette's positive arm); wave view paints the live signed displacement.
+    const intensityMode = viewMode === "intensity";
+    const srcArr = intensityMode ? s.intensityField() : s.cur;
+    const peak = robustPeak(srcArr);
+    let inv: number;
+    if (intensityMode) {
+      scaleI += (Math.max(peak, 1e-4) - scaleI) * 0.05;
+      inv = scaleI > 1e-9 ? 1 / scaleI : 0;
+    } else {
+      scale += (Math.max(peak, 0.08) - scale) * 0.08;
+      inv = scale > 1e-6 ? 1 / scale : 0;
+    }
 
     // Theme-aware LUT: rest → panel background, so the field blends into the
     // page in light and dark; rebuilt only when the palette or bg changes.
@@ -308,13 +384,12 @@
       wallRgb = readRgb(disp, "--fg-muted", wallRgb);
     }
     ensureLut(colormap, bgRgb);
-    const cur = s.cur;
     const px = imgData.data;
     // Scene overlays: solid cells paint as opaque walls; a slower medium
     // (cScale < 1) is shaded a touch darker so the "glass" is visible.
     const solid = s.hasScene ? s.obstacles : null;
     const med = s.hasScene ? s.medium : null; // per-cell cScale²
-    for (let k = 0; k < cur.length; k++) {
+    for (let k = 0; k < srcArr.length; k++) {
       const o = k * 4;
       if (solid && solid[k]) {
         px[o] = wallRgb[0];
@@ -323,12 +398,20 @@
         px[o + 3] = 255;
         continue;
       }
-      let t = cur[k] * inv; // ~[-1, 1]
-      t = t < -1 ? -1 : t > 1 ? 1 : t;
-      // Signed-gamma boost: emphasize small displacements so ripples read
-      // against the near-background rest state.
-      const ts = t < 0 ? -((-t) ** 0.7) : t ** 0.7;
-      const m = ((ts + 1) * 0.5 * 255) | 0;
+      let m: number;
+      if (intensityMode) {
+        // √(I/peak) maps energy → amplitude-like brightness; positive arm only.
+        let t = Math.sqrt(Math.max(srcArr[k], 0) * inv);
+        t = t > 1 ? 1 : t;
+        m = ((0.5 + 0.5 * t ** 0.7) * 255) | 0;
+      } else {
+        let t = srcArr[k] * inv; // ~[-1, 1]
+        t = t < -1 ? -1 : t > 1 ? 1 : t;
+        // Signed-gamma boost: emphasize small displacements so ripples read
+        // against the near-background rest state.
+        const ts = t < 0 ? -((-t) ** 0.7) : t ** 0.7;
+        m = ((ts + 1) * 0.5 * 255) | 0;
+      }
       const l = m * 3;
       if (med && med[k] < 0.999) {
         const dim = 0.62 + 0.38 * Math.sqrt(med[k]); // slower ⇒ darker
@@ -359,6 +442,27 @@
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(field, 0, 0, s.nx, s.ny, 0, 0, cssW, HEIGHT);
+
+    // Probe markers: a labelled ring at each receiver (drawn in CSS pixels).
+    if (probes.length > 0) {
+      ctx.font = "600 10px var(--font-mono, monospace)";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      for (let idx = 0; idx < probes.length; idx++) {
+        const p = probes[idx];
+        const cx = p.xf * cssW;
+        const cy = p.yf * HEIGHT;
+        ctx.beginPath();
+        ctx.arc(cx, cy, 6.5, 0, 2 * Math.PI);
+        ctx.fillStyle = "rgba(0,0,0,0.35)";
+        ctx.fill();
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = "rgba(255,255,255,0.92)";
+        ctx.stroke();
+        ctx.fillStyle = "rgba(255,255,255,0.95)";
+        ctx.fillText(String(idx + 1), cx, cy + 0.5);
+      }
+    }
   }
 
   // --- animation loop --------------------------------------------------------
@@ -376,11 +480,84 @@
       if (!s || !visible) return;
       if (running) s.step(STEPS_PER_FRAME);
       paint();
-      if ((frame++ & 7) === 0) energy = s.energy();
+      if ((frame & 7) === 0) energy = s.energy();
+      // Refresh the probe spectra a few times a second (FFT is not free).
+      if (probes.length > 0 && (frame & 7) === 3) updateSpectra(s);
+      frame++;
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
   });
+
+  // --- probe spectra ---------------------------------------------------------
+  /** Recompute every probe's spectrum: update the peak readouts and repaint
+   *  the sparkline canvases. Called at a low rate from the animation loop. */
+  function updateSpectra(s: WaveSim): void {
+    const peaks: number[] = [];
+    for (let idx = 0; idx < probes.length; idx++) {
+      const spec = magnitudeSpectrum(s.probeSeries(idx));
+      peaks.push(spec.peakFreq);
+      drawSpectrum(specCanvases[idx], spec);
+    }
+    // Only publish when a value actually moved (avoids per-frame reactivity).
+    if (peaks.length !== probePeaks.length || peaks.some((v, i) => Math.abs(v - probePeaks[i]) > 1e-4)) {
+      probePeaks = peaks;
+    }
+  }
+
+  /** Paint a magnitude spectrum as a filled area with the peak bin marked. */
+  function drawSpectrum(cv: HTMLCanvasElement | undefined, spec: { freq: Float32Array; mag: Float32Array; peakFreq: number }): void {
+    if (!cv) return;
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = cv.clientWidth || 168;
+    const cssH = cv.clientHeight || 40;
+    if (cv.width !== Math.round(cssW * dpr) || cv.height !== Math.round(cssH * dpr)) {
+      cv.width = Math.round(cssW * dpr);
+      cv.height = Math.round(cssH * dpr);
+    }
+    const ctx = cv.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+    const n = spec.mag.length;
+    if (n < 2) return;
+    const accent = getComputedStyle(cv).getPropertyValue("--accent").trim() || "#4f8cff";
+    const muted = getComputedStyle(cv).getPropertyValue("--fg-muted").trim() || "#888";
+    const pad = 2;
+    const w = cssW - 2 * pad;
+    const h = cssH - 2 * pad;
+    // Filled area under the magnitude curve (x = freq 0..0.5 → full width).
+    ctx.beginPath();
+    ctx.moveTo(pad, cssH - pad);
+    for (let b = 0; b < n; b++) {
+      const x = pad + (b / (n - 1)) * w;
+      const y = cssH - pad - Math.min(1, spec.mag[b]) * h;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(pad + w, cssH - pad);
+    ctx.closePath();
+    ctx.fillStyle = accent + "33";
+    ctx.fill();
+    ctx.strokeStyle = accent;
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // Peak marker: a vertical line at the dominant frequency.
+    if (spec.peakFreq > 0) {
+      const px = pad + (spec.peakFreq / 0.5) * w;
+      ctx.strokeStyle = muted;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(px, pad);
+      ctx.lineTo(px, cssH - pad);
+      ctx.stroke();
+    }
+  }
+
+  /** Human label for a probe's peak frequency (cycles/step + period). */
+  function peakLabel(f: number): string {
+    if (!f || f <= 0) return "—";
+    return `f ${f.toFixed(3)} · T ${Math.round(1 / f)}`;
+  }
 
   // --- pointer gestures ------------------------------------------------------
   let dragging = false;
@@ -401,9 +578,13 @@
   function onPointerDown(e: PointerEvent): void {
     if (!sim) return;
     touched = true;
+    const { gx, gy } = toGrid(e);
+    if (probeTool) {
+      addProbeAt(gx, gy);
+      return; // probes don't inject energy or drag
+    }
     canvas!.setPointerCapture(e.pointerId);
     dragging = true;
-    const { gx, gy } = toGrid(e);
     lastX = gx;
     lastY = gy;
     if (srcMode === "drive") {
@@ -437,8 +618,11 @@
   }
 
   function onPointerUp(e: PointerEvent): void {
+    // Only a real drive/ripple gesture (which set `dragging`) should stop the
+    // source — a probe placement returns before `dragging` is set, so it must
+    // not clear a scene's driven dipper out from under the field.
+    if (dragging) sim?.clearSource();
     dragging = false;
-    sim?.clearSource();
     if (canvas?.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
   }
 
@@ -446,6 +630,7 @@
   function reset(): void {
     sim?.reset();
     scale = 0.08;
+    scaleI = 0.01;
     energy = 0;
   }
   function togglePlay(): void {
@@ -616,6 +801,48 @@
       {#if !compact}
         <span class="sep"></span>
         <div class="tgroup">
+          <span class="glabel">Measure</span>
+          <div class="seg" role="group" aria-label="Field view">
+            <button
+              class="seg-btn"
+              class:active={viewMode === "wave"}
+              title="Show the live wave displacement"
+              onclick={() => (viewMode = "wave")}
+            >
+              Wave
+            </button>
+            <button
+              class="seg-btn"
+              class:active={viewMode === "intensity"}
+              title="Time-averaged intensity ⟨u²⟩ — freezes interference/diffraction fringes into a heatmap"
+              onclick={() => (viewMode = "intensity")}
+            >
+              Intensity
+            </button>
+          </div>
+          <div class="seg" role="group" aria-label="Probe tool">
+            <button
+              class="seg-btn"
+              class:active={probeTool}
+              aria-pressed={probeTool}
+              title="Probe tool: click the field to drop a receiver that records u(t) and shows its spectrum"
+              onclick={() => (probeTool = !probeTool)}
+            >
+              <svg class="probe-ico" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.2" /><circle cx="8" cy="8" r="5.2" fill="none" stroke="currentColor" stroke-width="1.2" /></svg>
+              Probe
+            </button>
+          </div>
+          {#if probes.length > 0}
+            <button class="mini-btn" title="Remove all probes" onclick={clearProbes}>
+              Clear ({probes.length})
+            </button>
+          {/if}
+        </div>
+      {/if}
+
+      {#if !compact}
+        <span class="sep"></span>
+        <div class="tgroup">
           <label class="ctl" title="Grid resolution">
             <span>Detail</span>
             <input type="range" min="64" max="300" step="4" bind:value={cols} />
@@ -648,7 +875,36 @@
         <span>Click to pluck · drag to launch a wavefront</span>
       </div>
     {/if}
+    {#if probeTool}
+      <div class="hint probe-hint" aria-hidden="true">
+        <span>Probe tool — click the field to drop a receiver</span>
+      </div>
+    {/if}
   </div>
+
+  {#if !compact && probes.length > 0}
+    <div class="probes" aria-label="Probe spectra">
+      {#each probes as p, idx (p.id)}
+        <div class="probe">
+          <div class="probe-head">
+            <span class="probe-badge">{idx + 1}</span>
+            <span class="probe-peak" title="Dominant frequency (cycles/step) and period (steps)">
+              {peakLabel(probePeaks[idx] ?? 0)}
+            </span>
+            <button
+              class="probe-x"
+              title="Remove this probe"
+              aria-label={`Remove probe ${idx + 1}`}
+              onclick={() => removeProbe(idx)}
+            >
+              ×
+            </button>
+          </div>
+          <canvas class="spec" bind:this={specCanvases[idx]} aria-label={`Probe ${idx + 1} spectrum`}></canvas>
+        </div>
+      {/each}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -865,5 +1121,103 @@
     fill: currentColor;
     flex: 0 0 auto;
     opacity: 0.8;
+  }
+  .probe-hint {
+    bottom: auto;
+    top: 0.8rem;
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  }
+
+  /* Measure controls -------------------------------------------------------- */
+  .probe-ico {
+    width: 13px;
+    height: 13px;
+    fill: currentColor;
+    margin-right: 0.25rem;
+    vertical-align: -2px;
+  }
+  .mini-btn {
+    font: inherit;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--fg-muted);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.18rem 0.6rem;
+    cursor: pointer;
+    transition: color 100ms ease, border-color 100ms ease;
+  }
+  .mini-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+
+  /* Probe spectra panel ----------------------------------------------------- */
+  .probes {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 0.5rem;
+  }
+  .probe {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--bg-panel) 55%, transparent);
+    padding: 0.4rem 0.5rem 0.3rem;
+    min-width: 0;
+  }
+  .probe-head {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-bottom: 0.25rem;
+  }
+  .probe-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.15rem;
+    height: 1.15rem;
+    flex: 0 0 auto;
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    font-weight: 700;
+    color: var(--accent-fg, #fff);
+    background: var(--accent);
+    border-radius: 999px;
+  }
+  .probe-peak {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--fg-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1 1 auto;
+  }
+  .probe-x {
+    flex: 0 0 auto;
+    width: 1.1rem;
+    height: 1.1rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.95rem;
+    line-height: 1;
+    color: var(--fg-muted);
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .probe-x:hover {
+    color: var(--accent);
+    background: var(--bg);
+  }
+  .spec {
+    display: block;
+    width: 100%;
+    height: 40px;
   }
 </style>

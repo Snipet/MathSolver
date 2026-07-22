@@ -74,6 +74,20 @@ export class WaveSim {
   // Continuous driven point source (the "drive"/oscillator gesture).
   private src = { active: false, x: 0, y: 0, r: 3, amp: 0, freq: 0.03, phase: 0 };
 
+  // Instrumentation (Phase 2). Probes record u(t) at a cell into a ring buffer
+  // (newest samples kept), for spectral analysis. The intensity field is a
+  // per-cell running mean of u² — the time-averaged energy that makes standing
+  // interference / diffraction patterns quantitative and static. Both are
+  // gathered only while `measuring` is on, so the uniform fast path pays nothing
+  // when instrumentation is idle.
+  private probes: { i: number; j: number; buf: Float32Array; head: number; count: number }[] = [];
+  private intensity: Float32Array;
+  private intensityN = 0;
+  private measuring = false;
+
+  /** Ring-buffer length per probe (samples retained for the spectrum). */
+  static readonly PROBE_CAP = 1024;
+
   constructor(nx: number, ny: number, opts: WaveSimOptions = {}) {
     this.nx = Math.max(3, Math.floor(nx));
     this.ny = Math.max(3, Math.floor(ny));
@@ -84,6 +98,7 @@ export class WaveSim {
     this.fOut = new Float32Array(n);
     this.scale2 = new Float32Array(n).fill(1);
     this.solid = new Uint8Array(n);
+    this.intensity = new Float32Array(n);
     this._speed = clamp(opts.speed ?? 0.5, 0, 1);
     this._damping = clamp(opts.damping ?? 0, 0, 1);
     this._robin = Math.max(0, opts.robin ?? 0.5);
@@ -229,6 +244,79 @@ export class WaveSim {
     return Math.sqrt(this.scale2[j * this.nx + i]);
   }
 
+  // --- instrumentation: probes & intensity (Phase 2) -------------------------
+
+  /** Enable/disable measurement gathering (probes + intensity). Off = no cost. */
+  setMeasuring(on: boolean): void {
+    this.measuring = on;
+  }
+  get isMeasuring(): boolean {
+    return this.measuring;
+  }
+
+  /** Place a probe at the (clamped, interior) cell; returns its index. */
+  addProbe(i: number, j: number): number {
+    const pi = clamp(Math.round(i), 0, this.nx - 1);
+    const pj = clamp(Math.round(j), 0, this.ny - 1);
+    this.probes.push({
+      i: pi,
+      j: pj,
+      buf: new Float32Array(WaveSim.PROBE_CAP),
+      head: 0,
+      count: 0,
+    });
+    return this.probes.length - 1;
+  }
+
+  removeProbe(id: number): void {
+    if (id >= 0 && id < this.probes.length) this.probes.splice(id, 1);
+  }
+
+  clearProbes(): void {
+    this.probes.length = 0;
+  }
+
+  get probeCount(): number {
+    return this.probes.length;
+  }
+
+  /** Grid position of probe `id` (or null). */
+  probeAt(id: number): { i: number; j: number } | null {
+    const p = this.probes[id];
+    return p ? { i: p.i, j: p.j } : null;
+  }
+
+  /**
+   * The probe's recorded samples in chronological order (oldest → newest), up
+   * to PROBE_CAP. Empty until it has collected samples. Returns a fresh copy.
+   */
+  probeSeries(id: number): Float32Array {
+    const p = this.probes[id];
+    if (!p || p.count === 0) return new Float32Array(0);
+    const out = new Float32Array(p.count);
+    const cap = p.buf.length;
+    // Oldest sample sits just after head once the ring has wrapped.
+    const start = p.count < cap ? 0 : p.head;
+    for (let k = 0; k < p.count; k++) out[k] = p.buf[(start + k) % cap];
+    return out;
+  }
+
+  /** Reset the accumulated intensity average (e.g. after changing the scene). */
+  resetIntensity(): void {
+    this.intensity.fill(0);
+    this.intensityN = 0;
+  }
+
+  /** Number of steps folded into the current intensity average. */
+  get intensitySamples(): number {
+    return this.intensityN;
+  }
+
+  /** The per-cell time-averaged intensity ⟨u²⟩, read-only. Do not mutate. */
+  intensityField(): Float32Array {
+    return this.intensity;
+  }
+
   idx(i: number, j: number): number {
     return j * this.nx + i;
   }
@@ -305,6 +393,29 @@ export class WaveSim {
         this.cur[k] += val * w;
       });
       s.phase += 2 * Math.PI * s.freq;
+    }
+
+    // Instrumentation: record probe samples and accumulate the intensity field
+    // from the freshly-updated `cur`. Off by default (no cost).
+    if (this.measuring) this.#measure();
+  }
+
+  /** Record u(t) into each probe's ring and fold u² into the intensity mean. */
+  #measure(): void {
+    const cur = this.cur;
+    for (const p of this.probes) {
+      p.buf[p.head] = cur[p.j * this.nx + p.i];
+      p.head = (p.head + 1) % p.buf.length;
+      if (p.count < p.buf.length) p.count++;
+    }
+    // Incremental per-cell running mean: I ← I + (u² − I)/n. Keeps the stored
+    // value bounded (unlike a raw sum) and converges to the true time-average.
+    const n = ++this.intensityN;
+    const inv = 1 / n;
+    const I = this.intensity;
+    for (let k = 0; k < cur.length; k++) {
+      const v = cur[k];
+      I[k] += (v * v - I[k]) * inv;
     }
   }
 
@@ -549,5 +660,12 @@ export class WaveSim {
     this.nextBuf.fill(0);
     this.fOut.fill(0);
     this.src.active = false;
+    // Zeroing the field invalidates any accumulated intensity / probe history.
+    this.resetIntensity();
+    for (const p of this.probes) {
+      p.buf.fill(0);
+      p.head = 0;
+      p.count = 0;
+    }
   }
 }

@@ -7,6 +7,17 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Wave system, Phase 2 — instrumentation** (docs/proposals/wave-system.md):
+  the wave field can now be *measured*. A **probe** tool drops receivers on the
+  field; each records `u(t)` and shows a live **FFT magnitude spectrum** (a
+  self-contained radix-2 transform with linear detrend + Hann window) with a
+  peak-frequency / period readout — a driven source's probe recovers its drive
+  frequency exactly. A **Wave ⇄ Intensity** view toggle paints the
+  time-averaged intensity `⟨u²⟩`, freezing diffraction and interference
+  fringes into a quantitative heatmap. New sim/spectrum tests cover the ring
+  buffer, the running-mean intensity, FFT round-trip, and end-to-end
+  drive-frequency recovery. (Also fixes a Phase 1 wart: placing a probe — or
+  otherwise a non-drag pointer-up — no longer clears a scene's driven source.)
 - **Wave system, Phase 1 — structured media** (docs/proposals/wave-system.md):
   the interactive wave field gains a heterogeneous medium (per-cell wave speed
   `c(x,y)`) and solid reflecting obstacles, plus a **Scene** preset menu —

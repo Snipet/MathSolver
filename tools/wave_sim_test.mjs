@@ -5,6 +5,7 @@
 //
 //   node tools/wave_sim_test.mjs
 import { WaveSim, MAX_COURANT } from "../web/src/lib/wave/sim.ts";
+import { magnitudeSpectrum, fftRadix2 } from "../web/src/lib/wave/spectrum.ts";
 
 let pass = 0;
 let fail = 0;
@@ -378,6 +379,137 @@ function gradRatio(sim) {
   check(
     "clearScene restores a uniform, obstacle-free medium",
     sim.hasScene === false && sim.scaleAt(20, 20) === 1 && !sim.isSolid(20, 20),
+  );
+}
+
+// --- 14. probes: record u(t) and read it back chronologically -------------
+{
+  const sim = new WaveSim(60, 40, { speed: 0.6, boundary: "fixed" });
+  sim.setMeasuring(true);
+  const id = sim.addProbe(30, 20);
+  check("addProbe returns an index and bumps the count", id === 0 && sim.probeCount === 1);
+  // No samples until a step runs.
+  check("probe series is empty before stepping", sim.probeSeries(0).length === 0);
+  sim.setSource(30, 20, 0.05, 0.4, 2);
+  for (let k = 0; k < 300; k++) sim.step();
+  const series = sim.probeSeries(0);
+  check(
+    "probe records a non-trivial time-series at its cell",
+    series.length > 100 && series.some((v) => Math.abs(v) > 1e-3),
+    `len=${series.length}`,
+  );
+  // A probe far from the (fixed-wall-)decoupled source region still exists.
+  sim.clearProbes();
+  check("clearProbes empties the probe set", sim.probeCount === 0);
+}
+
+// --- 15. probe ring keeps only the most recent PROBE_CAP samples -----------
+{
+  const sim = new WaveSim(30, 30, { speed: 0.6, boundary: "free" });
+  sim.setMeasuring(true);
+  sim.addProbe(15, 15);
+  sim.poke(15, 15, 4, 1);
+  const cap = WaveSim.PROBE_CAP;
+  for (let k = 0; k < cap + 500; k++) sim.step();
+  const series = sim.probeSeries(0);
+  check("probe ring caps at PROBE_CAP samples", series.length === cap, `len=${series.length}`);
+  // Chronological order: last sample equals the current field value at the cell.
+  const last = series[series.length - 1];
+  check("probe series ends at the current sample", Math.abs(last - sim.cur[sim.idx(15, 15)]) < 1e-6);
+}
+
+// --- 16. intensity field: time-averaged ⟨u²⟩, resettable -------------------
+{
+  const sim = new WaveSim(80, 60, { speed: 0.6, damping: 0, boundary: "fixed" });
+  sim.setMeasuring(true);
+  sim.setSource(25, 30, 0.05, 0.5, 3);
+  for (let k = 0; k < 500; k++) sim.step();
+  const I = sim.intensityField();
+  const near = I[sim.idx(25, 30)];
+  const far = I[sim.idx(70, 30)];
+  check(
+    "intensity accumulates and is largest near the source",
+    sim.intensitySamples === 500 && near > 0 && near > far,
+    `near=${near.toExponential(2)} far=${far.toExponential(2)}`,
+  );
+  // The running mean must equal the true mean of u² for a probed cell.
+  sim.resetIntensity();
+  check("resetIntensity clears the average", sim.intensitySamples === 0 && sim.intensityField()[0] === 0);
+  const probeCell = sim.idx(40, 30);
+  let sum = 0;
+  const M = 200;
+  for (let k = 0; k < M; k++) {
+    sim.step();
+    sum += sim.cur[probeCell] ** 2;
+  }
+  const trueMean = sum / M;
+  const got = sim.intensityField()[probeCell];
+  check(
+    "intensity running mean matches the true time-average of u²",
+    Math.abs(got - trueMean) < 1e-6 * Math.max(1, trueMean) + 1e-9,
+    `got=${got.toExponential(3)} true=${trueMean.toExponential(3)}`,
+  );
+}
+
+// --- 17. measuring flag gates the cost (no probes recorded when off) -------
+{
+  const sim = new WaveSim(40, 40, { speed: 0.6 });
+  sim.addProbe(20, 20); // measuring is OFF by default
+  sim.poke(20, 20, 4, 1);
+  for (let k = 0; k < 50; k++) sim.step();
+  check("no recording while measuring is off", sim.probeSeries(0).length === 0 && sim.intensitySamples === 0);
+}
+
+// --- 18. FFT: inverse round-trips a known signal ---------------------------
+{
+  const N = 64;
+  const re = new Float32Array(N);
+  const im = new Float32Array(N);
+  const orig = new Float32Array(N);
+  for (let k = 0; k < N; k++) {
+    orig[k] = Math.sin((2 * Math.PI * 5 * k) / N) + 0.4 * Math.cos((2 * Math.PI * 11 * k) / N);
+    re[k] = orig[k];
+  }
+  fftRadix2(re, im, -1); // forward
+  fftRadix2(re, im, +1); // inverse (unscaled)
+  let err = 0;
+  for (let k = 0; k < N; k++) err = Math.max(err, Math.abs(re[k] / N - orig[k]));
+  check("FFT forward∘inverse round-trips (÷N)", err < 1e-5, `err=${err.toExponential(2)}`);
+}
+
+// --- 19. spectrum: a pure sinusoid peaks at its frequency ------------------
+{
+  const N = 512;
+  const f = 0.08; // cycles/step
+  const sig = new Float32Array(N);
+  for (let k = 0; k < N; k++) sig[k] = Math.sin(2 * Math.PI * f * k);
+  const spec = magnitudeSpectrum(sig);
+  check(
+    "spectrum peak lands on the sinusoid frequency",
+    Math.abs(spec.peakFreq - f) < 1.5 / spec.n,
+    `peak=${spec.peakFreq.toFixed(4)} want=${f}`,
+  );
+  // Mean-offset (DC) must not create the peak — detrending handles it.
+  const sig2 = new Float32Array(N);
+  for (let k = 0; k < N; k++) sig2[k] = 3 + Math.sin(2 * Math.PI * f * k);
+  const spec2 = magnitudeSpectrum(sig2);
+  check("spectrum ignores a DC offset", Math.abs(spec2.peakFreq - f) < 1.5 / spec2.n, `peak=${spec2.peakFreq.toFixed(4)}`);
+  check("spectrum of a too-short signal is empty", magnitudeSpectrum(new Float32Array(4)).freq.length === 0);
+}
+
+// --- 20. end-to-end: a driven source's probe spectrum recovers its freq ----
+{
+  const sim = new WaveSim(120, 90, { speed: 0.6, damping: 0.02, boundary: "absorbing" });
+  sim.setMeasuring(true);
+  const driveFreq = 0.06; // cycles/step
+  sim.setSource(60, 45, driveFreq, 0.5, 3);
+  sim.addProbe(80, 45); // downstream of the source
+  for (let k = 0; k < 1500; k++) sim.step();
+  const spec = magnitudeSpectrum(sim.probeSeries(0));
+  check(
+    "driven-source probe spectrum recovers the drive frequency",
+    Math.abs(spec.peakFreq - driveFreq) < 3 / spec.n,
+    `peak=${spec.peakFreq.toFixed(4)} drive=${driveFreq}`,
   );
 }
 

@@ -1,6 +1,6 @@
 # Proposal: Overhauling the Wave System
 
-Status: **in progress** — Phase 1 building. This document is the roadmap for
+Status: **in progress** — Phases 1–2 shipped. This document is the roadmap for
 turning the interactive wave field from a "ripple tank" into a "wave
 laboratory". Grounded in `web/src/lib/wave/sim.ts`, `WaveField.svelte`, the
 console `wave` command, and the analytical `pde.wave` (plugins/pde).
@@ -71,9 +71,14 @@ analytic modes.
 
 - **Phase 1 — Structured media (flagship).** Per-cell `c(x,y)` + obstacle mask +
   a preset gallery (double-slit, single-slit, lens, waveguide, refraction).
-  **← building now.**
+  **✓ shipped.**
 - **Phase 2 — Instrumentation.** Probes → time-series → FFT spectrum + intensity
-  field.
+  field. **✓ shipped:** click-to-place receivers record `u(t)` into a ring
+  buffer; a dependency-free radix-2 FFT (`web/src/lib/wave/spectrum.ts`, linear
+  detrend + Hann window) renders a live per-probe magnitude spectrum with a
+  peak-frequency readout (cycles/step + period); a Wave⇄Intensity view toggle
+  paints the running-mean intensity field `⟨u²⟩` that freezes diffraction /
+  interference fringes into a quantitative heatmap.
 - **Phase 3 — Physics packs.** Klein–Gordon, sine-Gordon solitons, PML, 9-point
   Laplacian.
 - **Phase 4 — Authoring & analytics.** Scene share-links, CAS-driven ICs, and
