@@ -8,7 +8,8 @@ export type TabId =
   | "derivative"
   | "integral"
   | "evaluate"
-  | "plot";
+  | "plot"
+  | "wave";
 
 export interface TabDef {
   id: TabId;
@@ -65,5 +66,13 @@ export const TABS: TabDef[] = [
     label: "Plot",
     placeholder: "Function of one variable, e.g. sin(x)/x",
     examples: ["sin(x)/x", "x^3 - 3x"],
+  },
+  {
+    // A full-canvas interactive tool: it has no expression input, so App.svelte
+    // special-cases it (like nothing else) — placeholder/examples stay empty.
+    id: "wave",
+    label: "Wave",
+    placeholder: "",
+    examples: [],
   },
 ];

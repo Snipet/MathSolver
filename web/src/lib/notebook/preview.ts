@@ -133,6 +133,9 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
     case "dsolve":
       // The ODE prime grammar (y'' …) is not an expression; no live preview.
       return NONE;
+    case "wave":
+      // Launches an interactive field, not a computed expression.
+      return NONE;
     case "sum":
     case "product": {
       if (!expr) return NONE;

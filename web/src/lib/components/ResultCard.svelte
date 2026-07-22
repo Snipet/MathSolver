@@ -10,6 +10,7 @@
   import ResultEvaluate from "./ResultEvaluate.svelte";
   import PluginResult from "./PluginResult.svelte";
   import SeriesChart from "./SeriesChart.svelte";
+  import WaveField from "./WaveField.svelte";
   import SpanHighlight from "./SpanHighlight.svelte";
   import Katex from "./Katex.svelte";
 
@@ -22,7 +23,8 @@
       outcome.kind !== "assignment" &&
       outcome.kind !== "plugin" &&
       outcome.kind !== "chart" &&
-      outcome.kind !== "vecfield"
+      outcome.kind !== "vecfield" &&
+      outcome.kind !== "wave"
       ? (outcome.computedFrom ?? null)
       : null,
   );
@@ -63,6 +65,14 @@
         </div>
       {:else if outcome.kind === "vecfield"}
         <VectorFieldChart fx={outcome.fx} fy={outcome.fy} result={outcome.result} />
+      {:else if outcome.kind === "wave"}
+        <WaveField
+          compact
+          columns={outcome.columns}
+          speed={outcome.speed}
+          damping={outcome.damping}
+          boundary={outcome.boundary}
+        />
       {:else if outcome.kind === "assignment"}
         <div class="assignment">
           <Katex latex={outcome.latex} display />
