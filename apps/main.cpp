@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <complex>
 #include <cstdio>
 #include <cstdlib>
 #include <iostream>
@@ -672,8 +673,43 @@ void run_integrate(const std::string& input, const std::string& explicit_var,
     }
 }
 
+/// Render a complex value as a + b*i, chopping rounding dust so Euler's
+/// formula reads cleanly (e^(i*pi) -> -1, not -1 + 1.2e-16*i).
+std::string format_complex(std::complex<double> z) {
+    double re = z.real();
+    double im = z.imag();
+    const double scale = std::max({1.0, std::abs(re), std::abs(im)});
+    if (std::abs(re) < 1e-12 * scale) re = 0.0;
+    if (std::abs(im) < 1e-12 * scale) im = 0.0;
+    if (im == 0.0) {
+        return std::format("{}", re);
+    }
+    const auto imag_only = [](double v) {
+        if (v == 1.0) return std::string("i");
+        if (v == -1.0) return std::string("-i");
+        return std::format("{}*i", v);
+    };
+    if (re == 0.0) {
+        return imag_only(im);
+    }
+    const std::string sign = im < 0.0 ? " - " : " + ";
+    const double mag = std::abs(im);
+    const std::string term = mag == 1.0 ? "i" : std::format("{}*i", mag);
+    return std::format("{}{}{}", re, sign, term);
+}
+
 void run_eval(const std::string& input, const Bindings& bindings) {
     const Expr e = parse_expression_diag(input);
+    // A complex expression (contains the imaginary unit) evaluates over C; the
+    // real path stays real-only and its verification guarantees intact.
+    if (contains_constant(e, ConstantId::I)) {
+        ComplexBindings cb;
+        for (const auto& [name, value] : bindings) {
+            cb.emplace(name, std::complex<double>(value, 0.0));
+        }
+        std::println("{}", format_complex(evaluate_complex(e, cb)));
+        return;
+    }
     std::println("{}", evaluate(e, bindings));
 }
 

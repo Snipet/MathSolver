@@ -295,6 +295,17 @@ TEST_CASE("cli: eval with bindings") {
     CHECK(r.output == "9.5\n");
 }
 
+TEST_CASE("cli: eval over the complex domain") {
+    // A complex expression evaluates over C and prints a + b*i.
+    CHECK(run_cli({"eval", "(2+3i)*(1-i)"}).output == "5 + i\n");
+    CHECK(run_cli({"eval", "1/(1+i)"}).output == "0.5 - 0.5*i\n");
+    CHECK(run_cli({"eval", "2*i"}).output == "2*i\n");
+    CHECK(run_cli({"eval", "abs(3+4i)"}).output == "5\n"); // modulus
+    // Euler's formula, chopped clean.
+    CHECK(run_cli({"eval", "e^(i*pi)"}).output == "-1\n");
+    CHECK(run_cli({"eval", "e^(i*pi/2)"}).output == "i\n");
+}
+
 TEST_CASE("cli: eval without bindings evaluates constants") {
     const RunResult r = run_cli({"eval", "e^2"});
     INFO(r.output);

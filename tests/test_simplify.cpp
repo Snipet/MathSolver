@@ -687,3 +687,67 @@ TEST_CASE("simplify: inverse hyperbolic special values and round-trips") {
     // acosh(cosh(x)) is NOT x for negative x; must stay put.
     CHECK(S("acosh(cosh(x))") == "acosh(cosh(x))");
 }
+
+TEST_CASE("simplify: exact complex (Gaussian) folding to a + b*i") {
+    // Products and powers of complex constants collapse to canonical a + b*i,
+    // matching what expand() already produces.
+    expect_simplifies("(1+i)*(1-i)", "2");
+    expect_simplifies("(2+3i)*(1-i)", "5 + i");
+    expect_simplifies("(1+i)^2", "2*i");
+    expect_simplifies("(1+i)^3", "-2 + 2*i");
+    expect_simplifies("i*i", "-1");
+    // Integer powers of i cycle; large powers do not spin (square-and-multiply).
+    expect_simplifies("i^7", "-i");
+    expect_simplifies("i^100", "1");
+    expect_simplifies("i^(-1)", "-i");
+    // Rationalized complex denominators — the Phase 1 headline.
+    expect_simplifies("1/i", "-i");
+    expect_simplifies("1/(1+i)", "1/2 - i/2");
+    expect_simplifies("1/(3+4i)", "3/25 - 4*i/25");
+    expect_simplifies("(3+i)/(1-i)", "1 + 2*i");
+    expect_simplifies("(1+i)^(-2)", "-i/2");
+}
+
+TEST_CASE("simplify: complex folding is scoped — symbolic and real untouched") {
+    // A symbol anywhere blocks the Gaussian fold; simplify never distributes.
+    expect_unchanged("x + i");
+    expect_unchanged("i + x"); // canonical order already
+    expect_unchanged("2*(i + x)");
+    expect_unchanged("(i + x)*(x - i)"); // no conjugate expansion for symbolic x
+    expect_unchanged("1/(i + x)");       // no rationalizing over an unknown-sign x
+    // The real-arithmetic path is entirely unaffected.
+    expect_simplifies("2*3 + 4", "10");
+    expect_simplifies("sqrt(8)", "2*sqrt(2)");
+    expect_unchanged("1/(x + 1)");
+}
+
+TEST_CASE("simplify: complex accessors on numeric arguments") {
+    const auto S = [](std::string_view s) {
+        return to_string(simplify(parse_expression(s)), PrintStyle::Plain);
+    };
+    // conj/Re/Im fold on Gaussian arguments; abs is the modulus.
+    CHECK(S("conj(2+3i)") == "-3*i + 2");
+    CHECK(S("Re(2+3i)") == "2");
+    CHECK(S("Im(2+3i)") == "3");
+    CHECK(S("conj(i)") == "-i");
+    CHECK(S("conj(conj(2+3i))") == "3*i + 2");
+    CHECK(S("abs(3+4i)") == "5");    // sqrt(25) normalized
+    CHECK(S("abs(1+i)") == "sqrt(2)");
+    // A symbolic argument stays unevaluated (a symbol's realness is not assumed).
+    CHECK(S("conj(x)") == "conj(x)");
+    CHECK(S("Re(x + i)") == "Re(i + x)");
+    CHECK(S("Im(x)") == "Im(x)");
+}
+
+TEST_CASE("simplify: complex folding is idempotent") {
+    const auto S = [](std::string_view s) {
+        return simplify(parse_expression(s));
+    };
+    for (const auto* s : {"1/(1+i)", "(3+i)/(1-i)", "(1+i)^5", "1/(3+4i)",
+                          "(2+3i)*(1-i)", "i^100"}) {
+        const Expr once = S(s);
+        const Expr twice = simplify(once);
+        INFO("input: " << s << " once " << debug_string(once));
+        CHECK(structurally_equal(once, twice));
+    }
+}
