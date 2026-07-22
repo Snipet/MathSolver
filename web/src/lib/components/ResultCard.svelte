@@ -100,12 +100,14 @@
   .result-region {
     min-height: 0;
   }
+  /* The answer reads as a gently-highlighted output cell (a whisper of accent
+     tint + a neutral hairline), not a heavy blockquote with a thick accent bar
+     — the solid --accent is reserved for interactive elements. */
   .card {
-    background: var(--bg-panel);
+    background: var(--accent-soft);
     border: 1px solid var(--border);
-    border-left: 3px solid var(--accent);
     border-radius: var(--radius);
-    padding: 1rem 1.25rem;
+    padding: 0.85rem 1.1rem;
     box-shadow: var(--shadow-sm);
   }
   /* Tighten the typeset display so a short answer doesn't float in a tall,
@@ -114,8 +116,7 @@
     margin: 0.3em 0 0.1em;
   }
   .error-card {
-    border-color: color-mix(in srgb, var(--error) 50%, var(--border));
-    border-left-color: var(--error);
+    border-color: color-mix(in srgb, var(--error) 45%, var(--border));
     background: color-mix(in srgb, var(--error) 6%, var(--bg-panel));
   }
   /* Console cells render flat: no box, results sit directly on the page. */

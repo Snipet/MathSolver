@@ -68,10 +68,10 @@
   }
   h2 {
     margin: 0;
-    font-family: var(--font-serif);
-    font-size: 1.08rem;
+    font-family: var(--font-sans);
+    font-size: 1rem;
     font-weight: 600;
-    letter-spacing: 0;
+    letter-spacing: -0.01em;
     color: var(--fg);
   }
   .clear {

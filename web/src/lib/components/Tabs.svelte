@@ -50,15 +50,16 @@
     scrollbar-width: thin;
   }
   button {
-    font-family: var(--font-serif);
-    font-size: 1.04rem;
-    letter-spacing: 0.005em;
+    font-family: var(--font-sans);
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 0;
     color: var(--fg-muted);
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
     margin-bottom: -1px;
-    padding: 0.5rem 0.85rem 0.55rem;
+    padding: 0.5rem 0.8rem 0.55rem;
     cursor: pointer;
     white-space: nowrap;
     flex: 0 0 auto;
