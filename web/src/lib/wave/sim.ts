@@ -63,6 +63,38 @@ export const MIN_SCALE = 0.2;
 export const MAX_MASS = 2;
 export const MAX_COUPLING_SINE = 0.5;
 
+/**
+ * Bessel function J_m(x) via its power series — accurate for the arguments a
+ * drumhead eigenmode needs (|x| ≲ 12). Used to seed circular-membrane modes.
+ */
+export function besselJ(m: number, x: number): number {
+  let term = Math.pow(x / 2, m);
+  for (let k = 1; k <= m; k++) term /= k; // (x/2)^m / m!
+  let sum = 0;
+  for (let k = 0; k < 40; k++) {
+    sum += term;
+    term *= -((x * x) / 4) / ((k + 1) * (k + 1 + m));
+  }
+  return sum;
+}
+
+/** First positive zeros α_{m,n} of J_m (m = 0..2, n = 1..3) — a drumhead's
+ *  eigenfrequencies are ω_{m,n} = c·α_{m,n}/R. */
+export const BESSEL_ZEROS: Record<number, number[]> = {
+  0: [2.404825558, 5.520078110, 8.653727913],
+  1: [3.831705970, 7.015586670, 10.17346814],
+  2: [5.135622302, 8.417244140, 11.61984117],
+};
+
+/** Inscribed circular-cavity geometry for a drumhead on an nx×ny grid. */
+export function drumGeom(nx: number, ny: number): { cx: number; cy: number; R: number } {
+  return {
+    cx: (nx - 1) / 2,
+    cy: (ny - 1) / 2,
+    R: Math.max(6, Math.floor(Math.min(nx, ny) / 2) - 3),
+  };
+}
+
 /** −h²∇² symbol maxima: 8 (5-point), 16/3 (9-point isotropic). Set the CFL. */
 const LAPLACE_MAX_5 = 8;
 const LAPLACE_MAX_9 = 16 / 3;
@@ -666,6 +698,43 @@ export class WaveSim {
         this.prev[k] = past;
       }
     }
+  }
+
+  /**
+   * Seed a circular-membrane **drumhead eigenmode**: mask an inscribed disk as
+   * a fixed cavity and set `u = J_m(α_{m,n}·r/R)·cos(mθ)` at rest — the exact
+   * analytic mode of a clamped circular membrane, which rings at the Bessel
+   * eigenfrequency `ω = c·α_{m,n}/R`. The FDTD then reproduces that frequency
+   * (the analytic ⇄ numeric verification bridge, tools/wave_sim_test.mjs).
+   * Resets to the linear model (a membrane obeys the plain wave equation).
+   */
+  seedDrumheadMode(m = 1, n = 1): void {
+    this._model = "linear";
+    const zeros = BESSEL_ZEROS[m] ?? BESSEL_ZEROS[0];
+    const alpha = zeros[Math.max(0, Math.min(zeros.length - 1, n - 1))];
+    const { cx, cy, R } = drumGeom(this.nx, this.ny);
+    this.reset();
+    this.setSolid((i, j) => Math.hypot(i - cx, j - cy) > R);
+    const { nx, ny } = this;
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const r = Math.hypot(i - cx, j - cy);
+        if (r > R) continue; // outside the cavity: held at 0 by setSolid
+        const th = Math.atan2(j - cy, i - cx);
+        const v = besselJ(m, (alpha * r) / R) * Math.cos(m * th);
+        const k = j * nx + i;
+        this.cur[k] = v;
+        this.prev[k] = v; // at rest → a standing mode
+      }
+    }
+  }
+
+  /** Analytic angular frequency (rad/step) of drumhead mode (m, n) on this
+   *  grid: ω = κ·α_{m,n}/R. For the verification bridge and overlays. */
+  drumheadOmega(m = 1, n = 1): number {
+    const zeros = BESSEL_ZEROS[m] ?? BESSEL_ZEROS[0];
+    const alpha = zeros[Math.max(0, Math.min(zeros.length - 1, n - 1))];
+    return (this.courant * alpha) / drumGeom(this.nx, this.ny).R;
   }
 
   /**

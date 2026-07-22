@@ -15,6 +15,8 @@
   } from "../wave/sim";
   import { WAVE_SCENES, buildScene } from "../wave/scenes";
   import { magnitudeSpectrum } from "../wave/spectrum";
+  import { encodeWave, decodeWave, type WaveConfig } from "../wave/share";
+  import { call } from "../engine";
 
   interface Props {
     /** Console cells pass compact=true for a smaller field + condensed controls. */
@@ -95,6 +97,14 @@
   let stencilV = $state<Stencil>("five");
   const massMax = $derived(modelV === "sine-gordon" ? MAX_COUPLING_SINE : MAX_MASS);
   const massLabel = $derived(modelV === "sine-gordon" ? "Coupling" : "Mass");
+
+  // --- authoring (Phase 4): CAS initial conditions + share links ------------
+  // u(x,y,0) = f(x,y): a CAS expression sampled onto the grid (via the engine)
+  // and seeded as the starting field. Empty = no CAS IC.
+  let icExpr = $state("");
+  let icError = $state("");
+  let icBusy = $state(false);
+  let shareLabel = $state("Share link");
 
   const HEIGHT = untrack(() => (compact ? 240 : 604));
   const STEPS_PER_FRAME = 2; // temporal oversampling for smoother propagation
@@ -189,6 +199,9 @@
 
   function selectScene(id: string): void {
     sceneId = id;
+    // The drumhead seeds a linear eigenmode; keep the model in sync so the
+    // control effect doesn't push a reaction term back over it.
+    if (id === "drumhead") modelV = "linear";
     const s = sim;
     if (s) applyScene(s, id, true);
   }
@@ -264,6 +277,140 @@
     touched = true;
     running = true;
   }
+
+  // --- CAS initial conditions -----------------------------------------------
+  /** Sample u(x,y,0)=f(x,y) over the grid (via the engine) and seed it at rest.
+   *  The grid maps to an isotropic square domain x,y ∈ [-D, D·ny/nx]. */
+  async function applyIC(): Promise<void> {
+    const s = sim;
+    const expr = icExpr.trim();
+    if (!s || !expr) return;
+    icBusy = true;
+    icError = "";
+    try {
+      const D = 3;
+      const x0 = -D;
+      const x1 = D;
+      const dy = (D * (s.ny - 1)) / (s.nx - 1); // equal per-cell spacing (isotropic)
+      const gr = await call("sampleGrid", [expr, "x", "y", x0, x1, s.nx, -dy, dy, s.ny]);
+      if (!gr.ok) {
+        icError = gr.error || "could not evaluate";
+        return;
+      }
+      const g = gr.g;
+      let peak = 0;
+      for (const v of g) if (v != null && Number.isFinite(v)) peak = Math.max(peak, Math.abs(v));
+      if (peak < 1e-12) {
+        icError = "expression is flat (all zero)";
+        return;
+      }
+      const norm = 1 / peak;
+      s.reset();
+      // sampleGrid is row-major (row j, col i) matching sim.idx(i,j).
+      for (let k = 0; k < g.length && k < s.cur.length; k++) {
+        const v = g[k];
+        const d = v != null && Number.isFinite(v) ? v * norm : 0;
+        s.cur[k] = d;
+        s.prev[k] = d; // start at rest
+      }
+      scale = 0.4;
+      touched = true;
+      running = true;
+    } catch (e) {
+      icError = e instanceof Error ? e.message : "failed";
+    } finally {
+      icBusy = false;
+    }
+  }
+
+  // --- share links ----------------------------------------------------------
+  /** Snapshot the current controls into a shareable config. */
+  function currentConfig(): WaveConfig {
+    return {
+      v: 1,
+      scene: sceneId,
+      boundary: boundaryV,
+      speed: speedV,
+      damping: dampingV,
+      freq: freqV,
+      src: srcMode,
+      brush,
+      strength,
+      robin: robinV,
+      filterType,
+      cutoff: filterCutoffV,
+      reflect: filterReflectV,
+      model: modelV,
+      mass: massV,
+      stencil: stencilV,
+      color: colormap,
+      view: viewMode,
+      cols,
+      ic: icExpr.trim().slice(0, 512),
+    };
+  }
+
+  /** Apply a decoded config: set every control, then re-lay scene / IC. */
+  function applyConfig(cfg: WaveConfig): void {
+    speedV = cfg.speed;
+    dampingV = cfg.damping;
+    freqV = cfg.freq;
+    srcMode = cfg.src;
+    brush = cfg.brush;
+    strength = cfg.strength;
+    boundaryV = cfg.boundary;
+    robinV = cfg.robin;
+    filterType = cfg.filterType;
+    filterCutoffV = cfg.cutoff;
+    filterReflectV = cfg.reflect;
+    modelV = cfg.model;
+    massV = cfg.mass;
+    stencilV = cfg.stencil;
+    colormap = cfg.color;
+    viewMode = cfg.view;
+    cols = cfg.cols;
+    sceneId = cfg.scene;
+    icExpr = cfg.ic;
+    // Re-establish the field: an IC wins over a scene's demo source.
+    untrack(() => {
+      const s = sim;
+      if (!s) return;
+      if (cfg.ic) {
+        void applyIC();
+      } else if (cfg.scene !== "empty") {
+        applyScene(s, cfg.scene, true);
+      }
+    });
+  }
+
+  /** Build a share URL for the current setup and copy it to the clipboard. */
+  async function shareLink(): Promise<void> {
+    const url = `${location.origin}${location.pathname}#wave=${encodeWave(currentConfig())}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      shareLabel = "Copied!";
+    } catch {
+      // Clipboard blocked (e.g. insecure context): drop the link into the URL
+      // bar so it can still be copied manually.
+      location.hash = `wave=${encodeWave(currentConfig())}`;
+      shareLabel = "In address bar";
+    }
+    setTimeout(() => (shareLabel = "Share link"), 1800);
+  }
+
+  // Restore a shared setup from the URL hash once, on first mount.
+  let restored = false;
+  $effect(() => {
+    const s = sim;
+    if (!s || restored) return;
+    restored = true;
+    untrack(() => {
+      const m = /(?:^|[#&])wave=([^&]+)/.exec(location.hash);
+      if (!m) return;
+      const cfg = decodeWave(decodeURIComponent(m[1]));
+      if (cfg) applyConfig(cfg);
+    });
+  });
 
   function resample(from: WaveSim, to: WaveSim): void {
     for (let j = 0; j < to.ny; j++) {
@@ -874,6 +1021,34 @@
           </select>
         </div>
       </section>
+
+      <!-- Authoring: CAS initial condition + share link ------------------- -->
+      <section class="group">
+        <h3 class="group-title">Authoring</h3>
+        <span class="subhead">Initial condition u(x,y,0)</span>
+        <form class="ic-row" onsubmit={(e) => { e.preventDefault(); applyIC(); }}>
+          <input
+            class="ic-input"
+            type="text"
+            bind:value={icExpr}
+            spellcheck="false"
+            autocomplete="off"
+            autocapitalize="off"
+            placeholder="e.g. exp(-4(x^2+y^2))·cos(9x)"
+            aria-label="Initial-condition expression f(x, y)"
+          />
+          <button class="mini-btn" type="submit" disabled={icBusy || !icExpr.trim()} title="Sample f(x,y) onto the grid as the starting field">
+            {icBusy ? "…" : "Set"}
+          </button>
+        </form>
+        {#if icError}
+          <span class="ic-error" role="alert">{icError}</span>
+        {/if}
+        <button class="action-btn" onclick={shareLink} title="Copy a link that reproduces this exact setup">
+          <svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="8" r="1.8"/><circle cx="11.5" cy="4" r="1.8"/><circle cx="11.5" cy="12" r="1.8"/><path d="M6.1 7.2 9.9 4.8M6.1 8.8l3.8 2.4"/></svg>
+          {shareLabel}
+        </button>
+      </section>
     {/if}
   </div>
 
@@ -1334,6 +1509,43 @@
   .mini-btn:hover {
     color: var(--accent);
     border-color: var(--accent);
+  }
+  .mini-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .mini-btn:disabled:hover {
+    color: var(--fg-muted);
+    border-color: var(--border);
+  }
+
+  /* CAS initial-condition input --------------------------------------------- */
+  .ic-row {
+    display: flex;
+    gap: 0.4rem;
+    align-items: stretch;
+  }
+  .ic-input {
+    flex: 1;
+    min-width: 0;
+    font: inherit;
+    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    color: var(--fg);
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) / 1.5);
+    padding: 0.4rem 0.5rem;
+    transition: border-color 120ms ease;
+  }
+  .ic-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .ic-error {
+    font-size: 0.7rem;
+    color: var(--danger, #e5484d);
+    word-break: break-word;
   }
 
   /* Canvas stage ------------------------------------------------------------ */

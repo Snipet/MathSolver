@@ -9,6 +9,9 @@ import {
   MAX_COURANT,
   MAX_MASS,
   MAX_COUPLING_SINE,
+  besselJ,
+  BESSEL_ZEROS,
+  drumGeom,
 } from "../web/src/lib/wave/sim.ts";
 import { magnitudeSpectrum, fftRadix2 } from "../web/src/lib/wave/spectrum.ts";
 
@@ -714,6 +717,121 @@ function gradRatio(sim) {
   s.mass = 99;
   check("sine-Gordon coupling clamps to MAX_COUPLING_SINE", s.mass === MAX_COUPLING_SINE);
   check("the caps are ordered (nonlinear coupling is held lower)", MAX_COUPLING_SINE < MAX_MASS);
+}
+
+// --- 27. Bessel J_m: known values and zeros --------------------------------
+{
+  const j00 = besselJ(0, 0);
+  const j10 = besselJ(1, 0);
+  const atZero0 = besselJ(0, BESSEL_ZEROS[0][0]); // J0 at its first zero
+  const atZero1 = besselJ(1, BESSEL_ZEROS[1][0]); // J1 at its first zero
+  check(
+    "besselJ matches known values (J0(0)=1, J1(0)=0) and vanishes at its zeros",
+    Math.abs(j00 - 1) < 1e-9 &&
+      Math.abs(j10) < 1e-9 &&
+      Math.abs(atZero0) < 1e-6 &&
+      Math.abs(atZero1) < 1e-6,
+    `J0(0)=${j00.toFixed(4)} J1(0)=${j10.toFixed(4)} J0(α01)=${atZero0.toExponential(1)}`,
+  );
+}
+
+// --- 28. verification bridge: rectangular membrane FDTD vs continuous ω -----
+// The FDTD's discrete eigenfrequency must match the CONTINUOUS analytic
+// membrane frequency ω = c·π·√((p/Lx)² + (q/Ly)²) to O(h²) — the numeric ⇄
+// analytic bridge for a clamped rectangular drum.
+{
+  const sim = new WaveSim(129, 129, { speed: 0.6, boundary: "fixed" });
+  let worst = 0;
+  for (const [p, q] of [[1, 1], [2, 3], [3, 2]]) {
+    const wd = discreteOmega(sim, p, q);
+    const wc = sim.courant * Math.PI * Math.hypot(p / (sim.nx - 1), q / (sim.ny - 1));
+    worst = Math.max(worst, Math.abs(wd - wc) / wc);
+  }
+  check(
+    "rectangular membrane: FDTD frequency matches the continuous analytic ω",
+    worst < 0.01,
+    `worst rel. error = ${(worst * 100).toFixed(3)}%`,
+  );
+}
+
+// --- 29. verification bridge: circular drumhead Bessel eigenfrequency -------
+// Seed the exact J_m(α r/R)cos(mθ) mode in a masked circular cavity; the FDTD
+// must ring at the Bessel eigenfrequency ω = c·α_{m,n}/R (measured by FFT).
+{
+  const probeFreq = (m, n, R) => {
+    const N = 2 * R + 13;
+    const { cx, cy } = drumGeom(N, N);
+    const sim = new WaveSim(N, N, { speed: 0.5, damping: 0, boundary: "fixed" });
+    sim.seedDrumheadMode(m, n);
+    const pi = Math.round(cx + (m === 0 ? R * 0.25 : R * 0.45));
+    const pj = Math.round(cy);
+    const ser = new Float32Array(2048);
+    for (let s = 0; s < 2048; s++) {
+      sim.step();
+      ser[s] = sim.cur[sim.idx(pi, pj)];
+    }
+    const meas = 2 * Math.PI * magnitudeSpectrum(ser).peakFreq;
+    return { meas, ana: sim.drumheadOmega(m, n), peak: sim.maxAbs() };
+  };
+  // The higher modes are cleaner (the fundamental is most affected by the
+  // staircased rim and coarse FFT); check a couple within a tight tolerance.
+  const a = probeFreq(1, 1, 70);
+  const b = probeFreq(2, 1, 70);
+  check(
+    "circular drumhead: FDTD rings at the analytic Bessel eigenfrequency",
+    Math.abs(a.meas - a.ana) / a.ana < 0.04 &&
+      Math.abs(b.meas - b.ana) / b.ana < 0.04 &&
+      a.peak < 5 &&
+      b.peak < 5,
+    `J1,1 err=${((100 * Math.abs(a.meas - a.ana)) / a.ana).toFixed(1)}% J2,1 err=${((100 * Math.abs(b.meas - b.ana)) / b.ana).toFixed(1)}%`,
+  );
+}
+
+// --- 30. d'Alembert: an exact right-travelling plane wave ------------------
+// A discrete plane wave sin(k·i − ω·n) with ω = 2·asin(κ·sin(k/2)) is an exact
+// solution of the leapfrog. Seeded with the correct one-step-past field and a
+// free (uniform-in-y) edge, it must translate rigidly — d'Alembert.
+{
+  const nx = 160;
+  const ny = 8;
+  const k = (2 * Math.PI) / 22; // wavelength 22 cells
+  const sim = new WaveSim(nx, ny, { speed: 0.6, damping: 0, boundary: "free" });
+  const w = 2 * Math.asin(sim.courant * Math.sin(k / 2));
+  for (let j = 0; j < ny; j++)
+    for (let i = 0; i < nx; i++) {
+      const kk = sim.idx(i, j);
+      sim.cur[kk] = Math.sin(k * i);
+      sim.prev[kk] = Math.sin(k * i + w); // one step in the past (n = −1)
+    }
+  const N = 30;
+  sim.step(N);
+  let maxErr = 0;
+  const j = ny >> 1;
+  for (let i = 45; i <= 105; i++) {
+    // Interior band, away from the x-edges the reflections haven't reached.
+    maxErr = Math.max(maxErr, Math.abs(sim.cur[sim.idx(i, j)] - Math.sin(k * i - w * N)));
+  }
+  check(
+    "d'Alembert plane wave translates rigidly (exact discrete solution)",
+    maxErr < 1e-4,
+    `interior maxErr=${maxErr.toExponential(2)}, phase speed ω/k=${(w / k).toFixed(4)}`,
+  );
+}
+
+// --- 31. drumhead scene lifecycle ------------------------------------------
+{
+  const sim = new WaveSim(90, 70, { speed: 0.5, boundary: "fixed" });
+  sim.seedDrumheadMode(1, 1);
+  const { cx, cy, R } = drumGeom(sim.nx, sim.ny);
+  check(
+    "seedDrumheadMode masks a circular cavity and seeds a non-trivial field",
+    sim.hasScene &&
+      sim.isSolid(Math.round(cx + R + 2), Math.round(cy)) &&
+      !sim.isSolid(Math.round(cx), Math.round(cy)) &&
+      sim.maxAbs() > 0.1 &&
+      sim.model === "linear",
+    `maxAbs=${sim.maxAbs().toFixed(2)} model=${sim.model}`,
+  );
 }
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);

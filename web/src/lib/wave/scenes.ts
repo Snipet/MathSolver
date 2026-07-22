@@ -4,7 +4,7 @@
 // self-demonstrating driven source. The classic wave demos — double-slit
 // diffraction, a converging lens, a waveguide, refraction at an interface —
 // each become one click.
-import type { Boundary, WaveSim } from "./sim";
+import { drumGeom, type Boundary, type WaveSim } from "./sim";
 
 export interface SceneMeta {
   id: string;
@@ -30,6 +30,7 @@ export const WAVE_SCENES: SceneMeta[] = [
   { id: "lens", label: "Lens", hint: "A slow region focuses waves to a point" },
   { id: "waveguide", label: "Waveguide", hint: "Two walls channel the wave" },
   { id: "refraction", label: "Refraction", hint: "Slower medium: waves bend, wavelength shortens" },
+  { id: "drumhead", label: "Drumhead", hint: "Circular membrane — a Bessel eigenmode rings" },
 ];
 
 /** A left-edge driven point source that keeps the scene alive. A modest
@@ -118,6 +119,18 @@ export function buildScene(id: string, nx: number, ny: number): Scene {
         boundary: "absorbing",
         medium: (i) => (i > xi ? 0.55 : 1),
         start: (s) => driveLeft(s, 0.2, 0.5, 0.05),
+      };
+    }
+
+    case "drumhead": {
+      // A clamped circular membrane: the geometry is the inscribed disk (a
+      // fixed cavity); the mode is seeded by seedDrumheadMode so it rings at
+      // the analytic Bessel eigenfrequency.
+      const { cx, cy, R } = drumGeom(nx, ny);
+      return {
+        boundary: "fixed",
+        solid: (i, j) => Math.hypot(i - cx, j - cy) > R,
+        start: (s) => s.seedDrumheadMode(1, 1),
       };
     }
 
