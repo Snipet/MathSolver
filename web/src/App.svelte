@@ -25,6 +25,7 @@
   import ParsePreview from "./lib/components/ParsePreview.svelte";
   import ResultCard from "./lib/components/ResultCard.svelte";
   import Plot from "./lib/components/Plot.svelte";
+  import WaveField from "./lib/components/WaveField.svelte";
   import History from "./lib/components/History.svelte";
   import VariablesPanel from "./lib/components/VariablesPanel.svelte";
   import VarChips, { type Chip } from "./lib/components/VarChips.svelte";
@@ -711,6 +712,9 @@
         role="tabpanel"
         aria-labelledby={"tab-" + tab}
       >
+        {#if tab === "wave"}
+          <WaveField columns={180} speed={0.5} damping={0.08} boundary="fixed" />
+        {:else}
         <ExpressionInput
           bind:this={exprInput}
           bind:value={input}
@@ -930,6 +934,7 @@
             <History onrestore={restore} />
           </div>
         </details>
+        {/if}
       </div>
       {/if}
     </main>

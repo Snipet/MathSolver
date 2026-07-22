@@ -201,6 +201,17 @@ export const BUILTIN_GROUPS: RefGroup[] = [
     ],
   },
   {
+    title: "Tools",
+    items: [
+      {
+        insert: "wave",
+        usage: "wave [<columns>][, <boundary>]",
+        hint: "Interactive 2D wave field — click to pluck, drag to add energy",
+        example: "wave",
+      },
+    ],
+  },
+  {
     title: "Solve & evaluate",
     items: [
       {

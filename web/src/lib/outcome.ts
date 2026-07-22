@@ -11,6 +11,7 @@ import type {
   PluginCallResult,
   Rendered,
 } from "./engine/types";
+import type { Boundary } from "./wave/sim";
 
 /** The successful branch of an engine result union. */
 export type Ok<T> = Extract<T, { ok: true }>;
@@ -42,5 +43,15 @@ export type Outcome =
       ylabel: string;
     }
   | { kind: "vecfield"; fx: string; fy: string; result: Ok<FieldResult> }
+  | {
+      // Interactive 2-D wave field. The outcome carries only the serializable
+      // seed (grid + physics params) so a console cell survives a localStorage
+      // round-trip; WaveField reconstructs a fresh WaveSim from it on mount.
+      kind: "wave";
+      columns: number;
+      speed: number;
+      damping: number;
+      boundary: Boundary;
+    }
   | { kind: "assignment"; name: string; plain: string; latex: string }
   | { kind: "error"; message: string; input: string; begin?: number; end?: number };
