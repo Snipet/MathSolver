@@ -46,13 +46,16 @@ export interface DrawSeries {
   id: string;
   color: string;
   visible: boolean;
-  kind: "line" | "points" | "region";
-  /** For "line"/"points": aligned world coords; a null in either breaks the
-   *  polyline (x can be null for x=f(y) where f is undefined). */
+  kind: "line" | "points" | "region" | "poi";
+  /** For "line"/"points"/"poi": aligned world coords; a null in either breaks
+   *  the polyline (x can be null for x=f(y) where f is undefined). */
   xs: (number | null)[];
   ys: (number | null)[];
   /** For "region": the inequality shading grid. */
   region?: RegionMask;
+  /** For "poi" (points of interest): per-point coordinate label shown on hover
+   *  (an exact form like "(√2, 0)" from the CAS, or a numeric fallback). */
+  labels?: (string | null)[];
 }
 
 // Deep zoom is allowed, but bounded so float precision stays usable.
