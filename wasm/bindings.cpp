@@ -459,6 +459,34 @@ std::string ms_polydiv(std::string dividend, std::string divisor, std::string va
     });
 }
 
+/// Shared body for polygcd / polylcm: infer the variable when it is the only
+/// symbol, then render the monic gcd or lcm.
+std::string ms_poly_gcd_lcm(const std::string& a, const std::string& b,
+                            const std::string& var, bool lcm) {
+    return guarded([&]() -> std::string {
+        const Expr ea = parse_expression(a);
+        const Expr eb = parse_expression(b);
+        std::string v = trim(var);
+        if (v.empty()) {
+            std::set<std::string> syms = free_symbols(ea);
+            for (const std::string& s : free_symbols(eb)) syms.insert(s);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json(std::format(
+                "{}: name the variable, e.g. {} x^2 - 1, x^3 - 1, x",
+                lcm ? "polylcm" : "polygcd", lcm ? "polylcm" : "polygcd"));
+        }
+        const PolyGcdResult r = lcm ? polynomial_lcm(ea, eb, v) : polynomial_gcd(ea, eb, v);
+        if (r.status != PolyGcdResult::Status::Ok) return err_json(r.message);
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(r.value));
+    });
+}
+std::string ms_polygcd(std::string a, std::string b, std::string var) {
+    return ms_poly_gcd_lcm(a, b, var, false);
+}
+std::string ms_polylcm(std::string a, std::string b, std::string var) {
+    return ms_poly_gcd_lcm(a, b, var, true);
+}
+
 /// solveIneq(lhs, rhs, op, var): solve the inequality `lhs <op> rhs` for its
 /// variable (op is one of "<", "<=", ">", ">="; var may be empty to infer).
 std::string ms_solve_ineq(std::string lhs, std::string rhs, std::string op,
@@ -1397,6 +1425,8 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("cfrac", &ms_cfrac);
     emscripten::function("discriminant", &ms_discriminant);
     emscripten::function("polydiv", &ms_polydiv);
+    emscripten::function("polygcd", &ms_polygcd);
+    emscripten::function("polylcm", &ms_polylcm);
     emscripten::function("solveIneq", &ms_solve_ineq);
     emscripten::function("mod", &ms_mod);
     emscripten::function("powmod", &ms_powmod);

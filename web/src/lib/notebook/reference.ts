@@ -217,6 +217,18 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "polydiv x^3 - 1, x - 1",
       },
       {
+        insert: "polygcd",
+        usage: "polygcd <a>, <b>[, <var>]",
+        hint: "Monic greatest common divisor of two polynomials",
+        example: "polygcd x^2 - 1, x^3 - 1",
+      },
+      {
+        insert: "polylcm",
+        usage: "polylcm <a>, <b>[, <var>]",
+        hint: "Monic least common multiple of two polynomials",
+        example: "polylcm x - 1, x + 1",
+      },
+      {
         insert: "limit",
         usage: "limit <expr>, <var>, <point>[, left|right]",
         hint: "Limit at a point or ±inf (exact where possible)",

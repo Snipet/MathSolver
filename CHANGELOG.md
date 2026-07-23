@@ -11,6 +11,11 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Polynomial GCD & LCM (`polygcd`, `polylcm`).** `polygcd x^2 - 1, x^3 - 1`
+  → `x - 1`; `polylcm x - 1, x + 1` → `x² - 1`. The GCD runs the Euclidean
+  algorithm over the polynomial remainder (building on `polydiv`) and returns a
+  monic result — `polygcd (x-1)²(x+2), (x-1)(x+2)²` → `x² + x - 2` — and the LCM
+  is `a·b / gcd`. In the CLI, REPL, and web console.
 - **Polynomial long division (`polydiv`).** A new verb divides one polynomial
   by another, reporting the **quotient** and **remainder** exactly (symbolic
   coefficients kept symbolic): `polydiv x^3 - 1, x - 1` → quotient `x² + x + 1`,

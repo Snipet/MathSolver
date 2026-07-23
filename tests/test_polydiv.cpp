@@ -93,3 +93,45 @@ TEST_CASE("polydiv error paths") {
     CHECK(div("x^2", "0").status == PolyDivResult::Status::DivByZero);
     CHECK(div("sin(x)", "x").status == PolyDivResult::Status::NotPolynomial);
 }
+
+namespace {
+std::string gcd_str(const std::string& a, const std::string& b, std::string_view v = "x") {
+    const PolyGcdResult r = polynomial_gcd(parse_expression(a), parse_expression(b), v);
+    return r.status == PolyGcdResult::Status::Ok ? plain(r.value) : "ERR";
+}
+bool poly_equal(const std::string& got, const std::string& expected) {
+    return plain(expand(parse_expression("(" + got + ") - (" + expected + ")"))) == "0";
+}
+} // namespace
+
+TEST_CASE("polynomial gcd") {
+    // gcd(x^2 - 1, x^3 - 1) = x - 1 (both share the factor x - 1).
+    CHECK(poly_equal(gcd_str("x^2 - 1", "x^3 - 1"), "x - 1"));
+    // gcd((x-1)^2 (x+2), (x-1)(x+2)^2) = (x-1)(x+2) = x^2 + x - 2.
+    CHECK(poly_equal(gcd_str("(x-1)^2*(x+2)", "(x-1)*(x+2)^2"), "x^2 + x - 2"));
+    // Coprime polynomials → gcd 1.
+    CHECK(gcd_str("x^2 + 1", "x - 1") == "1");
+    // The result is monic even for non-monic inputs.
+    CHECK(poly_equal(gcd_str("2*x^2 - 2", "3*x - 3"), "x - 1"));
+    // gcd with 0 is the (monic) other argument.
+    CHECK(poly_equal(gcd_str("x^2 - 4", "0"), "x^2 - 4"));
+    // A shared quadratic factor.
+    CHECK(poly_equal(gcd_str("x^4 - 1", "x^2 - 1"), "x^2 - 1"));
+}
+
+TEST_CASE("polynomial lcm") {
+    const auto lcm = [](const std::string& a, const std::string& b) {
+        const PolyGcdResult r =
+            polynomial_lcm(parse_expression(a), parse_expression(b), "x");
+        return r.status == PolyGcdResult::Status::Ok ? plain(r.value) : "ERR";
+    };
+    // lcm(x-1, x+1) = x^2 - 1.
+    CHECK(poly_equal(lcm("x - 1", "x + 1"), "x^2 - 1"));
+    // lcm((x-1)(x+2), (x+2)(x+3)) = (x-1)(x+2)(x+3).
+    CHECK(poly_equal(lcm("(x-1)*(x+2)", "(x+2)*(x+3)"), "(x-1)*(x+2)*(x+3)"));
+    // gcd·lcm = a·b (up to the monic normalization), checked for a concrete pair.
+    CHECK(poly_equal(lcm("x^2 - 1", "x^2 - 1"), "x^2 - 1"));
+
+    CHECK(polynomial_gcd(parse_expression("sin(x)"), parse_expression("x"), "x").status ==
+          PolyGcdResult::Status::NotPolynomial);
+}

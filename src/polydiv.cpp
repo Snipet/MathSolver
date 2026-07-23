@@ -22,6 +22,11 @@ int effective_degree(const std::vector<Expr>& c) {
     return -1;
 }
 
+bool is_zero_poly(const Expr& e, std::string_view var) {
+    const auto c = polynomial_coefficients(simplify(e), var);
+    return c && effective_degree(*c) < 0;
+}
+
 /// Rebuild Σ c[i]·var^i, simplified.
 Expr from_coeffs(const std::vector<Expr>& c, std::string_view var) {
     const Expr x = make_sym(std::string(var));
@@ -33,6 +38,18 @@ Expr from_coeffs(const std::vector<Expr>& c, std::string_view var) {
         else terms.push_back(make_mul({c[i], make_pow(x, make_num(static_cast<long long>(i)))}));
     }
     return terms.empty() ? make_num(0) : simplify(make_add(terms));
+}
+
+/// Divide a polynomial through by its leading coefficient (monic form).
+Expr monic(const Expr& poly, std::string_view var) {
+    const auto co = polynomial_coefficients(simplify(poly), var);
+    if (!co) return poly;
+    const int deg = effective_degree(*co);
+    if (deg < 0) return make_num(0);
+    const Expr lead = (*co)[deg];
+    std::vector<Expr> scaled;
+    for (int i = 0; i <= deg; ++i) scaled.push_back(simplify(make_div((*co)[i], lead)));
+    return from_coeffs(scaled, var);
 }
 
 } // namespace
@@ -77,6 +94,44 @@ PolyDivResult polynomial_divide(const Expr& dividend, const Expr& divisor,
     out.status = PolyDivResult::Status::Ok;
     out.quotient = from_coeffs(q, var);
     out.remainder = from_coeffs(r, var);
+    return out;
+}
+
+PolyGcdResult polynomial_gcd(const Expr& a, const Expr& b, std::string_view var) {
+    PolyGcdResult out;
+    if (!polynomial_coefficients(simplify(a), var) ||
+        !polynomial_coefficients(simplify(b), var)) {
+        out.status = PolyGcdResult::Status::NotPolynomial;
+        out.message = "polygcd: both arguments must be polynomials in the variable";
+        return out;
+    }
+    // Euclidean algorithm: gcd(x, y) = gcd(y, x mod y).
+    Expr x = simplify(a);
+    Expr y = simplify(b);
+    while (!is_zero_poly(y, var)) {
+        const PolyDivResult d = polynomial_divide(x, y, var);
+        if (d.status != PolyDivResult::Status::Ok) break;
+        x = y;
+        y = d.remainder;
+    }
+    out.status = PolyGcdResult::Status::Ok;
+    out.value = is_zero_poly(x, var) ? make_num(0) : monic(x, var);
+    return out;
+}
+
+PolyGcdResult polynomial_lcm(const Expr& a, const Expr& b, std::string_view var) {
+    const PolyGcdResult g = polynomial_gcd(a, b, var);
+    if (g.status != PolyGcdResult::Status::Ok) return g;
+    PolyGcdResult out;
+    out.status = PolyGcdResult::Status::Ok;
+    if (is_zero_poly(a, var) || is_zero_poly(b, var)) {
+        out.value = make_num(0);
+        return out;
+    }
+    // lcm = a·b / gcd(a, b), normalized to monic form.
+    const PolyDivResult q =
+        polynomial_divide(simplify(make_mul({a, b})), g.value, var);
+    out.value = monic(q.quotient, var);
     return out;
 }
 
