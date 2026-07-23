@@ -11,6 +11,24 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — Taylor-series overlay operator.** The graph expression list now
+  understands `series(f, center, order)` (and its alias `taylor(...)`) as an
+  inline operator alongside the existing `diff(...)` / `integral(...)`: a row
+  like `series(sin(x), 0, 5)` plots the degree-5 Taylor polynomial of `sin x`
+  about 0, so you can drop the source curve on one row and its truncated
+  expansion on the next and watch them agree near the center and peel apart
+  away from it. `center` defaults to `0` and `order` to `6`, clamped to
+  `[1, 12]`; the polynomial is computed by the CAS `series` verb, so it is
+  exact, and free-symbol analysis (auto-sliders, classification) sees through
+  the call to the source expression just as it does for `diff`/`integral`.
+- **Grapher — tangent / normal line operators.** Two more inline operators:
+  `tangent(f, a)` plots the tangent line to `f` at `x = a`, and `normal(f, a)`
+  plots the perpendicular. Both are built exactly from the CAS —
+  `tangent(sin(x), pi/3)` becomes `(x − π/3)/2 + √3/2`, not a rounded decimal —
+  by taking `f(a)` and the slope `f′(a)` symbolically via `subs` on the
+  `derivative`. `a` defaults to `0`. Where the curve is flat the normal line is
+  vertical (undefined slope) and the row reports that rather than drawing a
+  bogus line.
 - **Grapher — exact points of interest.** A `y=f(x)` curve now shows hollow
   markers at its **zeros / x-intercepts** and its **y-intercept**, computed by
   the CAS rather than eyeballed: `solve` finds the roots over the visible
