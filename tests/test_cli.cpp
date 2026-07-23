@@ -446,7 +446,7 @@ TEST_CASE("cli: --version and --help") {
     const RunResult version = run_cli({"--version"});
     INFO(version.output);
     CHECK(version.exit_code == 0);
-    CHECK(contains(version.output, "0.5.0"));
+    CHECK(contains(version.output, "0.6.0"));
 
     const RunResult help = run_cli({"--help"});
     CHECK(help.exit_code == 0);
