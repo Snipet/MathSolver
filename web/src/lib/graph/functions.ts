@@ -140,6 +140,35 @@ export function stripCalls(
   return { text: s, calledFns: [...called] };
 }
 
+/** True if any user-function call occurs in `text` (calc calls ignored). */
+function containsApplCall(text: string, fnNames: readonly string[]): boolean {
+  for (let i = 0; i < text.length; i++) {
+    for (const n of fnNames) if (callAt(text, i, n, true)) return true;
+  }
+  return false;
+}
+
+/**
+ * The innermost USER-FUNCTION call whose argument text contains no further
+ * user-function call — calc operators are treated as opaque and left in place.
+ * This is the console's application-only expander driver (the console does not
+ * expand diff/integral inline, unlike the grapher's interleaved resolveRow).
+ */
+export function findInnermostAppl(text: string, fnNames: readonly string[]): AnyCall | null {
+  for (let i = 0; i < text.length; i++) {
+    for (const n of fnNames) {
+      const m = callAt(text, i, n, true);
+      if (!m) continue;
+      const close = matchParen(text, m.parenAt);
+      if (close < 0) continue;
+      const inner = text.slice(m.parenAt + 1, close);
+      if (!containsApplCall(inner, fnNames))
+        return { kind: "appl", name: n, primes: m.primes, inner, start: i, end: close + 1 };
+    }
+  }
+  return null;
+}
+
 /**
  * `count` fresh single-letter placeholder symbols that appear nowhere in
  * `avoid` (the concatenation of the body and all argument texts). Single
