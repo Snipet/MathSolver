@@ -894,7 +894,9 @@
           Type functions, points, or relations on the left. Undefined
           variables (like <code>a</code>) become sliders here and in the app;
           define reusable expressions with <code>f = x^2</code>, and plot
-          <code>diff(f)</code> or <code>integral(f)</code>. Restrict a curve's
+          <code>diff(f)</code> or <code>integral(f)</code>. Shade the signed area
+          under a curve with <code>integral(f, a, b)</code> — the exact ∫ value
+          is labelled from the CAS. Restrict a curve's
           domain with a trailing clause, e.g. <code>{"{"}0 &lt;= t &lt;= 6pi{"}"}</code>.
           Drag a point to move it — a point like <code>(a, b)</code> moves its
           variables everywhere.

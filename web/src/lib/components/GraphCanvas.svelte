@@ -194,6 +194,11 @@
       if (s.visible && s.kind === "region" && s.region) drawRegion(ctx, v, w, h, s);
     }
 
+    // Definite-integral area shading (drawn under the curves, above the grid).
+    for (const s of series) {
+      if (s.visible && s.kind === "area") drawArea(ctx, v, w, h, s, bg, label);
+    }
+
     // Slope/direction field: thin, muted segments drawn under the curves.
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
@@ -319,6 +324,99 @@
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
+  }
+
+  // Shade the signed area between a sampled boundary (`y = f(x)` over `[a, b]`)
+  // and the x-axis: fill each contiguous sub-band down to y = 0 (so the band
+  // flips below the axis wherever f < 0), stroke the boundary on top, and draw
+  // the exact ∫ value from the CAS centred over the region.
+  function drawArea(
+    ctx: CanvasRenderingContext2D,
+    v: View,
+    w: number,
+    h: number,
+    s: DrawSeries,
+    bg: string,
+    labelColor: string,
+  ): void {
+    const axisPy = yToPx(0, v, h);
+    const finite = (i: number) =>
+      s.xs[i] !== null &&
+      s.ys[i] !== null &&
+      Number.isFinite(s.xs[i] as number) &&
+      Number.isFinite(s.ys[i] as number);
+
+    ctx.fillStyle = s.color;
+    ctx.globalAlpha = 0.2;
+    ctx.beginPath();
+    let pen = false;
+    let bandLastPx = 0;
+    for (let i = 0; i < s.xs.length; i++) {
+      if (!finite(i)) {
+        if (pen) {
+          ctx.lineTo(bandLastPx, axisPy);
+          ctx.closePath();
+          pen = false;
+        }
+        continue;
+      }
+      const px = xToPx(s.xs[i] as number, v, w);
+      const py = yToPx(s.ys[i] as number, v, h);
+      if (!pen) {
+        ctx.moveTo(px, axisPy);
+        ctx.lineTo(px, py);
+        pen = true;
+      } else {
+        ctx.lineTo(px, py);
+      }
+      bandLastPx = px;
+    }
+    if (pen) {
+      ctx.lineTo(bandLastPx, axisPy);
+      ctx.closePath();
+    }
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Boundary stroke.
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    pen = false;
+    for (let i = 0; i < s.xs.length; i++) {
+      if (!finite(i)) {
+        pen = false;
+        continue;
+      }
+      const px = xToPx(s.xs[i] as number, v, w);
+      const py = yToPx(s.ys[i] as number, v, h);
+      if (pen) ctx.lineTo(px, py);
+      else {
+        ctx.moveTo(px, py);
+        pen = true;
+      }
+    }
+    ctx.stroke();
+
+    // Value label centred over the band, midway between the axis and the curve.
+    if (!s.label) return;
+    let anchor = -1;
+    const target = (s.xs.length - 1) / 2;
+    for (let i = 0; i < s.xs.length; i++) {
+      if (finite(i) && (anchor < 0 || Math.abs(i - target) < Math.abs(anchor - target))) anchor = i;
+    }
+    if (anchor < 0) return;
+    const ax = xToPx(s.xs[anchor] as number, v, w);
+    const ay = (axisPy + yToPx(s.ys[anchor] as number, v, h)) / 2;
+    ctx.font = "12px " + (cssColor(canvas!, "--font-mono", "") || "monospace");
+    const tw = ctx.measureText(s.label).width;
+    ctx.fillStyle = bg;
+    roundRect(ctx, ax - tw / 2 - 6, ay - 10, tw + 12, 20, 5);
+    ctx.fill();
+    ctx.fillStyle = labelColor;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(s.label, ax, ay);
   }
 
   function drawRegion(

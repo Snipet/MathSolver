@@ -46,9 +46,11 @@ export interface DrawSeries {
   id: string;
   color: string;
   visible: boolean;
-  kind: "line" | "points" | "region" | "poi" | "field";
-  /** For "line"/"points"/"poi"/"field": aligned world coords; a null in either breaks
-   *  the polyline (x can be null for x=f(y) where f is undefined). */
+  kind: "line" | "points" | "region" | "poi" | "field" | "area";
+  /** For "line"/"points"/"poi"/"field"/"area": aligned world coords; a null in
+   *  either breaks the polyline (x can be null for x=f(y) where f is undefined).
+   *  For "area" the polyline is the top boundary (`y = f(x)` over `[a, b]`) and
+   *  the fill runs down to the x-axis. */
   xs: (number | null)[];
   ys: (number | null)[];
   /** For "region": the inequality shading grid. */
@@ -56,6 +58,8 @@ export interface DrawSeries {
   /** For "poi" (points of interest): per-point coordinate label shown on hover
    *  (an exact form like "(√2, 0)" from the CAS, or a numeric fallback). */
   labels?: (string | null)[];
+  /** For "area": the exact ∫ value drawn over the shaded band (e.g. "∫ = 2"). */
+  label?: string;
   /** For "line": draw dashed (e.g. a horizontal asymptote). */
   dash?: boolean;
 }

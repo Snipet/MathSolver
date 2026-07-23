@@ -11,6 +11,15 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — definite-integral area shading.** A row written as
+  `integral(f, a, b)` shades the signed area between `y = f(x)` and the x-axis
+  over `[a, b]` (the band flips below the axis wherever `f < 0`) and labels the
+  exact ∫ value straight from the CAS — `integral(sin(x), 0, pi)` fills the arch
+  and reads `∫ = 2`, not a rounded decimal. The bounds accept expressions and
+  session variables, so `integral(f, 0, b)` sweeps the region live as the `b`
+  slider moves. The one- and two-argument forms (`integral(f)`,
+  `integral(f, t)`) are unchanged — they still plot the antiderivative curve.
+
 - **Polynomial resultant (`resultant`).** `resultant x^2 - 1, x - 2` → `3`;
   `resultant x^2 - 1, x - 1` → `0` (they share the root `x = 1`). The resultant
   of two polynomials is zero exactly when they have a common factor; it's
