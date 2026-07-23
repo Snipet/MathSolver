@@ -11,6 +11,16 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — animated sliders (play button) + slider step.** Each auto-created
+  slider now has a ▶ button that sweeps the variable back and forth between its
+  bounds (ping-pong), and an optional **step** field that snaps it to a
+  `lo + k·step` grid. The two combine into a live explorer: give
+  `sum(x^k, k, 0, n)` a slider `n` with step `1` and press play to watch the
+  Taylor/partial sum build up one term at a time; a continuous slider sweeps
+  smoothly. Multiple sliders can animate at once, the moving value writes
+  through so every dependent curve re-plots each frame, and pausing keeps the
+  value it stopped on.
+
 - **Grapher — inline `sum` / `product`.** A plotted row can now contain a
   summation or product: `y = sum(x^k, k, 0, 5)` draws the geometric partial sum
   `1 + x + … + x⁵`, and `product(x, j, 1, 4)` draws `x⁴`. The CAS closes the
