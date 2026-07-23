@@ -13,6 +13,7 @@
 #include "mathsolver/fit.hpp"
 #include "mathsolver/integrate.hpp"
 #include "mathsolver/limit.hpp"
+#include "mathsolver/numtheory.hpp"
 #include "mathsolver/ode.hpp"
 #include "mathsolver/parser.hpp"
 #include "mathsolver/printer.hpp"

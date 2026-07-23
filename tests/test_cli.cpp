@@ -119,6 +119,56 @@ TEST_CASE("cli: factor") {
     CHECK(contains(r.output, ")*("));
 }
 
+TEST_CASE("cli: factor of a bare integer gives its prime factorization") {
+    const RunResult r = run_cli({"factor", "360"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "2^3 * 3^2 * 5"));
+
+    const RunResult prime = run_cli({"factor", "97"});
+    CHECK(prime.exit_code == 0);
+    CHECK(contains(prime.output, "97"));
+
+    const RunResult tex = run_cli({"factor", "12", "--latex"});
+    CHECK(tex.exit_code == 0);
+    CHECK(contains(tex.output, "2^{2} \\cdot 3"));
+}
+
+TEST_CASE("cli: number-theory verbs") {
+    const RunResult gcd = run_cli({"gcd", "48, 36"});
+    INFO(gcd.output);
+    CHECK(gcd.exit_code == 0);
+    CHECK(contains(gcd.output, "12"));
+
+    const RunResult lcm = run_cli({"lcm", "4, 6, 8"});
+    CHECK(lcm.exit_code == 0);
+    CHECK(contains(lcm.output, "24"));
+
+    const RunResult prime = run_cli({"isprime", "97"});
+    CHECK(prime.exit_code == 0);
+    CHECK(contains(prime.output, "prime"));
+
+    const RunResult composite = run_cli({"isprime", "91"});
+    CHECK(composite.exit_code == 0);
+    CHECK(contains(composite.output, "composite"));
+
+    const RunResult np = run_cli({"nextprime", "100"});
+    CHECK(np.exit_code == 0);
+    CHECK(contains(np.output, "101"));
+
+    const RunResult div = run_cli({"divisors", "28"});
+    CHECK(div.exit_code == 0);
+    CHECK(contains(div.output, "1, 2, 4, 7, 14, 28"));
+
+    const RunResult phi = run_cli({"totient", "36"});
+    CHECK(phi.exit_code == 0);
+    CHECK(contains(phi.output, "12"));
+
+    // A non-integer argument is a usage error (exit 2).
+    const RunResult bad = run_cli({"isprime", "x"});
+    CHECK(bad.exit_code == 2);
+}
+
 TEST_CASE("cli: cancel — success, no-op, and usage error") {
     const RunResult ok = run_cli({"cancel", "(x^2 - 1)/(x - 1)"});
     INFO(ok.output);

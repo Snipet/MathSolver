@@ -266,7 +266,25 @@ void run_expand(const std::string& input, PrintStyle style) {
 void run_factor(const std::string& input, PrintStyle style) {
     const auto parsed = parse_input_diag(input);
     if (std::holds_alternative<Expr>(parsed)) {
-        std::println("{}", to_string(factor(std::get<Expr>(parsed)), style));
+        const Expr& e = std::get<Expr>(parsed);
+        // A bare integer factors into primes (2^3 · 3^2 · 5) rather than
+        // echoing itself, the way the polynomial factorer would.
+        const Expr s = simplify(e);
+        if (s->kind() == Kind::Number && s->number().is_integer()) {
+            const long long n = s->number().num();
+            if (n == 0 || n == 1 || n == -1) {
+                std::println("{}", n);
+            } else {
+                const auto f = factorize(n);
+                const std::string sign = n < 0 ? "-" : "";
+                std::println("{}{}", sign,
+                             style == PrintStyle::LaTeX
+                                 ? format_factorization_latex(f)
+                                 : format_factorization(f, " * "));
+            }
+            return;
+        }
+        std::println("{}", to_string(factor(e), style));
     } else {
         const Equation& eq = std::get<Equation>(parsed);
         std::println("{}", to_string(Equation{factor(eq.lhs), factor(eq.rhs)}, style));
@@ -475,6 +493,79 @@ void run_stirling(const std::string& var_text, const std::string& terms_text,
     std::println("note: ln n! = ln Gamma(n + 1); the full series diverges "
                  "for fixed {} — truncation, not convergence",
                  var);
+}
+
+/// Parse one number-theory argument (a literal or an exact expression like
+/// `2^4`) to a 64-bit integer, rejecting non-integers with a usage error.
+long long parse_integer_arg(const std::string& text, std::string_view verb) {
+    const Expr e = simplify(parse_expression_diag(text));
+    if (e->kind() != Kind::Number || !e->number().is_integer()) {
+        throw UsageError{
+            std::format("{}: expected an integer, got '{}'", verb, trim(text))};
+    }
+    return e->number().num();
+}
+
+/// Split a number-theory argument blob on commas / semicolons / whitespace
+/// and parse each token to an integer (at least one required).
+std::vector<long long> parse_integer_list(const std::string& input,
+                                          std::string_view verb) {
+    std::vector<long long> out;
+    for (const std::string& t : parse_stat_data(input)) {
+        out.push_back(parse_integer_arg(t, verb));
+    }
+    if (out.empty()) {
+        throw UsageError{std::format("{}: expected at least one integer", verb)};
+    }
+    return out;
+}
+
+/// `gcd` / `lcm`: greatest common divisor / least common multiple of a list of
+/// integers, folded pairwise over the exact int64 routines.
+void run_gcd(const std::string& input) {
+    long long g = 0;
+    for (long long x : parse_integer_list(input, "gcd")) g = int_gcd(g, x);
+    std::println("{}", g);
+}
+void run_lcm(const std::string& input) {
+    long long l = 1;
+    for (long long x : parse_integer_list(input, "lcm")) l = int_lcm(l, x);
+    std::println("{}", l);
+}
+
+/// `isprime`: deterministic primality of a single integer.
+void run_isprime(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "isprime");
+    if (v.size() != 1) throw UsageError{"isprime takes a single integer"};
+    std::println("{} is {}", v[0], is_prime(v[0]) ? "prime" : "composite");
+}
+
+/// `nextprime`: the smallest prime greater than a single integer.
+void run_nextprime(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "nextprime");
+    if (v.size() != 1) throw UsageError{"nextprime takes a single integer"};
+    std::println("{}", next_prime(v[0]));
+}
+
+/// `totient`: Euler's phi of a single positive integer.
+void run_totient(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "totient");
+    if (v.size() != 1) throw UsageError{"totient takes a single integer"};
+    if (v[0] < 1) throw UsageError{"totient is defined for positive integers"};
+    std::println("{}", euler_totient(v[0]));
+}
+
+/// `divisors`: all positive divisors of a single non-zero integer, ascending.
+void run_divisors(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "divisors");
+    if (v.size() != 1) throw UsageError{"divisors takes a single integer"};
+    if (v[0] == 0) throw UsageError{"divisors of 0 is undefined"};
+    std::string out;
+    for (long long d : divisors(v[0])) {
+        if (!out.empty()) out += ", ";
+        out += std::to_string(d);
+    }
+    std::println("{}", out);
 }
 
 /// `seq`: recognize the pattern behind a list of exact terms.
@@ -1116,6 +1207,10 @@ void print_usage(std::FILE* out) {
                "  mathsolver stats    \"1, 2, 3, 4, 5\"\n"
                "  mathsolver stirling x [3]\n"
                "  mathsolver seq      0 1 1 2 3 5 8\n"
+               "  mathsolver factor   360                (integer -> primes)\n"
+               "  mathsolver gcd      \"48, 36\"           lcm, gcd of a list\n"
+               "  mathsolver isprime  97                 isprime/nextprime\n"
+               "  mathsolver divisors 360                divisors, totient\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
                "  mathsolver mlimit   \"x*y/(x^2+y^2)\" x 0 y 0\n"
                "  mathsolver sum      \"k^2\" k 1 n\n"
@@ -1150,7 +1245,9 @@ bool is_known_subcommand(std::string_view s) {
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
            s == "rsolve" || s == "mlimit" || s == "stirling" ||
-           s == "seq" || s == "fit" || s == "regress" || s == "stats";
+           s == "seq" || s == "fit" || s == "regress" || s == "stats" ||
+           s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
+           s == "divisors" || s == "totient";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1316,6 +1413,20 @@ int run_one_shot(const std::vector<std::string>& args) {
             run_stats(input, style);
         } else if (sub == "seq") {
             run_seq(positionals, style);
+        } else if (sub == "gcd" || sub == "lcm" || sub == "isprime" ||
+                   sub == "nextprime" || sub == "divisors" || sub == "totient") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the integers in one quoted "
+                    "argument: mathsolver {} \"48, 36\")",
+                    positionals[1], sub)};
+            }
+            if (sub == "gcd") run_gcd(input);
+            else if (sub == "lcm") run_lcm(input);
+            else if (sub == "isprime") run_isprime(input);
+            else if (sub == "nextprime") run_nextprime(input);
+            else if (sub == "divisors") run_divisors(input);
+            else run_totient(input);
         } else if (sub == "stirling") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
@@ -1404,6 +1515,9 @@ void print_repl_help() {
         "  stats <v1, v2, v3, ...>                exact summary statistics\n"
         "  stirling [<var>[, <terms>]]            ln Gamma asymptotics\n"
         "  seq <a0>, <a1>, <a2>, <a3>[, ...]      recognize the pattern\n"
+        "  factor <n>                             integer -> prime factorization\n"
+        "  gcd <a, b, ...>   lcm <a, b, ...>       exact over the integers\n"
+        "  isprime <n>   nextprime <n>   divisors <n>   totient <n>\n"
         "  limit <expression>, <variable>, <point>[, left|right]\n"
         "         (point accepts numbers, inf, -inf)\n"
         "  mlimit <expr>, <x>, <a>, <y>, <b>      2-D limit by path sampling\n"
@@ -1445,7 +1559,9 @@ bool is_repl_command(std::string_view word) {
            word == "hessian" || word == "limit" || word == "sum" ||
            word == "product" || word == "rsolve" || word == "mlimit" ||
            word == "stirling" || word == "seq" || word == "fit" ||
-           word == "regress" || word == "stats";
+           word == "regress" || word == "stats" || word == "gcd" ||
+           word == "lcm" || word == "isprime" || word == "nextprime" ||
+           word == "divisors" || word == "totient";
 }
 
 // ---------------------------------------------------------------------------
@@ -2008,6 +2124,24 @@ void repl_command(const std::string& command, const std::string& rest,
         // The whole line is the data list (commas / semicolons / spaces).
         if (trim(rest).empty()) throw UsageError{"usage: stats <v1, v2, v3, ...>"};
         run_stats(rest, PrintStyle::Plain);
+        return;
+    }
+    // Number theory over the integers: the whole line is the integer list (for
+    // gcd/lcm) or a single integer (for the rest).
+    if (command == "gcd" || command == "lcm" || command == "isprime" ||
+        command == "nextprime" || command == "divisors" ||
+        command == "totient") {
+        if (trim(rest).empty()) {
+            throw UsageError{std::format(
+                "usage: {} <integer{}>", command,
+                command == "gcd" || command == "lcm" ? ", integer, ..." : "")};
+        }
+        if (command == "gcd") run_gcd(rest);
+        else if (command == "lcm") run_lcm(rest);
+        else if (command == "isprime") run_isprime(rest);
+        else if (command == "nextprime") run_nextprime(rest);
+        else if (command == "divisors") run_divisors(rest);
+        else run_totient(rest);
         return;
     }
     const std::vector<std::string> parts = split_top_level_commas(rest);

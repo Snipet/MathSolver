@@ -71,6 +71,12 @@ export const MATH_VERBS = new Set([
   "fit",
   "regress",
   "stats",
+  "gcd",
+  "lcm",
+  "isprime",
+  "nextprime",
+  "divisors",
+  "totient",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -416,6 +422,23 @@ async function runVerb(
         result: { ok: true, plain, latex, notes },
         computedFrom: null,
       };
+    }
+    case "gcd":
+    case "lcm": {
+      // The whole line is the integer list (commas / spaces).
+      if (!rest.trim()) return usage(`usage: ${verb} <a, b, ...>`);
+      const r = await call(verb, [rest]);
+      if (!r.ok) return err(rest, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "isprime":
+    case "nextprime":
+    case "divisors":
+    case "totient": {
+      if (args.length > 1) return usage(`usage: ${verb} <integer>`);
+      const r = await call(verb, [expr]);
+      if (!r.ok) return err(expr, r);
+      return { kind: "transform", result: r, computedFrom: null };
     }
     case "series": {
       if (args.length > 4)
