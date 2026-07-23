@@ -88,6 +88,7 @@ add_library(mathsolver_plugins STATIC
     plugins/hyb/hyb_core.cpp
     plugins/fem/fem.cpp
     plugins/fem/fem_core.cpp
+    plugins/prob/prob.cpp
 )
 target_link_libraries(mathsolver_plugins PUBLIC mathsolver_core PRIVATE mathsolver_warnings)
 

@@ -456,6 +456,9 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   sys.rlocus 1, s^3 + 3s^2 + 2s          → root locus + critical gain
   sys.tfz z, z^2 - 0.5z + 0.06, 8000     → discrete H(z): unit circle, |p|<1
   sys.c2d 1, s+1, 100                    → discretize H(s) to digital biquads
+  prob.normalcdf 1.96                    → P(X<=1.96) = 0.975, with the bell curve
+  prob.invnorm 0.975                     → the quantile x = 1.95996
+  prob.binompdf 10, 0.5, 5              → Binomial P(X=5) + the PMF stems
   plot sin(x)/x, -20, 20                 → chart any expression inline
   plugins                                → catalog of compiled-in plugins
   ```

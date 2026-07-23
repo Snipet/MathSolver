@@ -155,6 +155,14 @@ check("fem bvp flux", ms.pluginCall("fem", "bvp", "1,0,0,0,1,u=1,u'=2"), (r) => 
 check("fem modes string", ms.pluginCall("fem", "modes", "1,0,1,0,pi,3"), (r) => r.ok && r.blocks.some((b) => b.type === "table" && Math.abs(parseFloat(b.rows[0][1]) - 1) < 5e-3 && Math.abs(parseFloat(b.rows[2][1]) - 9) < 1e-1), "lambda = 1, 4, 9");
 check("fem singular error", ms.pluginCall("fem", "bvp", "1,0,1,0,1,u'=0,u'=0"), (r) => !r.ok && r.error.includes("singular"), "pure Neumann reported");
 check("fem symbol error", ms.pluginCall("fem", "bvp", "y,0,1,0,1,u=0,u=0"), (r) => !r.ok && r.error.includes("found 'y'"), "stray symbol rejected");
+// prob — probability distributions
+const kvOf = (r, pfx) => r.blocks[0].items.find(([k]) => k.startsWith(pfx))?.[1];
+check("prob normalcdf", ms.pluginCall("prob", "normalcdf", "1.96"), (r) => r.ok && parseFloat(kvOf(r, "P(X <=")) > 0.9749 && parseFloat(kvOf(r, "P(X <=")) < 0.9751 && r.blocks.some((b) => b.type === "series"), "P=0.975 + curve");
+check("prob invnorm", ms.pluginCall("prob", "invnorm", "0.975"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "x")) - 1.95996) < 1e-3, "quantile 1.96");
+check("prob binompdf", ms.pluginCall("prob", "binompdf", "10, 0.5, 5"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X =")) - 0.246094) < 1e-5 && r.blocks.some((b) => b.type === "series" && b.series[0].points === true), "C(10,5)/1024 + stems");
+check("prob poissoncdf", ms.pluginCall("prob", "poissoncdf", "3, 2"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X <=")) - 0.42319) < 1e-4, "0.42319");
+check("prob domain error", ms.pluginCall("prob", "normalcdf", "1, 0, -2"), (r) => !r.ok && r.error.includes("positive"), "sigma>0 enforced");
+check("prob integer error", ms.pluginCall("prob", "binompdf", "10, 0.5, 2.5"), (r) => !r.ok && r.error.includes("whole number"), "k must be integer");
 // pde.simulate
 check("pde simulate fisher", ms.pluginCall("pde", "simulate", "10,1,u*(1-u),0.5*sin(pi*x/10),8"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.title === "Concentration profiles" && b.series.length === 5 && Math.max(...b.series[4].ys) > 0.9 && Math.max(...b.series[4].ys) < 1.001), "growth toward u = 1");
 check("pde simulate newton kv", ms.pluginCall("pde", "simulate", "1,1,2u,sin(pi*x),0.2"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k]) => k === "Newton iterations")), "newton stats reported");

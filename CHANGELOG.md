@@ -103,6 +103,16 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **`prob` plugin — probability distributions.** A new plugin covering the
+  distributions of a first statistics course: **normal** (`normalpdf`,
+  `normalcdf`, and `invnorm` — the inverse/quantile), **binomial** (`binompdf`,
+  `binomcdf`), and **Poisson** (`poissonpdf`, `poissoncdf`). Each command
+  reports the queried value and **plots the distribution** — the bell curve for
+  the normal, stem markers for the discrete PMFs — with a marker at the query
+  point. `prob.normalcdf 1.96` → `0.975`, `prob.invnorm 0.975` → `1.95996`,
+  `prob.binompdf 10, 0.5, 5` → `0.2461`. The normal CDF uses `erf` and the
+  inverse uses Acklam's rational approximation refined by a Halley step; the
+  discrete PMFs evaluate in log-space (`lgamma`) for stability at large counts.
 - **`stats` — exact summary statistics.** A new verb that summarizes a data
   list (`stats "1, 2, 3, 4, 5"`) — n, sum, mean, min/max/range, the quartiles
   and median (Moore & McCabe method), IQR, and both population and sample
