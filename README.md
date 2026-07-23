@@ -523,6 +523,11 @@ for the full workflow.
   rational-root peeling for higher degrees, isolation through invertible
   layers (`ln(x+1)=2` → `x = e^2 - 1`), and a Newton/bisection numeric
   fallback for the rest (`cos(x) = x`).
+- **Discriminant** — `discriminant a*x^2 + b*x + c, x` → `b^2 - 4*a*c`,
+  exact closed forms for degree 2–4 with symbolic coefficients kept
+  symbolic. With numeric coefficients it also reports the nature of the
+  roots (`x^2 - 5x + 6` → `1`, "two distinct real roots"; `x^2 + 1` → `-4`,
+  "two complex-conjugate roots").
 - **Inequalities** — `solve x^2 < 4` → `x ∈ (-2, 2)`. The solver combines
   the two sides over a common denominator, takes the real roots of the
   numerator (zeros) and denominator (poles) as breakpoints, sign-tests each

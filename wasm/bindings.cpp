@@ -415,6 +415,27 @@ std::string ms_modinv(std::string list) {
     });
 }
 
+/// discriminant(poly, var): the discriminant of a degree 2–4 polynomial, with
+/// the variable inferred when it's the only symbol.
+std::string ms_discriminant(std::string poly, std::string var) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(poly);
+        std::string v = trim(var);
+        if (v.empty()) {
+            const std::set<std::string> syms = free_symbols(e);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json("discriminant: name the variable, e.g. "
+                                 "discriminant a*x^2 + b*x + c, x");
+        }
+        const DiscriminantResult r = discriminant(e, v);
+        if (r.status != DiscriminantResult::Status::Ok) return err_json(r.message);
+        std::vector<std::string> notes;
+        if (!r.root_nature.empty()) notes.push_back("roots: " + r.root_nature);
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}",
+                           rendered_fields(r.value), jarr_str(notes));
+    });
+}
+
 /// solveIneq(lhs, rhs, op, var): solve the inequality `lhs <op> rhs` for its
 /// variable (op is one of "<", "<=", ">", ">="; var may be empty to infer).
 std::string ms_solve_ineq(std::string lhs, std::string rhs, std::string op,
@@ -1343,6 +1364,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("divisors", &ms_divisors);
     emscripten::function("totient", &ms_totient);
     emscripten::function("cfrac", &ms_cfrac);
+    emscripten::function("discriminant", &ms_discriminant);
     emscripten::function("solveIneq", &ms_solve_ineq);
     emscripten::function("mod", &ms_mod);
     emscripten::function("powmod", &ms_powmod);

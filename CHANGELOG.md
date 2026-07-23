@@ -11,6 +11,14 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Polynomial discriminant (`discriminant`).** A new verb returns the exact
+  discriminant of a degree 2–4 polynomial from its closed-form formula, with
+  **symbolic coefficients kept symbolic**: `discriminant a*x^2 + b*x + c, x` →
+  `b^2 - 4*a*c`, and the cubic/quartic forms too. When the coefficients are
+  numeric it also classifies the roots from the discriminant's sign —
+  `x^2 - 5x + 6` → `1` ("two distinct real roots"), `x^2 + 1` → `-4` ("two
+  complex-conjugate roots"), `(x-1)^2` → `0` ("one repeated real root"). In
+  the CLI, REPL, and web console.
 - **Inequality solving.** `solve` now accepts inequalities and returns a
   solution set of intervals instead of only equations: `solve x^2 < 4` →
   `x ∈ (-2, 2)`, `solve x^2 >= 4` → `x ∈ (-∞, -2] ∪ [2, ∞)`. It combines the

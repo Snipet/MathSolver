@@ -66,6 +66,7 @@ export const MATH_VERBS = new Set([
   "mlimit",
   "stirling",
   "seq",
+  "discriminant",
   "sum",
   "product",
   "rsolve",
@@ -470,6 +471,14 @@ async function runVerb(
       const r = await call(verb, [rest]);
       if (!r.ok) return err(rest, r);
       return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "discriminant": {
+      if (args.length > 2) return usage("usage: discriminant <polynomial>[, <var>]");
+      const v = args[1] ?? "";
+      const env = await applyEnv(expr, v ? [v] : [], "expr", ov, scope);
+      const r = await call("discriminant", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }
     case "series": {
       if (args.length > 4)

@@ -436,6 +436,18 @@ void run_stats(const std::string& input, PrintStyle style) {
     }
 }
 
+/// `discriminant`: the discriminant of a polynomial (degree 2–4), symbolic
+/// coefficients kept symbolic; the variable is inferred like diff when omitted.
+void run_discriminant(const std::string& input, const std::string& explicit_var,
+                      PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "discriminant");
+    const DiscriminantResult r = discriminant(e, var);
+    if (r.status != DiscriminantResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", to_string(r.value, style));
+    if (!r.root_nature.empty()) std::println("roots: {}", r.root_nature);
+}
+
 /// `series`: Taylor expansion about a center (default 0) to an order
 /// (default 6); the variable is inferred like diff when omitted.
 void run_series(const std::string& input, const std::string& explicit_var,
@@ -1336,6 +1348,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver isprime  97                 isprime/nextprime\n"
                "  mathsolver divisors 360                divisors, totient\n"
                "  mathsolver cfrac    \"355/113\"          continued fraction + convergents\n"
+               "  mathsolver discriminant \"a*x^2+b*x+c\" x  polynomial discriminant\n"
                "  mathsolver powmod   \"7, 100, 13\"        modular pow/inverse/mod\n"
                "  mathsolver crt      \"2,3,2; 3,5,7\"      Chinese remainder theorem\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
@@ -1375,7 +1388,8 @@ bool is_known_subcommand(std::string_view s) {
            s == "seq" || s == "fit" || s == "regress" || s == "stats" ||
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
            s == "divisors" || s == "totient" || s == "cfrac" ||
-           s == "mod" || s == "powmod" || s == "modinv" || s == "crt";
+           s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
+           s == "discriminant";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1584,6 +1598,15 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_stirling(input, positionals.size() > 1 ? positionals[1] : "",
                          style);
+        } else if (sub == "discriminant") {
+            if (positionals.size() > 2) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver discriminant "
+                    "\"<polynomial>\" [var])",
+                    positionals[2])};
+            }
+            run_discriminant(input, positionals.size() > 1 ? positionals[1] : "",
+                             style);
         } else if (sub == "dsolve") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -1658,6 +1681,7 @@ void print_repl_help() {
         "  dsolve <ode>[, y(0)=v, y'(0)=v, ...]   solve an IVP, e.g.\n"
         "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
+        "  discriminant <polynomial>[, <var>]     discriminant (degree 2–4)\n"
         "  fit <x,y; x,y; ...> [| <model> [<degree>]]  least-squares regression\n"
         "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
         "  stats <v1, v2, v3, ...>                exact summary statistics\n"
@@ -1714,7 +1738,7 @@ bool is_repl_command(std::string_view word) {
            word == "lcm" || word == "isprime" || word == "nextprime" ||
            word == "divisors" || word == "totient" || word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
-           word == "crt";
+           word == "crt" || word == "discriminant";
 }
 
 // ---------------------------------------------------------------------------
@@ -2442,6 +2466,21 @@ void repl_command(const std::string& command, const std::string& rest,
             PrintStyle::Plain);
         run_series(resolved, var, parts.size() > 2 ? parts[2] : "",
                    parts.size() > 3 ? parts[3] : "", PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "discriminant") {
+        // discriminant <polynomial>[, <var>]
+        if (parts.size() > 2) {
+            throw UsageError{"usage: discriminant <polynomial>[, <variable>]"};
+        }
+        const std::string var = parts.size() > 1 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
+        run_discriminant(resolved, var, PrintStyle::Plain);
         warn_assigned_variable(var, env);
     } else if (command == "laplace" || command == "ilaplace") {
         if (parts.size() > 2) {

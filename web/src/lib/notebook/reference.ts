@@ -193,6 +193,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "series sin(x), x, 0, 5",
       },
       {
+        insert: "discriminant",
+        usage: "discriminant <polynomial>[, <var>]",
+        hint: "Discriminant of a degree 2–4 polynomial (symbolic coefficients OK)",
+        example: "discriminant a*x^2 + b*x + c, x",
+      },
+      {
         insert: "limit",
         usage: "limit <expr>, <var>, <point>[, left|right]",
         hint: "Limit at a point or ±inf (exact where possible)",
