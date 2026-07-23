@@ -11,6 +11,16 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — user-defined functions.** Define a function with `f(x) = x^2` and
+  use it anywhere: plot `y = f(x) + 1`, its derivative `f'(x)` (or `f''(x)`),
+  a value `f(3)`, a composition `g(f(x))`, or multi-argument forms
+  `h(x, y) = x^2 + y^2`. A bare `f(x) = …` row plots as `y = f(x)`. Functions
+  are beta-reduced before the engine parses the row (so `f(x+1)` correctly
+  becomes `(x+1)^2`), free variables in a body still become sliders (the `a` in
+  `f(x) = a*x^2`) while parameters never do, recursion and names that shadow a
+  built-in (`sin`, `pi`, …) are rejected with a clear message, and using a bare
+  `f` without arguments reminds you to write `f(x)`.
+
 - **Exact real-root counting & isolation (`rootcount`, `isolate`).** By Sturm's
   theorem over exact rational arithmetic: `rootcount x^5 - 3x + 1` → `3 distinct
   real roots`; `rootcount x^2 - 2, x, 0, 5` → `1 distinct real root in (0, 5]`.

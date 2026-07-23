@@ -892,8 +892,11 @@
       {:else if mode === "graph"}
         <p class="graph-tip">
           Type functions, points, or relations on the left. Undefined
-          variables (like <code>a</code>) become sliders here and in the app;
-          define reusable expressions with <code>f = x^2</code>, and plot
+          variables (like <code>a</code>) become sliders here and in the app.
+          Define a function with <code>f(x) = x^2</code>, then use it anywhere:
+          <code>y = f(x) + 1</code>, its derivative <code>f'(x)</code>,
+          a value <code>f(3)</code>, or a composition <code>g(f(x))</code>.
+          Define reusable values with <code>f = x^2</code>, and plot
           <code>diff(f)</code> or <code>integral(f)</code>. Shade the signed area
           under a curve with <code>integral(f, a, b)</code> — the exact ∫ value
           is labelled from the CAS. Restrict a curve's
