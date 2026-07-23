@@ -24,4 +24,19 @@ struct PolyDivResult {
 PolyDivResult polynomial_divide(const Expr& dividend, const Expr& divisor,
                                 std::string_view var);
 
+/// Result of a polynomial GCD/LCM computation.
+struct PolyGcdResult {
+    enum class Status { Ok, NotPolynomial };
+    Status status = Status::NotPolynomial;
+    Expr value;
+    std::string message;
+};
+
+/// The monic greatest common divisor of two polynomials in `var` (via the
+/// Euclidean algorithm over the polynomial remainder). gcd(0, 0) = 0.
+PolyGcdResult polynomial_gcd(const Expr& a, const Expr& b, std::string_view var);
+
+/// The monic least common multiple, a·b / gcd(a, b). lcm with 0 is 0.
+PolyGcdResult polynomial_lcm(const Expr& a, const Expr& b, std::string_view var);
+
 } // namespace mathsolver

@@ -472,6 +472,19 @@ void run_polydiv(const std::string& dividend, const std::string& divisor,
     std::println("remainder: {}", to_string(r.remainder, style));
 }
 
+/// `polygcd` / `polylcm`: the monic GCD or LCM of two polynomials.
+void run_polygcd(const std::string& a, const std::string& b,
+                 const std::string& explicit_var, bool lcm, PrintStyle style) {
+    const Expr ea = parse_expression_diag(a);
+    const Expr eb = parse_expression_diag(b);
+    std::set<std::string> syms = free_symbols(ea);
+    for (const std::string& s : free_symbols(eb)) syms.insert(s);
+    const std::string var = choose_variable(explicit_var, syms, lcm ? "polylcm" : "polygcd");
+    const PolyGcdResult r = lcm ? polynomial_lcm(ea, eb, var) : polynomial_gcd(ea, eb, var);
+    if (r.status != PolyGcdResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", to_string(r.value, style));
+}
+
 /// `discriminant`: the discriminant of a polynomial (degree 2–4), symbolic
 /// coefficients kept symbolic; the variable is inferred like diff when omitted.
 void run_discriminant(const std::string& input, const std::string& explicit_var,
@@ -1388,6 +1401,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver cfrac    \"355/113\"          continued fraction + convergents\n"
                "  mathsolver discriminant \"a*x^2+b*x+c\" x  polynomial discriminant\n"
                "  mathsolver polydiv  \"x^3-1\" \"x-1\"      polynomial long division\n"
+               "  mathsolver polygcd  \"x^2-1\" \"x^3-1\"    polynomial gcd / lcm\n"
                "  mathsolver powmod   \"7, 100, 13\"        modular pow/inverse/mod\n"
                "  mathsolver crt      \"2,3,2; 3,5,7\"      Chinese remainder theorem\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
@@ -1429,7 +1443,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "divisors" || s == "totient" || s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
            s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
-           s == "polydiv";
+           s == "polydiv" || s == "polygcd" || s == "polylcm";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1645,6 +1659,15 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_polydiv(positionals[0], positionals[1],
                         positionals.size() > 2 ? positionals[2] : "", style);
+        } else if (sub == "polygcd" || sub == "polylcm") {
+            if (positionals.size() < 2 || positionals.size() > 3) {
+                throw UsageError{std::format("usage: mathsolver {} \"<a>\" "
+                                             "\"<b>\" [var]",
+                                             sub)};
+            }
+            run_polygcd(positionals[0], positionals[1],
+                        positionals.size() > 2 ? positionals[2] : "",
+                        sub == "polylcm", style);
         } else if (sub == "discriminant") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
@@ -1734,6 +1757,7 @@ void print_repl_help() {
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
         "  discriminant <polynomial>[, <var>]     discriminant (degree 2–4)\n"
         "  polydiv <dividend>, <divisor>[, <var>] quotient + remainder\n"
+        "  polygcd <a>, <b>[, <var>]   polylcm <a>, <b>[, <var>]   monic gcd/lcm\n"
         "  fit <x,y; x,y; ...> [| <model> [<degree>]]  least-squares regression\n"
         "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
         "  stats <v1, v2, v3, ...>                exact summary statistics\n"
@@ -1793,7 +1817,8 @@ bool is_repl_command(std::string_view word) {
            word == "lcm" || word == "isprime" || word == "nextprime" ||
            word == "divisors" || word == "totient" || word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
-           word == "crt" || word == "discriminant" || word == "polydiv";
+           word == "crt" || word == "discriminant" || word == "polydiv" ||
+           word == "polygcd" || word == "polylcm";
 }
 
 // ---------------------------------------------------------------------------
@@ -2552,6 +2577,22 @@ void repl_command(const std::string& command, const std::string& rest,
         const std::string dvs =
             to_string(resolve_expr(parse_expression_diag(parts[1]), env, excluded), PrintStyle::Plain);
         run_polydiv(dvd, dvs, var, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "polygcd" || command == "polylcm") {
+        // polygcd <a>, <b>[, <var>]
+        if (parts.size() < 2 || parts.size() > 3) {
+            throw UsageError{std::format("usage: {} <a>, <b>[, <variable>]", command)};
+        }
+        const std::string var = parts.size() > 2 ? parts[2] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string ea =
+            to_string(resolve_expr(parse_expression_diag(parts[0]), env, excluded), PrintStyle::Plain);
+        const std::string eb =
+            to_string(resolve_expr(parse_expression_diag(parts[1]), env, excluded), PrintStyle::Plain);
+        run_polygcd(ea, eb, var, command == "polylcm", PrintStyle::Plain);
         warn_assigned_variable(var, env);
     } else if (command == "laplace" || command == "ilaplace") {
         if (parts.size() > 2) {

@@ -70,6 +70,8 @@ export const MATH_VERBS = new Set([
   "seq",
   "discriminant",
   "polydiv",
+  "polygcd",
+  "polylcm",
   "sum",
   "product",
   "rsolve",
@@ -495,6 +497,18 @@ async function runVerb(
       const r = await call("polydiv", [ed.text, es.text, v]);
       if (!r.ok) return err(ed.text, r);
       return { kind: "transform", result: r, computedFrom: ed.computedFrom };
+    }
+    case "polygcd":
+    case "polylcm": {
+      if (args.length < 2 || args.length > 3)
+        return usage(`usage: ${verb} <a>, <b>[, <var>]`);
+      const v = args[2] ?? "";
+      const keep = v ? [v] : [];
+      const ea = await applyEnv(expr, keep, "expr", ov, scope);
+      const eb = await applyEnv(args[1], keep, "expr", ov, scope);
+      const r = await call(verb, [ea.text, eb.text, v]);
+      if (!r.ok) return err(ea.text, r);
+      return { kind: "transform", result: r, computedFrom: ea.computedFrom };
     }
     case "series": {
       if (args.length > 4)

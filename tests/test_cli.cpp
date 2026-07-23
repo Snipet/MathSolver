@@ -182,6 +182,17 @@ TEST_CASE("cli: trigexpand of sums and multiples") {
     CHECK(contains(dbl.output, "sin(x)^2"));
 }
 
+TEST_CASE("cli: polygcd and polylcm") {
+    const RunResult g = run_cli({"polygcd", "x^2 - 1", "x^3 - 1"});
+    INFO(g.output);
+    CHECK(g.exit_code == 0);
+    CHECK(contains(g.output, "x - 1"));
+
+    const RunResult l = run_cli({"polylcm", "x - 1", "x + 1"});
+    CHECK(l.exit_code == 0);
+    CHECK(contains(l.output, "x^2 - 1"));
+}
+
 TEST_CASE("cli: polydiv quotient and remainder") {
     const RunResult exact = run_cli({"polydiv", "x^3 - 1", "x - 1"});
     INFO(exact.output);
