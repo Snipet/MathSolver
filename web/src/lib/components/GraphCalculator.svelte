@@ -142,9 +142,13 @@
       if (!c) break;
       const parts = splitTopLevelCommas(c.inner);
       const isSeries = c.name === "series" || c.name === "taylor";
-      // series(f, center, order): the trailing args are center/order, not a
-      // variable — Taylor is always in x here. diff/integral take (f, var).
-      const variable = isSeries ? "x" : (parts[1] ?? "x").trim();
+      const isTangent = c.name === "tangent";
+      const isNormal = c.name === "normal";
+      // series(f, center, order) and tangent/normal(f, point): the trailing arg
+      // is a center/point, not a variable — these are always in x here.
+      // diff/integral take (f, var).
+      const pointish = isSeries || isTangent || isNormal;
+      const variable = pointish ? "x" : (parts[1] ?? "x").trim();
       const argEnv = await applyEnv(parts[0]?.trim() ?? "", [variable], "expr", overrides);
       const isDiff = c.name === "diff" || c.name === "derivative";
       let plain: string;
@@ -154,6 +158,22 @@
         const r = await call("series", [argEnv.text, variable, center, order]);
         if (!r.ok) throw new Error(r.error);
         plain = r.plain;
+      } else if (isTangent || isNormal) {
+        // Exact tangent/normal line at x = a: build y = m·(x − a) + f(a) with
+        // f(a) and slope m = f′(a) taken symbolically via subs, so
+        // tangent(sin(x), pi/3) → (x − π/3)/2 + √3/2 rather than a decimal.
+        const at = (parts[1] ?? "0").trim() || "0";
+        const fa = await call("subs", [argEnv.text, `${variable}=(${at})`, true]);
+        if (!fa.ok) throw new Error(fa.error);
+        const der = await call("derivative", [argEnv.text, variable]);
+        if (!der.ok) throw new Error(der.error);
+        const fp = await call("subs", [der.plain, `${variable}=(${at})`, true]);
+        if (!fp.ok) throw new Error(fp.error);
+        if (isNormal && fp.plain.trim() === "0") {
+          throw new Error("normal line is vertical here (slope undefined)");
+        }
+        const slope = isTangent ? `(${fp.plain})` : `(-1/(${fp.plain}))`;
+        plain = `${slope}*(${variable} - (${at})) + (${fa.plain})`;
       } else if (isDiff) {
         const r = await call("derivative", [argEnv.text, variable]);
         if (!r.ok) throw new Error(r.error);

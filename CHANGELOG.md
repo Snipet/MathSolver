@@ -17,6 +17,14 @@ per-feature specs are under docs/proposals/.
   `[1, 12]`; the polynomial is computed by the CAS `series` verb, so it is
   exact, and free-symbol analysis (auto-sliders, classification) sees through
   the call to the source expression just as it does for `diff`/`integral`.
+- **Grapher — tangent / normal line operators.** Two more inline operators:
+  `tangent(f, a)` plots the tangent line to `f` at `x = a`, and `normal(f, a)`
+  plots the perpendicular. Both are built exactly from the CAS —
+  `tangent(sin(x), pi/3)` becomes `(x − π/3)/2 + √3/2`, not a rounded decimal —
+  by taking `f(a)` and the slope `f′(a)` symbolically via `subs` on the
+  `derivative`. `a` defaults to `0`. Where the curve is flat the normal line is
+  vertical (undefined slope) and the row reports that rather than drawing a
+  bogus line.
 - **Console cookbook.** The console side panel gains a **Cookbook** tab beside
   the flat **Commands** reference: a set of curated, worked recipes — grouped
   by topic (getting started, algebra, equations, calculus, series & discrete,
