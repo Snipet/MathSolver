@@ -912,7 +912,9 @@
           variables everywhere. Make a list with <code>L = [1, 2, 3]</code> or a
           range <code>[1...10]</code>, then plot it as points:
           <code>(L, L^2)</code> scatters a parabola (scalars broadcast, two lists
-          zip).
+          zip). Build lists with a comprehension <code>[k^2 for k = L]</code>,
+          reduce them with <code>mean(L)</code>/<code>total(L)</code>/<code>max(L)</code>,
+          or index with <code>L[3]</code> (1-based).
         </p>
       {:else}
         <History onrestore={restore} />

@@ -14,7 +14,7 @@ const entry = join(dir, "entry.ts");
 writeFileSync(
   entry,
   `export { classifyRow } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/classify.ts")};
-   export { isBracketList, listInside, parseListBody, rangeValues, referencedLists, substIdent } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/lists.ts")};`,
+   export { isBracketList, listInside, parseListBody, rangeValues, referencedLists, substIdent, AGGREGATES, AGG_NAMES, findAggCall, findIndex } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/lists.ts")};`,
 );
 const out = join(dir, "bundle.mjs");
 execFileSync("npx", ["esbuild", entry, "--bundle", "--format=esm", `--outfile=${out}`], {
@@ -30,6 +30,7 @@ const evalNum = (expr) => {
 };
 
 const CAP = 400;
+let LISTS = {};
 function evalListLiteral(inside) {
   const spec = G.parseListBody(inside);
   if (spec.kind === "range") {
@@ -38,25 +39,63 @@ function evalListLiteral(inside) {
     if (from === null || to === null || step === null) return null;
     return G.rangeValues(from, step, to, CAP);
   }
+  if (spec.kind === "comprehension") {
+    const src = evalListArray(spec.source);
+    if (!src) return null;
+    const out = [];
+    for (const val of src.slice(0, CAP)) { const v = evalNum(G.substIdent(spec.body, spec.varName, String(val))); if (v === null) return null; out.push(v); }
+    return out;
+  }
   const out = [];
   for (const it of spec.items.slice(0, CAP)) { const v = evalNum(it); if (v === null) return null; out.push(v); }
   return out;
 }
-function evalCoordSeq(expr, lists) {
+function evalListArray(expr) {
   const e = expr.trim();
+  if (G.isBracketList(e)) return evalListLiteral(G.listInside(e));
+  if (e in LISTS) return LISTS[e];
+  const refs = G.referencedLists(e, Object.keys(LISTS));
+  if (refs.length === 0) return null;
+  const arrs = refs.map((n) => LISTS[n] ?? []);
+  const len = Math.min(CAP, ...arrs.map((a) => a.length));
+  const out = [];
+  for (let i = 0; i < len; i++) { let sub = e; for (let k = 0; k < refs.length; k++) sub = G.substIdent(sub, refs[k], String(arrs[k][i])); out.push(evalNum(sub) ?? NaN); }
+  return out;
+}
+function expandListScalars(text) {
+  const names = Object.keys(LISTS);
+  let s = text;
+  for (let g = 0; g < 64; g++) {
+    const ix = G.findIndex(s, names);
+    if (!ix) break;
+    const arr = LISTS[ix.name]; const iv = evalNum(ix.idx);
+    if (!arr || iv === null) throw new Error("bad index");
+    const k = Math.round(iv);
+    if (!(k >= 1 && k <= arr.length)) throw new Error("out of range");
+    s = s.slice(0, ix.start) + `(${arr[k - 1]})` + s.slice(ix.end);
+  }
+  for (let g = 0; g < 64; g++) {
+    const ag = G.findAggCall(s, G.AGG_NAMES, names);
+    if (!ag) break;
+    const arr = evalListArray(ag.inner);
+    if (!arr) break;
+    const val = G.AGGREGATES[ag.name](arr.filter(Number.isFinite));
+    s = s.slice(0, ag.start) + `(${val})` + s.slice(ag.end);
+  }
+  return s;
+}
+function evalCoordSeq(expr, lists) {
+  LISTS = lists;
+  let e;
+  try { e = expandListScalars(expr.trim()).trim(); } catch { return null; }
   if (G.isBracketList(e)) { const v = evalListLiteral(G.listInside(e)); return v ? { values: v, isList: true } : null; }
   const refs = G.referencedLists(e, Object.keys(lists));
   if (refs.length === 0) return { values: [evalNum(e)], isList: false };
-  const arrs = refs.map((n) => lists[n] ?? []);
-  const len = Math.min(CAP, ...arrs.map((a) => a.length));
-  const values = [];
-  for (let i = 0; i < len; i++) {
-    let sub = e;
-    for (let k = 0; k < refs.length; k++) sub = G.substIdent(sub, refs[k], String(arrs[k][i]));
-    values.push(evalNum(sub));
-  }
-  return { values, isList: true };
+  const arr = evalListArray(e);
+  return arr ? { values: arr, isList: true } : null;
 }
+// Scalar evaluation of an expression that may contain list ops (aggregates/index).
+function evalScalarOps(expr, lists) { LISTS = lists; return evalNum(expandListScalars(expr.trim())); }
 // Broadcast a point row's coords the way buildDrawable does.
 function pointsOf(row, lists) {
   const spec = G.classifyRow(row);
@@ -81,14 +120,17 @@ const check = (n, got, want) => {
   else { fail++; console.log(`FAIL  ${n}: got ${JSON.stringify(got)}, want ${JSON.stringify(want)}`); }
 };
 
-// Build a list registry the way recompute does.
+// Build a list registry the way recompute does (order matters: C uses L).
 const lists = {};
-for (const row of ["L = [1, 2, 3, 4]", "A = [0...3]"]) {
+LISTS = lists;
+for (const row of ["L = [1, 2, 3, 4]", "A = [0...3]", "C = [k^2 for k=[1...4]]", "D = [2*n for n=L]"]) {
   const s = G.classifyRow(row);
   lists[s.name] = evalListLiteral(s.inside);
 }
 check("L literal materializes", lists.L, [1, 2, 3, 4]);
 check("A range materializes", lists.A, [0, 1, 2, 3]);
+check("comprehension [k^2 for k=[1...4]]", lists.C, [1, 4, 9, 16]);
+check("comprehension over a named list [2n for n=L]", lists.D, [2, 4, 6, 8]);
 
 check("(L, L^2) → parabola samples", pointsOf("(L, L^2)", lists), [[1, 1], [2, 4], [3, 9], [4, 16]]);
 check("(L, 2L+1) broadcast", pointsOf("(L, 2*L + 1)", lists), [[1, 3], [2, 5], [3, 7], [4, 9]]);
@@ -99,6 +141,24 @@ check("inline literal coords", pointsOf("([1, 2, 3], [4, 5, 6])", lists), [[1, 4
 check("inline range coords", pointsOf("([1...3], [1...3])", lists), [[1, 1], [2, 2], [3, 3]]);
 check("plain scalar point still works", pointsOf("(1, 2)", lists), [[1, 2]]);
 check("mixed row: scatter group + plain point", pointsOf("(L, L), (7, 8)", lists), [[1, 1], [2, 2], [3, 3], [4, 4], [7, 8]]);
+
+// Aggregates reduce a list to a scalar (usable anywhere, e.g. y = mean(L)).
+check("total(L)", evalScalarOps("total(L)", lists), 10);
+check("mean(L)", evalScalarOps("mean(L)", lists), 2.5);
+check("max(L) and min(L)", [evalScalarOps("max(L)", lists), evalScalarOps("min(L)", lists)], [4, 1]);
+check("length(L)", evalScalarOps("length(L)", lists), 4);
+check("aggregate over a broadcast: mean(L^2)", evalScalarOps("mean(L^2)", lists), 7.5);
+check("aggregate over a comprehension", evalScalarOps("total([k for k=[1...5]])", lists), 15);
+check("mean of a scatter y-coordinate: y = mean(L) is a constant", evalScalarOps("mean(L) + 0*x", lists), 2.5);
+
+// Indexing (1-based, Desmos-style).
+check("L[1] first element", evalScalarOps("L[1]", lists), 1);
+check("L[4] last element", evalScalarOps("L[4]", lists), 4);
+check("L[2] + L[3]", evalScalarOps("L[2] + L[3]", lists), 5);
+check("index used in a point: (L[1], L[4])", pointsOf("(L[1], L[4])", lists), [[1, 4]]);
+
+// Aggregates/index as list-of-point coordinates.
+check("(A, mean(L)) → horizontal band of points", pointsOf("(A, mean(L))", lists), [[0, 2.5], [1, 2.5], [2, 2.5], [3, 2.5]]);
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
