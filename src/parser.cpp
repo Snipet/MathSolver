@@ -429,7 +429,8 @@ private:
             return true;
         }
         if (starts("≤") || starts("≥") || starts("≠")) { // ≤ ≥ ≠
-            throw ParseError("inequalities are not supported yet (only '=' equations)",
+            throw ParseError("inequalities belong to 'solve' (e.g. solve x^2 < 4), "
+                             "not a bare expression",
                              begin, pos_ + 3);
         }
         return false;

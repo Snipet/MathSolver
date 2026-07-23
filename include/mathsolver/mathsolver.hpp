@@ -12,6 +12,7 @@
 #include "mathsolver/evaluator.hpp"
 #include "mathsolver/expr.hpp"
 #include "mathsolver/fit.hpp"
+#include "mathsolver/inequality.hpp"
 #include "mathsolver/integrate.hpp"
 #include "mathsolver/limit.hpp"
 #include "mathsolver/numtheory.hpp"

@@ -169,6 +169,27 @@ TEST_CASE("cli: number-theory verbs") {
     CHECK(bad.exit_code == 2);
 }
 
+TEST_CASE("cli: solve inequalities into interval solution sets") {
+    const RunResult quad = run_cli({"solve", "x^2 < 4"});
+    INFO(quad.output);
+    CHECK(quad.exit_code == 0);
+    CHECK(contains(quad.output, "(-2, 2)"));
+
+    const RunResult ge = run_cli({"solve", "x^2 >= 4"});
+    CHECK(ge.exit_code == 0);
+    CHECK(contains(ge.output, "-2]"));
+    CHECK(contains(ge.output, "[2"));
+
+    const RunResult rat = run_cli({"solve", "1/x > 0"});
+    CHECK(rat.exit_code == 0);
+    CHECK(contains(rat.output, "(0"));
+
+    // Equations still solve to roots (no regression).
+    const RunResult eq = run_cli({"solve", "x^2 = 4", "x"});
+    CHECK(eq.exit_code == 0);
+    CHECK(contains(eq.output, "2"));
+}
+
 TEST_CASE("cli: modular arithmetic verbs") {
     const RunResult pm = run_cli({"powmod", "7, 100, 13"});
     INFO(pm.output);
