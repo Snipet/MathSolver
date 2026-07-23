@@ -11,6 +11,15 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — contour maps of z = f(x, y).** A bare expression in **both** `x`
+  and `y` — e.g. `x^2 + y^2`, `sin(x) + cos(y)`, or `x*y` — is no longer a
+  broken 1-D curve: it now renders as a **contour map**, the level sets of the
+  surface `z = f(x, y)`. The field is sampled once on a grid over the visible
+  window; "nice" iso-levels (round multiples spanning its value range) are
+  traced with marching squares, so `x^2 + y^2` draws as concentric circles and
+  `x*y` as hyperbolic level curves. The **`z = 0` level is drawn solid** (the
+  boundary between `f > 0` and `f < 0`); the rest are dashed, in the row's
+  colour. Levels re-pick as you pan and zoom.
 - **Grapher — slope fields & solution curves.** A row written as `y' = f(x, y)`
   (or `dy/dx = f(x, y)`) now draws the **direction field** of that first-order
   ODE — a lattice of short segments whose slope is `f` — pairing the CAS with

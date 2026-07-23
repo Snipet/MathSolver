@@ -2,6 +2,8 @@
 // (row-major, y outer) sampled over [x0,x1]×[y0,y1], as flat polyline segments
 // with null separators (ready for a "line" DrawSeries). Pure + unit-tested.
 
+import { niceStep, ticks } from "./viewport";
+
 export interface Contour {
   xs: (number | null)[];
   ys: (number | null)[];
@@ -70,6 +72,28 @@ export function marchingSquares(
     }
   }
   return { xs, ys };
+}
+
+/**
+ * Choose "nice" iso-levels (multiples of 1/2/5·10^k) spanning a grid's finite
+ * value range, aiming for about `target` contour lines. Returns [] when the
+ * field is constant or has no finite samples (nothing to contour). The zero
+ * level is included whenever 0 lies within the range, so a contour map of
+ * f(x,y) always shows f = 0 where it exists. Pure + unit-tested.
+ */
+export function contourLevels(g: (number | null)[], target = 10): number[] {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const v of g) {
+    if (v === null || !Number.isFinite(v)) continue;
+    if (v < lo) lo = v;
+    if (v > hi) hi = v;
+  }
+  if (!(hi > lo)) return [];
+  const step = niceStep(hi - lo, target);
+  // Drop levels grazing the extremes: a level within a hair of min/max touches
+  // at most a point and just adds visual noise.
+  return ticks(lo, hi, step).filter((L) => L > lo + step * 1e-6 && L < hi - step * 1e-6);
 }
 
 /** Sign mask of an inequality over the grid, for region shading. */
