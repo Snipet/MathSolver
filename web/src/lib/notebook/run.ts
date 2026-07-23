@@ -8,6 +8,7 @@
 // console line and the equivalent workbench action compute identically.
 import { call } from "../engine";
 import type { EngineError, PluginMeta } from "../engine/types";
+import { splitRelation } from "../graph/classify";
 import { hasTopLevelSemicolon, splitTopLevelCommas } from "../format";
 import type { Outcome } from "../outcome";
 import { vars } from "../vars.svelte";
@@ -797,6 +798,14 @@ async function runSolve(
   scope?: ScopeEnv,
 ): Promise<CellResult> {
   const target = args[0] ?? "";
+  // An inequality (x^2 < 4) yields an interval solution set. Split it at the
+  // text level — the parser rejects `<` — and skip environment resolution.
+  const rel = splitRelation(target);
+  if (rel && rel.op !== "=") {
+    const r = await call("solveIneq", [rel.lhs, rel.rhs, rel.op, args[1] ?? ""]);
+    if (!r.ok) return err(target, r);
+    return { kind: "transform", result: r, computedFrom: null };
+  }
   if (hasTopLevelSemicolon(target)) {
     let sv = args.slice(1);
     if (sv.length === 0) {

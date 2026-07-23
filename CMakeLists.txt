@@ -61,6 +61,7 @@ add_library(mathsolver_core STATIC
     src/stats.cpp
     src/numtheory.cpp
     src/cfrac.cpp
+    src/inequality.cpp
     src/ode.cpp
     src/series.cpp
     src/vector_calculus.cpp

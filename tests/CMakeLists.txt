@@ -25,6 +25,7 @@ add_executable(mathsolver_tests
     test_stats.cpp
     test_numtheory.cpp
     test_cfrac.cpp
+    test_inequality.cpp
     test_cancel.cpp
     test_together.cpp
     test_solver.cpp

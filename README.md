@@ -523,6 +523,21 @@ for the full workflow.
   rational-root peeling for higher degrees, isolation through invertible
   layers (`ln(x+1)=2` → `x = e^2 - 1`), and a Newton/bisection numeric
   fallback for the rest (`cos(x) = x`).
+- **Inequalities** — `solve x^2 < 4` → `x ∈ (-2, 2)`. The solver combines
+  the two sides over a common denominator, takes the real roots of the
+  numerator (zeros) and denominator (poles) as breakpoints, sign-tests each
+  interval, and reports the solution set with exact endpoints (radicals and
+  all) and correct open/closed brackets — poles excluded, `≤`/`≥` roots
+  included:
+
+  ```console
+  $ mathsolver solve "x^2 >= 4"
+  x ∈ (-∞, -2] ∪ [2, ∞)
+  $ mathsolver solve "(x-2)/(x+1) <= 0"
+  x ∈ (-1, 2]
+  $ mathsolver solve "x^2 < 2"
+  x ∈ (-sqrt(2), sqrt(2))
+  ```
 - **Linear systems** — Gaussian elimination over exact expression
   arithmetic (`solve "x + y = 3; x - y = 1"`): symbolic parameters as
   coefficients, underdetermined systems with free variables, and

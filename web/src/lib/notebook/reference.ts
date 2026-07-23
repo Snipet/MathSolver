@@ -311,9 +311,9 @@ export const BUILTIN_GROUPS: RefGroup[] = [
     items: [
       {
         insert: "solve",
-        usage: "solve <equation>[, <var>]  ·  solve <eq>; <eq>[, <vars…>]",
-        hint: "Equations, and ;-separated linear systems",
-        example: "solve x^2 = 4, x",
+        usage: "solve <equation | inequality>[, <var>]  ·  solve <eq>; <eq>[, <vars…>]",
+        hint: "Equations, inequalities (→ intervals), and ;-separated linear systems",
+        example: "solve x^2 < 4",
       },
       {
         insert: "eval",

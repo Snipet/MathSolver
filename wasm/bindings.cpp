@@ -415,6 +415,29 @@ std::string ms_modinv(std::string list) {
     });
 }
 
+/// solveIneq(lhs, rhs, op, var): solve the inequality `lhs <op> rhs` for its
+/// variable (op is one of "<", "<=", ">", ">="; var may be empty to infer).
+std::string ms_solve_ineq(std::string lhs, std::string rhs, std::string op,
+                          std::string var) {
+    return guarded([&]() -> std::string {
+        IneqOp o;
+        if (op == "<") o = IneqOp::Lt;
+        else if (op == "<=") o = IneqOp::Le;
+        else if (op == ">") o = IneqOp::Gt;
+        else if (op == ">=") o = IneqOp::Ge;
+        else return err_json("unknown relational operator '" + op + "'");
+        const IneqResult r = solve_inequality(parse_expression(lhs),
+                                              parse_expression(rhs), o, trim(var));
+        if (r.status == IneqResult::Status::Unsolved) {
+            return err_json(r.message.empty() ? "unable to solve inequality"
+                                              : r.message);
+        }
+        return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{},\"notes\":{}}}",
+                           jstr(format_solution_set(r, false)),
+                           jstr(format_solution_set(r, true)), jarr_str(r.warnings));
+    });
+}
+
 /// crt(system): "r1, r2, …; m1, m2, …" — residues before ';', moduli after.
 std::string ms_crt(std::string system) {
     return guarded([&]() -> std::string {
@@ -1320,6 +1343,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("divisors", &ms_divisors);
     emscripten::function("totient", &ms_totient);
     emscripten::function("cfrac", &ms_cfrac);
+    emscripten::function("solveIneq", &ms_solve_ineq);
     emscripten::function("mod", &ms_mod);
     emscripten::function("powmod", &ms_powmod);
     emscripten::function("modinv", &ms_modinv);

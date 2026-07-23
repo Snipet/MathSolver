@@ -11,6 +11,17 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Inequality solving.** `solve` now accepts inequalities and returns a
+  solution set of intervals instead of only equations: `solve x^2 < 4` →
+  `x ∈ (-2, 2)`, `solve x^2 >= 4` → `x ∈ (-∞, -2] ∪ [2, ∞)`. It combines the
+  two sides over a common denominator, takes the real roots of the numerator
+  (zeros) and denominator (poles) as breakpoints, sign-tests each interval,
+  and assembles the answer with **exact endpoints** (radicals like `√2` are
+  kept) and correct open/closed brackets — poles are excluded (`1/x > 0` →
+  `(0, ∞)`), removable holes stay excluded, and `≤`/`≥` roots are included.
+  Degenerate cases are handled: `x^2 >= 0` → all reals, `x^2 < 0` → no
+  solution, `x^2 <= 0` → the single point `{0}`. Works in the CLI, REPL, and
+  web console (`<`, `>`, `<=`, `>=`, and the Unicode `≤`/`≥`).
 - **Modular arithmetic (`mod`, `powmod`, `modinv`, `crt`).** Rounds out the
   number-theory suite. **`powmod b, e, m`** does modular exponentiation with
   square-and-multiply over 128-bit products, so `powmod 7, 1000000, 13`

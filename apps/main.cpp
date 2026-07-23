@@ -1062,8 +1062,57 @@ void print_solve_result(const SolveResult& res, const std::string& var,
     }
 }
 
+struct ParsedInequality {
+    IneqOp op;
+    std::string lhs;
+    std::string rhs;
+};
+
+/// Find a top-level relational operator (`<`, `>`, `<=`, `>=`, or the Unicode
+/// `≤`/`≥`) outside any brackets. The core parser rejects these bytes, so an
+/// inequality has to be split at the text level before either side is parsed.
+std::optional<ParsedInequality> find_inequality(const std::string& s) {
+    int depth = 0;
+    for (std::size_t i = 0; i < s.size(); ++i) {
+        const char c = s[i];
+        if (c == '(' || c == '[' || c == '{') {
+            ++depth;
+        } else if (c == ')' || c == ']' || c == '}') {
+            --depth;
+        } else if (depth == 0) {
+            // Unicode ≤ (E2 89 A4) / ≥ (E2 89 A5).
+            if (static_cast<unsigned char>(c) == 0xE2 && i + 2 < s.size() &&
+                static_cast<unsigned char>(s[i + 1]) == 0x89) {
+                const unsigned char t = static_cast<unsigned char>(s[i + 2]);
+                if (t == 0xA4) return ParsedInequality{IneqOp::Le, s.substr(0, i), s.substr(i + 3)};
+                if (t == 0xA5) return ParsedInequality{IneqOp::Ge, s.substr(0, i), s.substr(i + 3)};
+            }
+            if (c == '<' || c == '>') {
+                const bool eq = i + 1 < s.size() && s[i + 1] == '=';
+                const IneqOp op = c == '<' ? (eq ? IneqOp::Le : IneqOp::Lt)
+                                           : (eq ? IneqOp::Ge : IneqOp::Gt);
+                return ParsedInequality{op, s.substr(0, i), s.substr(eq ? i + 2 : i + 1)};
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 void run_solve(const std::string& input, const std::string& explicit_var,
                const NumericOptions& opts, PrintStyle style) {
+    // An inequality (x^2 < 4) yields a solution set of intervals, not roots.
+    if (const auto ineq = find_inequality(input)) {
+        const Expr lhs = parse_expression_diag(ineq->lhs);
+        const Expr rhs = parse_expression_diag(ineq->rhs);
+        const IneqResult r = solve_inequality(lhs, rhs, ineq->op, explicit_var);
+        if (r.status == IneqResult::Status::Unsolved) {
+            throw UsageError{r.message.empty() ? "unable to solve inequality"
+                                               : r.message};
+        }
+        std::println("{}", format_solution_set(r, style == PrintStyle::LaTeX));
+        for (const std::string& w : r.warnings) std::println("note: {}", w);
+        return;
+    }
     const Equation eq = parse_equation_diag(input);
     const std::string var = choose_variable(explicit_var, equation_symbols(eq), "solve");
     print_solve_result(solve(eq, var, opts), var, style);
@@ -2021,6 +2070,14 @@ void print_override_notes(const std::vector<std::string>& args,
 /// excluded from resolution and warned about when assigned (§7).
 void repl_solve(const std::string& input, std::vector<std::string> vars,
                 const Environment& env) {
+    // An inequality is a text-split path (the parser rejects `<`), so it skips
+    // the equation-oriented environment resolution and goes straight to
+    // run_solve, which builds the interval solution set.
+    if (find_inequality(input)) {
+        run_solve(input, vars.empty() ? std::string{} : vars[0], NumericOptions{},
+                  PrintStyle::Plain);
+        return;
+    }
     const std::vector<std::string> segments = split_top_level(input, ';');
     const auto segment_equation = [&](const std::string& segment) -> Equation {
         // An equation-valued name may stand as a whole segment (spec §4).
