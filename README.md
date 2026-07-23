@@ -544,6 +544,22 @@ for the full workflow.
   $ mathsolver totient 36
   12
   ```
+- **Continued fractions** — `cfrac` expands a rational (finite), `sqrt(n)`
+  (exact periodic expansion), or any real (numeric) into `[a0; a1, a2, …]`
+  and lists the **convergents** — the successive best rational
+  approximations:
+
+  ```console
+  $ mathsolver cfrac 355/113
+  [3; 7, 16]
+  convergents: 3, 22/7, 355/113
+  $ mathsolver cfrac "sqrt(2)"
+  [1; (2)]
+  convergents: 1, 3/2, 7/5, 17/12, 41/29, 99/70, …
+  $ mathsolver cfrac pi
+  [3; 7, 15, 1, 292, …]
+  convergents: 3, 22/7, 333/106, 355/113, …
+  ```
 
 ## Limitations (by design, v0.1)
 

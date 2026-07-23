@@ -169,6 +169,19 @@ TEST_CASE("cli: number-theory verbs") {
     CHECK(bad.exit_code == 2);
 }
 
+TEST_CASE("cli: cfrac — rational, surd, and convergents") {
+    const RunResult rat = run_cli({"cfrac", "355/113"});
+    INFO(rat.output);
+    CHECK(rat.exit_code == 0);
+    CHECK(contains(rat.output, "[3; 7, 16]"));
+    CHECK(contains(rat.output, "22/7"));
+
+    const RunResult surd = run_cli({"cfrac", "sqrt(2)"});
+    CHECK(surd.exit_code == 0);
+    CHECK(contains(surd.output, "[1; (2)]"));
+    CHECK(contains(surd.output, "17/12"));
+}
+
 TEST_CASE("cli: cancel — success, no-op, and usage error") {
     const RunResult ok = run_cli({"cancel", "(x^2 - 1)/(x - 1)"});
     INFO(ok.output);

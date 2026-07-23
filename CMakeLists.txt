@@ -60,6 +60,7 @@ add_library(mathsolver_core STATIC
     src/fit.cpp
     src/stats.cpp
     src/numtheory.cpp
+    src/cfrac.cpp
     src/ode.cpp
     src/series.cpp
     src/vector_calculus.cpp

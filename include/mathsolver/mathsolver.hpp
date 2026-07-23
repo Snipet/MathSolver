@@ -5,6 +5,7 @@
 #include <string_view>
 
 #include "mathsolver/apart.hpp"
+#include "mathsolver/cfrac.hpp"
 #include "mathsolver/derivative.hpp"
 #include "mathsolver/discrete.hpp"
 #include "mathsolver/errors.hpp"

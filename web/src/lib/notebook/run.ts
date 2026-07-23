@@ -77,6 +77,7 @@ export const MATH_VERBS = new Set([
   "nextprime",
   "divisors",
   "totient",
+  "cfrac",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -437,6 +438,13 @@ async function runVerb(
     case "totient": {
       if (args.length > 1) return usage(`usage: ${verb} <integer>`);
       const r = await call(verb, [expr]);
+      if (!r.ok) return err(expr, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "cfrac": {
+      // A single value: a rational, sqrt(n), or any real expression.
+      if (args.length > 1) return usage("usage: cfrac <rational | sqrt(n) | real>");
+      const r = await call("cfrac", [expr]);
       if (!r.ok) return err(expr, r);
       return { kind: "transform", result: r, computedFrom: null };
     }
