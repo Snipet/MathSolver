@@ -72,9 +72,54 @@ jobs:
         run: npm run build
         working-directory: web
 
+      # The same WASM module (staged into apps/ink/wasm by build_wasm.sh)
+      # drives the Ink terminal app; exercise it end-to-end here.
+      - name: Install Ink app dependencies
+        run: npm ci
+        working-directory: apps/ink
+
+      - name: Build Ink app
+        run: npm run build
+        working-directory: apps/ink
+
+      - name: Ink app e2e (against the WASM engine)
+        run: npm run e2e
+        working-directory: apps/ink
+
       - name: Upload dist artifact
         uses: actions/upload-artifact@v4
         with:
           name: web-dist
           path: web/dist
           if-no-files-found: error
+
+  ink:
+    name: Ink terminal app (typecheck + unit tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/ink/package-lock.json
+
+      - name: Install
+        run: npm ci
+        working-directory: apps/ink
+
+      - name: Type-check
+        run: npm run typecheck
+        working-directory: apps/ink
+
+      # Grammar, formatting, caret diagnostics, and the Ink UI, all against a
+      # stub engine (no WASM build required — that path is covered by wasm-web).
+      - name: Test
+        run: npm test
+        working-directory: apps/ink
+
+      - name: Build
+        run: npm run build
+        working-directory: apps/ink
