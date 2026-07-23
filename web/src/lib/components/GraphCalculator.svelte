@@ -12,6 +12,7 @@
   import {
     xRange,
     yRange,
+    breakDiscontinuities,
     type DrawSeries,
     type PointHandle,
     type AxisSource,
@@ -363,7 +364,13 @@
       const sr = await call("sample", [env.text, along, lo, hi, n]);
       if (!sr.ok) return { series: [], error: sr.error };
       const cmps = parseRestriction(spec.restrict ?? []);
-      const masked = blank(sr.ys, cmps.length ? await restrictMask(cmps, along, lo, hi, n) : null);
+      // Break the polyline across poles (tan, 1/x, sec…) so the curve doesn't
+      // draw a spurious vertical connector through each asymptote. The sampled
+      // values are y for y=f(x) and x for x=f(y), so measure against the
+      // matching visible span.
+      const [vlo, vhi] = spec.t === "function" ? yRange(graph.view, graphH) : xRange(graph.view, graphW);
+      const broken = breakDiscontinuities(sr.ys, vhi - vlo);
+      const masked = blank(broken, cmps.length ? await restrictMask(cmps, along, lo, hi, n) : null);
       const axis = linspace(lo, hi, n);
       const series: DrawSeries =
         spec.t === "function"

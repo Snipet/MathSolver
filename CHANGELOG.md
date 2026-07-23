@@ -5,6 +5,10 @@ per-feature specs are under docs/proposals/.
 
 ## Unreleased (v0.6)
 
+### Fixed
+
+- **Grapher — no more vertical lines through asymptotes.** A curve like `tan(x)`, `1/x`, or `sec(x)` no longer draws a spurious near-vertical connector straight through each pole: the sampler now breaks the polyline where two consecutive samples straddle zero, both sit well off-screen, and the jump dwarfs the visible span — the pen lifts at the asymptote instead. Applies to `y=f(x)` and `x=f(y)`.
+
 ### Added
 
 - **Console cookbook.** The console side panel gains a **Cookbook** tab beside
