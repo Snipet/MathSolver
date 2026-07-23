@@ -62,6 +62,12 @@ export interface DrawSeries {
   label?: string;
   /** For "line": draw dashed (e.g. a horizontal asymptote). */
   dash?: boolean;
+  /** Per-row style overrides. `width` scales the stroke (lines) and, for
+   *  "points", the marker radius; `dashArr` is an explicit dash pattern (empty
+   *  = solid). Set from the row's line-style/weight; unset falls back to the
+   *  built-in defaults. */
+  width?: number;
+  dashArr?: number[];
 }
 
 /**

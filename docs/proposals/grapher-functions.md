@@ -470,7 +470,9 @@ Prioritized from a full inventory. `S/M/L` = effort.
 - **Point & curve labels (`showLabel`)** — *low, M.* Per-row label text rendered
   at the point/curve.
 - **Per-row line/point style** (dashed/thickness/point size) — *low, M.* Extend
-  `DrawSeries` + the row model + `GraphCanvas` rendering.
+  `DrawSeries` + the row model + `GraphCanvas` rendering. *Shipped:* color +
+  line style (solid/dashed/dotted) + weight (thin/normal/thick, also scaling
+  point markers), persisted per row (`graph/style.ts`).
 - **Polygon / list-of-points plotting** — *low, M.* Depends on lists.
 - **Animated sliders (play button)** — *med, M.* A rAF loop stepping a slider
   var between its bounds; the slider infra already exists.

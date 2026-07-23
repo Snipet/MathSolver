@@ -11,6 +11,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — per-row styling.** Each row's color swatch now opens a style
+  popover: pick a **color**, a **line style** (solid / dashed / dotted), and a
+  **weight** (thin / normal / thick). The weight also scales point markers, so a
+  scatter can be made bolder or lighter. Styles persist with the document and
+  are applied to every curve the row draws (a horizontal asymptote keeps its own
+  dash regardless).
+
 - **Grapher — list transforms (sort / unique / reverse / join, slices).**
   List-returning operations complete the list algebra: `sort(L)`, `unique(L)`
   (first-seen order), `reverse(L)`, `join(A, B, …)` (concatenate), and slices
