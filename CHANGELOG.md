@@ -109,13 +109,18 @@ per-feature specs are under docs/proposals/.
 - **`prob` plugin — probability distributions.** A new plugin covering the
   distributions of a first statistics course: **normal** (`normalpdf`,
   `normalcdf`, and `invnorm` — the inverse/quantile), **binomial** (`binompdf`,
-  `binomcdf`), and **Poisson** (`poissonpdf`, `poissoncdf`). Each command
-  reports the queried value and **plots the distribution** — the bell curve for
-  the normal, stem markers for the discrete PMFs — with a marker at the query
-  point. `prob.normalcdf 1.96` → `0.975`, `prob.invnorm 0.975` → `1.95996`,
-  `prob.binompdf 10, 0.5, 5` → `0.2461`. The normal CDF uses `erf` and the
-  inverse uses Acklam's rational approximation refined by a Halley step; the
-  discrete PMFs evaluate in log-space (`lgamma`) for stability at large counts.
+  `binomcdf`), **Poisson** (`poissonpdf`, `poissoncdf`), **Student's t**
+  (`tpdf`, `tcdf`), **chi-squared** (`chi2pdf`, `chi2cdf`), **exponential**
+  (`exppdf`, `expcdf`), and **continuous uniform** (`unifpdf`, `unifcdf`). Each
+  command reports the queried value and **plots the distribution** — the bell
+  curve for the normal, stem markers for the discrete PMFs, the density for the
+  continuous families — with a marker at the query point. `prob.normalcdf 1.96`
+  → `0.975`, `prob.invnorm 0.975` → `1.95996`, `prob.binompdf 10, 0.5, 5` →
+  `0.2461`, `prob.tcdf 2.228, 10` → `0.975`, `prob.chi2cdf 7.815, 3` → `0.95`.
+  The normal CDF uses `erf` and the inverse uses Acklam's rational approximation
+  refined by a Halley step; the discrete PMFs evaluate in log-space (`lgamma`)
+  for stability at large counts; the t and chi-squared CDFs use the regularized
+  incomplete beta and gamma functions.
 - **`stats` — exact summary statistics.** A new verb that summarizes a data
   list (`stats "1, 2, 3, 4, 5"`) — n, sum, mean, min/max/range, the quartiles
   and median (Moore & McCabe method), IQR, and both population and sample

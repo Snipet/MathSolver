@@ -163,6 +163,11 @@ check("prob binompdf", ms.pluginCall("prob", "binompdf", "10, 0.5, 5"), (r) => r
 check("prob poissoncdf", ms.pluginCall("prob", "poissoncdf", "3, 2"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X <=")) - 0.42319) < 1e-4, "0.42319");
 check("prob domain error", ms.pluginCall("prob", "normalcdf", "1, 0, -2"), (r) => !r.ok && r.error.includes("positive"), "sigma>0 enforced");
 check("prob integer error", ms.pluginCall("prob", "binompdf", "10, 0.5, 2.5"), (r) => !r.ok && r.error.includes("whole number"), "k must be integer");
+check("prob tcdf", ms.pluginCall("prob", "tcdf", "2.228, 10"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X <=")) - 0.975) < 1e-4, "t(10) 97.5th pct");
+check("prob chi2cdf", ms.pluginCall("prob", "chi2cdf", "7.815, 3"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X <=")) - 0.95) < 1e-4, "chi2(3) 95th pct");
+check("prob expcdf", ms.pluginCall("prob", "expcdf", "2, 0.5"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X <=")) - (1 - Math.exp(-1))) < 1e-6, "1 - e^-1");
+check("prob unifcdf", ms.pluginCall("prob", "unifcdf", "3, 0, 10"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X <=")) - 0.3) < 1e-9, "(3-0)/10");
+check("prob t df error", ms.pluginCall("prob", "tcdf", "1, -2"), (r) => !r.ok && r.error.includes("degrees of freedom"), "nu>0 enforced");
 // pde.simulate
 check("pde simulate fisher", ms.pluginCall("pde", "simulate", "10,1,u*(1-u),0.5*sin(pi*x/10),8"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.title === "Concentration profiles" && b.series.length === 5 && Math.max(...b.series[4].ys) > 0.9 && Math.max(...b.series[4].ys) < 1.001), "growth toward u = 1");
 check("pde simulate newton kv", ms.pluginCall("pde", "simulate", "1,1,2u,sin(pi*x),0.2"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k]) => k === "Newton iterations")), "newton stats reported");

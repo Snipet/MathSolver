@@ -5,6 +5,7 @@
 // log-space where it matters (binomial / Poisson PMFs) for numerical stability.
 
 #include <cmath>
+#include <limits>
 #include <numbers>
 
 namespace mathsolver::plugins::prob {
@@ -97,6 +98,127 @@ inline double poisson_cdf(double lambda, int k) {
     double acc = 0.0;
     for (int i = 0; i <= k; ++i) acc += poisson_pmf(lambda, i);
     return acc > 1.0 ? 1.0 : acc;
+}
+
+// --- Special functions (for the t and chi-squared CDFs) --------------------
+
+/// Regularized lower incomplete gamma P(a, x) = γ(a, x) / Γ(a). Series below the
+/// crossover, continued fraction (for Q = 1 − P) above (Numerical Recipes).
+inline double reg_lower_gamma(double a, double x) {
+    if (x <= 0.0 || a <= 0.0) return x <= 0.0 ? 0.0 : std::nan("");
+    const double gln = std::lgamma(a);
+    if (x < a + 1.0) {
+        double ap = a;
+        double sum = 1.0 / a;
+        double del = sum;
+        for (int n = 0; n < 300; ++n) {
+            ap += 1.0;
+            del *= x / ap;
+            sum += del;
+            if (std::fabs(del) < std::fabs(sum) * 1e-16) break;
+        }
+        return sum * std::exp(-x + a * std::log(x) - gln);
+    }
+    const double tiny = 1e-300;
+    double b = x + 1.0 - a;
+    double c = 1.0 / tiny;
+    double d = 1.0 / b;
+    double h = d;
+    for (int i = 1; i <= 300; ++i) {
+        const double an = -i * (i - a);
+        b += 2.0;
+        d = an * d + b;
+        if (std::fabs(d) < tiny) d = tiny;
+        c = b + an / c;
+        if (std::fabs(c) < tiny) c = tiny;
+        d = 1.0 / d;
+        const double del = d * c;
+        h *= del;
+        if (std::fabs(del - 1.0) < 1e-16) break;
+    }
+    const double q = std::exp(-x + a * std::log(x) - gln) * h;
+    return 1.0 - q;
+}
+
+/// Continued fraction for the incomplete beta (Lentz).
+inline double betacf(double a, double b, double x) {
+    const double tiny = 1e-300;
+    const double qab = a + b;
+    const double qap = a + 1.0;
+    const double qam = a - 1.0;
+    double c = 1.0;
+    double d = 1.0 - qab * x / qap;
+    if (std::fabs(d) < tiny) d = tiny;
+    d = 1.0 / d;
+    double h = d;
+    for (int m = 1; m <= 400; ++m) {
+        const double m2 = 2.0 * m;
+        double aa = m * (b - m) * x / ((qam + m2) * (a + m2));
+        d = 1.0 + aa * d;
+        if (std::fabs(d) < tiny) d = tiny;
+        c = 1.0 + aa / c;
+        if (std::fabs(c) < tiny) c = tiny;
+        d = 1.0 / d;
+        h *= d * c;
+        aa = -(a + m) * (qab + m) * x / ((a + m2) * (qap + m2));
+        d = 1.0 + aa * d;
+        if (std::fabs(d) < tiny) d = tiny;
+        c = 1.0 + aa / c;
+        if (std::fabs(c) < tiny) c = tiny;
+        d = 1.0 / d;
+        const double del = d * c;
+        h *= del;
+        if (std::fabs(del - 1.0) < 1e-16) break;
+    }
+    return h;
+}
+
+/// Regularized incomplete beta I_x(a, b).
+inline double reg_inc_beta(double a, double b, double x) {
+    if (x <= 0.0) return 0.0;
+    if (x >= 1.0) return 1.0;
+    const double bt = std::exp(std::lgamma(a + b) - std::lgamma(a) - std::lgamma(b) +
+                               a * std::log(x) + b * std::log1p(-x));
+    if (x < (a + 1.0) / (a + b + 2.0)) return bt * betacf(a, b, x) / a;
+    return 1.0 - bt * betacf(b, a, 1.0 - x) / b;
+}
+
+// --- Student's t -----------------------------------------------------------
+
+inline double t_pdf(double t, double nu) {
+    const double c = std::exp(std::lgamma((nu + 1.0) / 2.0) - std::lgamma(nu / 2.0)) /
+                     std::sqrt(nu * std::numbers::pi);
+    return c * std::pow(1.0 + t * t / nu, -(nu + 1.0) / 2.0);
+}
+
+inline double t_cdf(double t, double nu) {
+    const double ib = reg_inc_beta(nu / 2.0, 0.5, nu / (nu + t * t));
+    return t <= 0.0 ? 0.5 * ib : 1.0 - 0.5 * ib;
+}
+
+// --- Chi-squared -----------------------------------------------------------
+
+inline double chi2_pdf(double x, double k) {
+    if (x < 0.0) return 0.0;
+    if (x == 0.0) return k < 2.0 ? std::numeric_limits<double>::infinity() : (k == 2.0 ? 0.5 : 0.0);
+    return std::exp((k / 2.0 - 1.0) * std::log(x) - x / 2.0 - (k / 2.0) * std::log(2.0) -
+                    std::lgamma(k / 2.0));
+}
+
+inline double chi2_cdf(double x, double k) { return x <= 0.0 ? 0.0 : reg_lower_gamma(k / 2.0, x / 2.0); }
+
+// --- Exponential -----------------------------------------------------------
+
+inline double exp_pdf(double x, double lambda) { return x < 0.0 ? 0.0 : lambda * std::exp(-lambda * x); }
+inline double exp_cdf(double x, double lambda) { return x < 0.0 ? 0.0 : -std::expm1(-lambda * x); }
+
+// --- Uniform on [a, b] -----------------------------------------------------
+
+inline double unif_pdf(double x, double a, double b) { return (x < a || x > b) ? 0.0 : 1.0 / (b - a); }
+inline double unif_cdf(double x, double a, double b) {
+    if (x <= a) return 0.0;
+    if (x >= b) return 1.0;
+    return (x - a) / (b - a);
 }
 
 } // namespace mathsolver::plugins::prob

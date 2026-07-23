@@ -459,6 +459,9 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   prob.normalcdf 1.96                    → P(X<=1.96) = 0.975, with the bell curve
   prob.invnorm 0.975                     → the quantile x = 1.95996
   prob.binompdf 10, 0.5, 5              → Binomial P(X=5) + the PMF stems
+  prob.tcdf 2.228, 10                    → Student's t: P(X<=2.228) = 0.975
+  prob.chi2cdf 7.815, 3                  → chi-squared: P(X<=7.815) = 0.95
+  prob.expcdf 2, 0.5                     → Exponential: 1 - e^-1 = 0.6321
   plot sin(x)/x, -20, 20                 → chart any expression inline
   plugins                                → catalog of compiled-in plugins
   ```

@@ -102,6 +102,19 @@ std::string normal_curve(double mu, double sigma, double mark, const std::string
     return series_block("Normal density", "x", "f(x)", x, "pdf", y, false, mark, mark_label);
 }
 
+// A generic continuous density curve sampled over [lo, hi].
+std::string curve_block(const std::string& title, const std::string& xlabel, double lo, double hi,
+                        double mark, const std::string& mark_label, const auto& pdf) {
+    constexpr int n = 201;
+    std::vector<double> x(n);
+    std::vector<double> y(n);
+    for (int i = 0; i < n; ++i) {
+        x[i] = lo + (hi - lo) * i / (n - 1);
+        y[i] = pdf(x[i]);
+    }
+    return series_block(title, xlabel, "f(x)", x, "pdf", y, false, mark, mark_label);
+}
+
 // Sampled PMF (stem-style markers) over k = 0..kmax.
 std::string pmf_curve(int kmax, const std::string& title, double mark,
                       const std::string& mark_label, const auto& pmf) {
@@ -217,6 +230,127 @@ std::string cmd_poissoncdf(const std::vector<std::string>& args) {
                     {kv, pmf_curve(poisson_kmax(lambda, k), "Poisson pmf", k, std::format("k = {}", k), pmf)});
 }
 
+// --- Student's t -----------------------------------------------------------
+
+std::string cmd_tpdf(const std::vector<std::string>& args) {
+    const double t = req(args, 0, "t");
+    const double nu = req(args, 1, "nu");
+    if (!(nu > 0.0)) throw std::runtime_error("the degrees of freedom must be positive");
+    const std::string kv = kv_block({{"distribution", std::format("Student t(nu = {})", num(nu))},
+                                     {"t", num(t)},
+                                     {"pdf  f(t)", num(pr::t_pdf(t, nu))}});
+    const auto pdf = [&](double x) { return pr::t_pdf(x, nu); };
+    return envelope("t pdf", {kv, curve_block("t density", "t", -5, 5, t, std::format("t = {}", num(t)), pdf)});
+}
+
+std::string cmd_tcdf(const std::vector<std::string>& args) {
+    const double t = req(args, 0, "t");
+    const double nu = req(args, 1, "nu");
+    if (!(nu > 0.0)) throw std::runtime_error("the degrees of freedom must be positive");
+    const double c = pr::t_cdf(t, nu);
+    const std::string kv = kv_block({{"distribution", std::format("Student t(nu = {})", num(nu))},
+                                     {"t", num(t)},
+                                     {"P(X <= t)", num(c)},
+                                     {"P(X > t)", num(1.0 - c)}});
+    const auto pdf = [&](double x) { return pr::t_pdf(x, nu); };
+    return envelope("t cdf", {kv, curve_block("t density", "t", -5, 5, t, std::format("t = {}", num(t)), pdf)});
+}
+
+// --- Chi-squared -----------------------------------------------------------
+
+double chi2_hi(double k, double x) {
+    const double spread = k + 4.0 * std::sqrt(2.0 * k) + 4.0;
+    return std::max(spread, x * 1.15);
+}
+
+std::string cmd_chi2pdf(const std::vector<std::string>& args) {
+    const double x = req(args, 0, "x");
+    const double k = req(args, 1, "k");
+    if (!(k > 0.0)) throw std::runtime_error("the degrees of freedom must be positive");
+    const std::string kv = kv_block({{"distribution", std::format("Chi-squared(k = {})", num(k))},
+                                     {"x", num(x)},
+                                     {"pdf  f(x)", num(pr::chi2_pdf(x, k))}});
+    const auto pdf = [&](double xx) { return pr::chi2_pdf(xx, k); };
+    return envelope("chi-squared pdf",
+                    {kv, curve_block("Chi-squared density", "x", 0, chi2_hi(k, x), x, std::format("x = {}", num(x)), pdf)});
+}
+
+std::string cmd_chi2cdf(const std::vector<std::string>& args) {
+    const double x = req(args, 0, "x");
+    const double k = req(args, 1, "k");
+    if (!(k > 0.0)) throw std::runtime_error("the degrees of freedom must be positive");
+    const double c = pr::chi2_cdf(x, k);
+    const std::string kv = kv_block({{"distribution", std::format("Chi-squared(k = {})", num(k))},
+                                     {"x", num(x)},
+                                     {"P(X <= x)", num(c)},
+                                     {"P(X > x)", num(1.0 - c)}});
+    const auto pdf = [&](double xx) { return pr::chi2_pdf(xx, k); };
+    return envelope("chi-squared cdf",
+                    {kv, curve_block("Chi-squared density", "x", 0, chi2_hi(k, x), x, std::format("x = {}", num(x)), pdf)});
+}
+
+// --- Exponential -----------------------------------------------------------
+
+std::string cmd_exppdf(const std::vector<std::string>& args) {
+    const double x = req(args, 0, "x");
+    const double lambda = req(args, 1, "lambda");
+    if (!(lambda > 0.0)) throw std::runtime_error("the rate lambda must be positive");
+    const double hi = std::max(5.0 / lambda, x * 1.2);
+    const std::string kv = kv_block({{"distribution", std::format("Exponential(lambda = {})", num(lambda))},
+                                     {"x", num(x)},
+                                     {"pdf  f(x)", num(pr::exp_pdf(x, lambda))}});
+    const auto pdf = [&](double xx) { return pr::exp_pdf(xx, lambda); };
+    return envelope("exponential pdf",
+                    {kv, curve_block("Exponential density", "x", 0, hi, x, std::format("x = {}", num(x)), pdf)});
+}
+
+std::string cmd_expcdf(const std::vector<std::string>& args) {
+    const double x = req(args, 0, "x");
+    const double lambda = req(args, 1, "lambda");
+    if (!(lambda > 0.0)) throw std::runtime_error("the rate lambda must be positive");
+    const double hi = std::max(5.0 / lambda, x * 1.2);
+    const double c = pr::exp_cdf(x, lambda);
+    const std::string kv = kv_block({{"distribution", std::format("Exponential(lambda = {})", num(lambda))},
+                                     {"x", num(x)},
+                                     {"P(X <= x)", num(c)},
+                                     {"P(X > x)", num(1.0 - c)}});
+    const auto pdf = [&](double xx) { return pr::exp_pdf(xx, lambda); };
+    return envelope("exponential cdf",
+                    {kv, curve_block("Exponential density", "x", 0, hi, x, std::format("x = {}", num(x)), pdf)});
+}
+
+// --- Uniform on [a, b] -----------------------------------------------------
+
+std::string cmd_unifpdf(const std::vector<std::string>& args) {
+    const double x = req(args, 0, "x");
+    const double a = req(args, 1, "a");
+    const double b = req(args, 2, "b");
+    if (!(b > a)) throw std::runtime_error("the upper bound b must exceed the lower bound a");
+    const double pad = 0.2 * (b - a);
+    const std::string kv = kv_block({{"distribution", std::format("Uniform([{}, {}])", num(a), num(b))},
+                                     {"x", num(x)},
+                                     {"pdf  f(x)", num(pr::unif_pdf(x, a, b))}});
+    const auto pdf = [&](double xx) { return pr::unif_pdf(xx, a, b); };
+    return envelope("uniform pdf",
+                    {kv, curve_block("Uniform density", "x", a - pad, b + pad, x, std::format("x = {}", num(x)), pdf)});
+}
+
+std::string cmd_unifcdf(const std::vector<std::string>& args) {
+    const double x = req(args, 0, "x");
+    const double a = req(args, 1, "a");
+    const double b = req(args, 2, "b");
+    if (!(b > a)) throw std::runtime_error("the upper bound b must exceed the lower bound a");
+    const double pad = 0.2 * (b - a);
+    const double c = pr::unif_cdf(x, a, b);
+    const std::string kv = kv_block({{"distribution", std::format("Uniform([{}, {}])", num(a), num(b))},
+                                     {"x", num(x)},
+                                     {"P(X <= x)", num(c)},
+                                     {"P(X > x)", num(1.0 - c)}});
+    const auto pdf = [&](double xx) { return pr::unif_pdf(xx, a, b); };
+    return envelope("uniform cdf",
+                    {kv, curve_block("Uniform density", "x", a - pad, b + pad, x, std::format("x = {}", num(x)), pdf)});
+}
+
 class ProbPlugin final : public Plugin {
   public:
     std::string_view name() const override { return "prob"; }
@@ -241,6 +375,18 @@ class ProbPlugin final : public Plugin {
              "prob.poissonpdf 3, 2"},
             {"poissoncdf", "Poisson P(X <= k)", "prob.poissoncdf <lambda>, <k>",
              "prob.poissoncdf 3, 2"},
+            {"tpdf", "Student t density f(t)", "prob.tpdf <t>, <nu>", "prob.tpdf 1, 10"},
+            {"tcdf", "Student t lower tail P(X <= t)", "prob.tcdf <t>, <nu>", "prob.tcdf 2.228, 10"},
+            {"chi2pdf", "Chi-squared density f(x)", "prob.chi2pdf <x>, <k>", "prob.chi2pdf 4, 3"},
+            {"chi2cdf", "Chi-squared lower tail P(X <= x)", "prob.chi2cdf <x>, <k>",
+             "prob.chi2cdf 7.815, 3"},
+            {"exppdf", "Exponential density f(x)", "prob.exppdf <x>, <lambda>", "prob.exppdf 1, 0.5"},
+            {"expcdf", "Exponential P(X <= x) = 1 - e^(-lambda x)", "prob.expcdf <x>, <lambda>",
+             "prob.expcdf 2, 0.5"},
+            {"unifpdf", "Continuous uniform density on [a, b]", "prob.unifpdf <x>, <a>, <b>",
+             "prob.unifpdf 3, 0, 10"},
+            {"unifcdf", "Continuous uniform P(X <= x)", "prob.unifcdf <x>, <a>, <b>",
+             "prob.unifcdf 3, 0, 10"},
         };
     }
     std::string invoke(std::string_view command,
@@ -253,6 +399,14 @@ class ProbPlugin final : public Plugin {
             if (command == "binomcdf") return cmd_binomcdf(args);
             if (command == "poissonpdf") return cmd_poissonpdf(args);
             if (command == "poissoncdf") return cmd_poissoncdf(args);
+            if (command == "tpdf") return cmd_tpdf(args);
+            if (command == "tcdf") return cmd_tcdf(args);
+            if (command == "chi2pdf") return cmd_chi2pdf(args);
+            if (command == "chi2cdf") return cmd_chi2cdf(args);
+            if (command == "exppdf") return cmd_exppdf(args);
+            if (command == "expcdf") return cmd_expcdf(args);
+            if (command == "unifpdf") return cmd_unifpdf(args);
+            if (command == "unifcdf") return cmd_unifcdf(args);
             return error_json(std::format("prob has no command '{}'", command));
         } catch (const std::exception& e) {
             return error_json(e.what());
