@@ -460,8 +460,9 @@ Prioritized from a full inventory. `S/M/L` = effort.
   and list-of-points plotting `(L, L^2)` (web layer, `graph/lists.ts`).
   *Phase 2 shipped:* comprehensions `[k^2 for k=L]`, scalar aggregates
   (`total`/`mean`/`min`/`max`/`median`/`stdev`/`length`), and 1-based indexing
-  `L[i]`. Still open: list-returning ops (`sort`/`unique`/slices `L[a...b]`),
-  `y = [ … ]` horizontal lines, and distribution/statistics plots.
+  `L[i]`. *Phase 3 shipped:* list-as-lines — `y = [ … ]` / `y = L` horizontal
+  lines and `x = [ … ]` vertical lines. Still open: list-returning ops
+  (`sort`/`unique`/slices `L[a...b]`) and distribution/statistics plots.
 - **Statistics on lists / distribution plots** — *low–med, M–L.* Builds on lists
   and the existing `stats`/`prob` verbs.
 - **Point & curve labels (`showLabel`)** — *low, M.* Per-row label text rendered

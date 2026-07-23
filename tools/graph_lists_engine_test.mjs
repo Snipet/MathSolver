@@ -160,5 +160,15 @@ check("index used in a point: (L[1], L[4])", pointsOf("(L[1], L[4])", lists), [[
 // Aggregates/index as list-of-point coordinates.
 check("(A, mean(L)) → horizontal band of points", pointsOf("(A, mean(L))", lists), [[0, 2.5], [1, 2.5], [2, 2.5], [3, 2.5]]);
 
+// List-valued function RHS → one line per value (y = [ … ] / y = L / y = L^2).
+// The component draws a horizontal line at each of these; here we check the set
+// of line positions evalCoordSeq yields.
+const lineVals = (expr) => { const s = evalCoordSeq(expr, lists); return s && s.isList ? s.values : null; };
+check("y = [1,2,3] → 3 line positions", lineVals("[1, 2, 3]"), [1, 2, 3]);
+check("y = L^2 → line per squared element", lineVals("L^2"), [1, 4, 9, 16]);
+check("y = L → line per element", lineVals("L"), [1, 2, 3, 4]);
+check("y = mean(L) is scalar (single line, not a list)", (() => { const s = evalCoordSeq("mean(L)", lists); return s && !s.isList && s.values[0] === 2.5; })(), true);
+check("y = [mean(L), max(L)] → aggregated line positions", lineVals("[mean(L), max(L)]"), [2.5, 4]);
+
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

@@ -914,7 +914,9 @@
           <code>(L, L^2)</code> scatters a parabola (scalars broadcast, two lists
           zip). Build lists with a comprehension <code>[k^2 for k = L]</code>,
           reduce them with <code>mean(L)</code>/<code>total(L)</code>/<code>max(L)</code>,
-          or index with <code>L[3]</code> (1-based).
+          or index with <code>L[3]</code> (1-based). Plot a list as lines with
+          <code>y = [1, 2, 3]</code> or <code>y = L</code> (and <code>x = [ … ]</code>
+          for vertical lines).
         </p>
       {:else}
         <History onrestore={restore} />

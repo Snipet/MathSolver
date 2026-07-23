@@ -41,6 +41,11 @@ check("sum(...) row is a plain function", (() => { const r = classifyRow("y = su
 check("bare sum(...) is a function, not a point list", kind("sum(x^k, k, 0, 5)") === "function");
 check("product(...) row is a plain function", kind("product(x/j, j, 1, 4)") === "function");
 
+// List-valued function rows: y = [ … ] (horizontal lines), x = [ … ] (vertical)
+check("y = [1,2,3] → function with a list rhs", (() => { const r = classifyRow("y = [1, 2, 3]"); return r.t === "function" && r.expr === "[1, 2, 3]"; })());
+check("x = [1,2,3] → functionY with a list rhs", (() => { const r = classifyRow("x = [-1, 0, 1]"); return r.t === "functionY" && r.expr === "[-1, 0, 1]"; })());
+check("y = L → function referencing a list", (() => { const r = classifyRow("y = L"); return r.t === "function" && r.expr === "L"; })());
+
 // Piecewise / conditionals
 check("piecewise {cond: val, else}", (() => { const r = classifyRow("{x < 0: -x, x}"); return r.t === "piecewise" && r.branches.length === 1 && r.branches[0].cond === "x < 0" && r.branches[0].value === "-x" && r.otherwise === "x"; })());
 check("piecewise with y = lead", (() => { const r = classifyRow("y = {x > 0: 1, -1}"); return r.t === "piecewise" && r.branches[0].value === "1" && r.otherwise === "-1"; })());
