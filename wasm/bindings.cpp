@@ -478,6 +478,9 @@ std::string ms_crt(std::string system) {
 std::string ms_trigexpand(std::string input) {
     return transform_json(input, [](const Expr& e) { return trig_expand(e); });
 }
+std::string ms_trigreduce(std::string input) {
+    return transform_json(input, [](const Expr& e) { return trig_reduce(e); });
+}
 std::string ms_cancel(std::string input) {
     return transform_json(input, [](const Expr& e) { return cancel(e); });
 }
@@ -1345,6 +1348,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("expand", &ms_expand);
     emscripten::function("factor", &ms_factor);
     emscripten::function("trigexpand", &ms_trigexpand);
+    emscripten::function("trigreduce", &ms_trigreduce);
     emscripten::function("cancel", &ms_cancel);
     emscripten::function("together", &ms_together);
     emscripten::function("latex", &ms_latex);

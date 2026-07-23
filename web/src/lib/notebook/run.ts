@@ -40,6 +40,7 @@ export const MATH_VERBS = new Set([
   "expand",
   "factor",
   "trigexpand",
+  "trigreduce",
   "cancel",
   "together",
   "latex",
@@ -347,6 +348,7 @@ async function runVerb(
     case "expand":
     case "factor":
     case "trigexpand":
+    case "trigreduce":
     case "cancel":
     case "together": {
       const env = await applyEnv(expr, [], "expr", ov, scope);

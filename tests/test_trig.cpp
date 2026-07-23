@@ -75,6 +75,44 @@ TEST_CASE("mixed and nested arguments") {
                    Bindings{{"x", 1.234}}) == 0.0);
 }
 
+namespace {
+std::string reduce_str(const std::string& s) {
+    return to_string(trig_reduce(parse_expression(s)), PrintStyle::Plain);
+}
+bool reduces_ok(const std::string& s) {
+    return agrees(s, trig_reduce(parse_expression(s)));
+}
+} // namespace
+
+TEST_CASE("trigreduce: powers and products to multiple angles") {
+    CHECK(reduces_ok("sin(x)^2"));
+    CHECK(reduces_ok("cos(x)^2"));
+    CHECK(reduces_ok("sin(x)*cos(x)"));
+    CHECK(reduces_ok("sin(x)^3"));
+    CHECK(reduces_ok("cos(x)^4"));
+    CHECK(reduces_ok("sin(x)*sin(y)"));
+    CHECK(reduces_ok("cos(x)*cos(y)"));
+    CHECK(reduces_ok("sin(x)*cos(y)"));
+    CHECK(reduces_ok("sin(x)^2 * cos(x)^2"));
+    CHECK(reduces_ok("3*a*sin(x)^2")); // symbolic / numeric coefficient rides along
+
+    // The textbook identities, structurally.
+    CHECK(agrees("sin(x)^2", parse_expression("1/2 - cos(2*x)/2")));
+    CHECK(agrees("cos(x)^2", parse_expression("1/2 + cos(2*x)/2")));
+    CHECK(agrees("sin(x)*cos(x)", parse_expression("sin(2*x)/2")));
+    // 2 sin x cos x collapses to a single sin(2x).
+    CHECK(reduce_str("2*sin(x)*cos(x)") == "sin(2*x)");
+}
+
+TEST_CASE("trigreduce is the inverse of trigexpand") {
+    for (const std::string& s :
+         {"sin(2*x)", "cos(3*x)", "sin(a+b)", "cos(a-b)", "sin(2*x)*cos(x)"}) {
+        // expand then reduce returns to a form equal to the original.
+        const Expr back = trig_reduce(trig_expand(parse_expression(s)));
+        CHECK(agrees(s, back));
+    }
+}
+
 TEST_CASE("things that must not change") {
     // Single angles and non-integer / symbolic multiples are left alone.
     CHECK(expand_str("sin(x)") == "sin(x)");
