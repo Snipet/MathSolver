@@ -169,6 +169,70 @@ TEST_CASE("cli: number-theory verbs") {
     CHECK(bad.exit_code == 2);
 }
 
+TEST_CASE("cli: trigexpand of sums and multiples") {
+    const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
+    INFO(sum.output);
+    CHECK(sum.exit_code == 0);
+    CHECK(contains(sum.output, "sin(a)*cos(b)"));
+    CHECK(contains(sum.output, "sin(b)*cos(a)"));
+
+    const RunResult dbl = run_cli({"trigexpand", "cos(2*x)"});
+    CHECK(dbl.exit_code == 0);
+    CHECK(contains(dbl.output, "cos(x)^2"));
+    CHECK(contains(dbl.output, "sin(x)^2"));
+}
+
+TEST_CASE("cli: polygcd and polylcm") {
+    const RunResult g = run_cli({"polygcd", "x^2 - 1", "x^3 - 1"});
+    INFO(g.output);
+    CHECK(g.exit_code == 0);
+    CHECK(contains(g.output, "x - 1"));
+
+    const RunResult l = run_cli({"polylcm", "x - 1", "x + 1"});
+    CHECK(l.exit_code == 0);
+    CHECK(contains(l.output, "x^2 - 1"));
+}
+
+TEST_CASE("cli: polydiv quotient and remainder") {
+    const RunResult exact = run_cli({"polydiv", "x^3 - 1", "x - 1"});
+    INFO(exact.output);
+    CHECK(exact.exit_code == 0);
+    CHECK(contains(exact.output, "quotient: x^2 + x + 1"));
+    CHECK(contains(exact.output, "remainder: 0"));
+
+    const RunResult rem = run_cli({"polydiv", "x^3 + 2x + 1", "x^2 + 1"});
+    CHECK(rem.exit_code == 0);
+    CHECK(contains(rem.output, "quotient: x"));
+    CHECK(contains(rem.output, "remainder: x + 1"));
+}
+
+TEST_CASE("cli: trigreduce of products and powers") {
+    const RunResult sq = run_cli({"trigreduce", "sin(x)^2"});
+    INFO(sq.output);
+    CHECK(sq.exit_code == 0);
+    CHECK(contains(sq.output, "cos(2*x)"));
+
+    const RunResult prod = run_cli({"trigreduce", "2*sin(x)*cos(x)"});
+    CHECK(prod.exit_code == 0);
+    CHECK(contains(prod.output, "sin(2*x)"));
+}
+
+TEST_CASE("cli: discriminant of a polynomial") {
+    const RunResult sym = run_cli({"discriminant", "a*x^2 + b*x + c", "x"});
+    INFO(sym.output);
+    CHECK(sym.exit_code == 0);
+    CHECK(contains(sym.output, "b^2 - 4*a*c"));
+
+    const RunResult num = run_cli({"discriminant", "x^2 - 5x + 6"});
+    CHECK(num.exit_code == 0);
+    CHECK(contains(num.output, "1"));
+    CHECK(contains(num.output, "two distinct real"));
+
+    // Degree 5 is unsupported (usage error, exit 2).
+    const RunResult bad = run_cli({"discriminant", "x^5 + 1", "x"});
+    CHECK(bad.exit_code == 2);
+}
+
 TEST_CASE("cli: solve inequalities into interval solution sets") {
     const RunResult quad = run_cli({"solve", "x^2 < 4"});
     INFO(quad.output);

@@ -415,6 +415,78 @@ std::string ms_modinv(std::string list) {
     });
 }
 
+/// discriminant(poly, var): the discriminant of a degree 2–4 polynomial, with
+/// the variable inferred when it's the only symbol.
+std::string ms_discriminant(std::string poly, std::string var) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(poly);
+        std::string v = trim(var);
+        if (v.empty()) {
+            const std::set<std::string> syms = free_symbols(e);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json("discriminant: name the variable, e.g. "
+                                 "discriminant a*x^2 + b*x + c, x");
+        }
+        const DiscriminantResult r = discriminant(e, v);
+        if (r.status != DiscriminantResult::Status::Ok) return err_json(r.message);
+        std::vector<std::string> notes;
+        if (!r.root_nature.empty()) notes.push_back("roots: " + r.root_nature);
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}",
+                           rendered_fields(r.value), jarr_str(notes));
+    });
+}
+
+/// polydiv(dividend, divisor, var): polynomial long division. The quotient is
+/// the rendered result; the remainder rides along as a note.
+std::string ms_polydiv(std::string dividend, std::string divisor, std::string var) {
+    return guarded([&]() -> std::string {
+        const Expr n = parse_expression(dividend);
+        const Expr d = parse_expression(divisor);
+        std::string v = trim(var);
+        if (v.empty()) {
+            std::set<std::string> syms = free_symbols(n);
+            for (const std::string& s : free_symbols(d)) syms.insert(s);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json("polydiv: name the variable, e.g. "
+                                 "polydiv x^3 - 1, x - 1, x");
+        }
+        const PolyDivResult r = polynomial_divide(n, d, v);
+        if (r.status != PolyDivResult::Status::Ok) return err_json(r.message);
+        const std::vector<std::string> notes = {
+            "remainder: " + to_string(r.remainder, PrintStyle::Plain)};
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}",
+                           rendered_fields(r.quotient), jarr_str(notes));
+    });
+}
+
+/// Shared body for polygcd / polylcm: infer the variable when it is the only
+/// symbol, then render the monic gcd or lcm.
+std::string ms_poly_gcd_lcm(const std::string& a, const std::string& b,
+                            const std::string& var, bool lcm) {
+    return guarded([&]() -> std::string {
+        const Expr ea = parse_expression(a);
+        const Expr eb = parse_expression(b);
+        std::string v = trim(var);
+        if (v.empty()) {
+            std::set<std::string> syms = free_symbols(ea);
+            for (const std::string& s : free_symbols(eb)) syms.insert(s);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json(std::format(
+                "{}: name the variable, e.g. {} x^2 - 1, x^3 - 1, x",
+                lcm ? "polylcm" : "polygcd", lcm ? "polylcm" : "polygcd"));
+        }
+        const PolyGcdResult r = lcm ? polynomial_lcm(ea, eb, v) : polynomial_gcd(ea, eb, v);
+        if (r.status != PolyGcdResult::Status::Ok) return err_json(r.message);
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(r.value));
+    });
+}
+std::string ms_polygcd(std::string a, std::string b, std::string var) {
+    return ms_poly_gcd_lcm(a, b, var, false);
+}
+std::string ms_polylcm(std::string a, std::string b, std::string var) {
+    return ms_poly_gcd_lcm(a, b, var, true);
+}
+
 /// solveIneq(lhs, rhs, op, var): solve the inequality `lhs <op> rhs` for its
 /// variable (op is one of "<", "<=", ">", ">="; var may be empty to infer).
 std::string ms_solve_ineq(std::string lhs, std::string rhs, std::string op,
@@ -453,6 +525,12 @@ std::string ms_crt(std::string system) {
         const std::string latex = std::format("{} \\pmod{{{}}}", r.residue, r.modulus);
         return nt_json(plain, latex);
     });
+}
+std::string ms_trigexpand(std::string input) {
+    return transform_json(input, [](const Expr& e) { return trig_expand(e); });
+}
+std::string ms_trigreduce(std::string input) {
+    return transform_json(input, [](const Expr& e) { return trig_reduce(e); });
 }
 std::string ms_cancel(std::string input) {
     return transform_json(input, [](const Expr& e) { return cancel(e); });
@@ -1320,6 +1398,8 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("simplify", &ms_simplify);
     emscripten::function("expand", &ms_expand);
     emscripten::function("factor", &ms_factor);
+    emscripten::function("trigexpand", &ms_trigexpand);
+    emscripten::function("trigreduce", &ms_trigreduce);
     emscripten::function("cancel", &ms_cancel);
     emscripten::function("together", &ms_together);
     emscripten::function("latex", &ms_latex);
@@ -1343,6 +1423,10 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("divisors", &ms_divisors);
     emscripten::function("totient", &ms_totient);
     emscripten::function("cfrac", &ms_cfrac);
+    emscripten::function("discriminant", &ms_discriminant);
+    emscripten::function("polydiv", &ms_polydiv);
+    emscripten::function("polygcd", &ms_polygcd);
+    emscripten::function("polylcm", &ms_polylcm);
     emscripten::function("solveIneq", &ms_solve_ineq);
     emscripten::function("mod", &ms_mod);
     emscripten::function("powmod", &ms_powmod);

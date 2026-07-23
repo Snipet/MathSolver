@@ -39,6 +39,8 @@ export const MATH_VERBS = new Set([
   "simplify",
   "expand",
   "factor",
+  "trigexpand",
+  "trigreduce",
   "cancel",
   "together",
   "latex",
@@ -66,6 +68,10 @@ export const MATH_VERBS = new Set([
   "mlimit",
   "stirling",
   "seq",
+  "discriminant",
+  "polydiv",
+  "polygcd",
+  "polylcm",
   "sum",
   "product",
   "rsolve",
@@ -344,6 +350,8 @@ async function runVerb(
     case "simplify":
     case "expand":
     case "factor":
+    case "trigexpand":
+    case "trigreduce":
     case "cancel":
     case "together": {
       const env = await applyEnv(expr, [], "expr", ov, scope);
@@ -470,6 +478,37 @@ async function runVerb(
       const r = await call(verb, [rest]);
       if (!r.ok) return err(rest, r);
       return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "discriminant": {
+      if (args.length > 2) return usage("usage: discriminant <polynomial>[, <var>]");
+      const v = args[1] ?? "";
+      const env = await applyEnv(expr, v ? [v] : [], "expr", ov, scope);
+      const r = await call("discriminant", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "polydiv": {
+      if (args.length < 2 || args.length > 3)
+        return usage("usage: polydiv <dividend>, <divisor>[, <var>]");
+      const v = args[2] ?? "";
+      const keep = v ? [v] : [];
+      const ed = await applyEnv(expr, keep, "expr", ov, scope);
+      const es = await applyEnv(args[1], keep, "expr", ov, scope);
+      const r = await call("polydiv", [ed.text, es.text, v]);
+      if (!r.ok) return err(ed.text, r);
+      return { kind: "transform", result: r, computedFrom: ed.computedFrom };
+    }
+    case "polygcd":
+    case "polylcm": {
+      if (args.length < 2 || args.length > 3)
+        return usage(`usage: ${verb} <a>, <b>[, <var>]`);
+      const v = args[2] ?? "";
+      const keep = v ? [v] : [];
+      const ea = await applyEnv(expr, keep, "expr", ov, scope);
+      const eb = await applyEnv(args[1], keep, "expr", ov, scope);
+      const r = await call(verb, [ea.text, eb.text, v]);
+      if (!r.ok) return err(ea.text, r);
+      return { kind: "transform", result: r, computedFrom: ea.computedFrom };
     }
     case "series": {
       if (args.length > 4)

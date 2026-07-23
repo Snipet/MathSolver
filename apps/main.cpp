@@ -263,6 +263,28 @@ void run_expand(const std::string& input, PrintStyle style) {
     }
 }
 
+/// `trigexpand`: expand trig of sums/multiples into single-angle products.
+void run_trigexpand(const std::string& input, PrintStyle style) {
+    const auto parsed = parse_input_diag(input);
+    if (std::holds_alternative<Expr>(parsed)) {
+        std::println("{}", to_string(trig_expand(std::get<Expr>(parsed)), style));
+    } else {
+        const Equation& eq = std::get<Equation>(parsed);
+        std::println("{}", to_string(Equation{trig_expand(eq.lhs), trig_expand(eq.rhs)}, style));
+    }
+}
+
+/// `trigreduce`: products/powers of sin & cos -> sums of multiple-angle trig.
+void run_trigreduce(const std::string& input, PrintStyle style) {
+    const auto parsed = parse_input_diag(input);
+    if (std::holds_alternative<Expr>(parsed)) {
+        std::println("{}", to_string(trig_reduce(std::get<Expr>(parsed)), style));
+    } else {
+        const Equation& eq = std::get<Equation>(parsed);
+        std::println("{}", to_string(Equation{trig_reduce(eq.lhs), trig_reduce(eq.rhs)}, style));
+    }
+}
+
 void run_factor(const std::string& input, PrintStyle style) {
     const auto parsed = parse_input_diag(input);
     if (std::holds_alternative<Expr>(parsed)) {
@@ -434,6 +456,45 @@ void run_stats(const std::string& input, PrintStyle style) {
     for (const StatItem& s : r.items) {
         std::println("{} = {}", s.label, to_string(s.value, style));
     }
+}
+
+/// `polydiv`: polynomial long division, printing the quotient and remainder.
+void run_polydiv(const std::string& dividend, const std::string& divisor,
+                 const std::string& explicit_var, PrintStyle style) {
+    const Expr n = parse_expression_diag(dividend);
+    const Expr d = parse_expression_diag(divisor);
+    std::set<std::string> syms = free_symbols(n);
+    for (const std::string& s : free_symbols(d)) syms.insert(s);
+    const std::string var = choose_variable(explicit_var, syms, "polydiv");
+    const PolyDivResult r = polynomial_divide(n, d, var);
+    if (r.status != PolyDivResult::Status::Ok) throw UsageError{r.message};
+    std::println("quotient: {}", to_string(r.quotient, style));
+    std::println("remainder: {}", to_string(r.remainder, style));
+}
+
+/// `polygcd` / `polylcm`: the monic GCD or LCM of two polynomials.
+void run_polygcd(const std::string& a, const std::string& b,
+                 const std::string& explicit_var, bool lcm, PrintStyle style) {
+    const Expr ea = parse_expression_diag(a);
+    const Expr eb = parse_expression_diag(b);
+    std::set<std::string> syms = free_symbols(ea);
+    for (const std::string& s : free_symbols(eb)) syms.insert(s);
+    const std::string var = choose_variable(explicit_var, syms, lcm ? "polylcm" : "polygcd");
+    const PolyGcdResult r = lcm ? polynomial_lcm(ea, eb, var) : polynomial_gcd(ea, eb, var);
+    if (r.status != PolyGcdResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", to_string(r.value, style));
+}
+
+/// `discriminant`: the discriminant of a polynomial (degree 2–4), symbolic
+/// coefficients kept symbolic; the variable is inferred like diff when omitted.
+void run_discriminant(const std::string& input, const std::string& explicit_var,
+                      PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "discriminant");
+    const DiscriminantResult r = discriminant(e, var);
+    if (r.status != DiscriminantResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", to_string(r.value, style));
+    if (!r.root_nature.empty()) std::println("roots: {}", r.root_nature);
 }
 
 /// `series`: Taylor expansion about a center (default 0) to an order
@@ -1315,6 +1376,8 @@ void print_usage(std::FILE* out) {
                "  mathsolver simplify \"2x + 3x\"\n"
                "  mathsolver expand   \"(x+1)^3\"\n"
                "  mathsolver factor   \"x^2 - 5x + 6\"\n"
+               "  mathsolver trigexpand \"sin(a+b)\"     sin/cos of sums & multiples\n"
+               "  mathsolver trigreduce \"sin(x)^2\"     products/powers -> multiples\n"
                "  mathsolver cancel   \"(x^2 - 1)/(x - 1)\" [x]\n"
                "  mathsolver together \"1/x + 1/y\"\n"
                "  mathsolver solve    \"x^2 = 4\" [x] [--range LO HI]\n"
@@ -1336,6 +1399,9 @@ void print_usage(std::FILE* out) {
                "  mathsolver isprime  97                 isprime/nextprime\n"
                "  mathsolver divisors 360                divisors, totient\n"
                "  mathsolver cfrac    \"355/113\"          continued fraction + convergents\n"
+               "  mathsolver discriminant \"a*x^2+b*x+c\" x  polynomial discriminant\n"
+               "  mathsolver polydiv  \"x^3-1\" \"x-1\"      polynomial long division\n"
+               "  mathsolver polygcd  \"x^2-1\" \"x^3-1\"    polynomial gcd / lcm\n"
                "  mathsolver powmod   \"7, 100, 13\"        modular pow/inverse/mod\n"
                "  mathsolver crt      \"2,3,2; 3,5,7\"      Chinese remainder theorem\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
@@ -1375,7 +1441,9 @@ bool is_known_subcommand(std::string_view s) {
            s == "seq" || s == "fit" || s == "regress" || s == "stats" ||
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
            s == "divisors" || s == "totient" || s == "cfrac" ||
-           s == "mod" || s == "powmod" || s == "modinv" || s == "crt";
+           s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
+           s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
+           s == "polydiv" || s == "polygcd" || s == "polylcm";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1584,6 +1652,31 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_stirling(input, positionals.size() > 1 ? positionals[1] : "",
                          style);
+        } else if (sub == "polydiv") {
+            if (positionals.size() < 2 || positionals.size() > 3) {
+                throw UsageError{"usage: mathsolver polydiv \"<dividend>\" "
+                                 "\"<divisor>\" [var]"};
+            }
+            run_polydiv(positionals[0], positionals[1],
+                        positionals.size() > 2 ? positionals[2] : "", style);
+        } else if (sub == "polygcd" || sub == "polylcm") {
+            if (positionals.size() < 2 || positionals.size() > 3) {
+                throw UsageError{std::format("usage: mathsolver {} \"<a>\" "
+                                             "\"<b>\" [var]",
+                                             sub)};
+            }
+            run_polygcd(positionals[0], positionals[1],
+                        positionals.size() > 2 ? positionals[2] : "",
+                        sub == "polylcm", style);
+        } else if (sub == "discriminant") {
+            if (positionals.size() > 2) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver discriminant "
+                    "\"<polynomial>\" [var])",
+                    positionals[2])};
+            }
+            run_discriminant(input, positionals.size() > 1 ? positionals[1] : "",
+                             style);
         } else if (sub == "dsolve") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -1612,6 +1705,10 @@ int run_one_shot(const std::vector<std::string>& args) {
                 run_factor(input, style);
             } else if (sub == "together") {
                 run_together(input, style);
+            } else if (sub == "trigexpand") {
+                run_trigexpand(input, style);
+            } else if (sub == "trigreduce") {
+                run_trigreduce(input, style);
             } else {  // latex
                 run_latex(input);
             }
@@ -1658,6 +1755,9 @@ void print_repl_help() {
         "  dsolve <ode>[, y(0)=v, y'(0)=v, ...]   solve an IVP, e.g.\n"
         "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
+        "  discriminant <polynomial>[, <var>]     discriminant (degree 2–4)\n"
+        "  polydiv <dividend>, <divisor>[, <var>] quotient + remainder\n"
+        "  polygcd <a>, <b>[, <var>]   polylcm <a>, <b>[, <var>]   monic gcd/lcm\n"
         "  fit <x,y; x,y; ...> [| <model> [<degree>]]  least-squares regression\n"
         "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
         "  stats <v1, v2, v3, ...>                exact summary statistics\n"
@@ -1680,6 +1780,8 @@ void print_repl_help() {
         "  laplacian <f>, <vars...>  jacobian <F1;..>, <vars...>  hessian <f>, <vars...>\n"
         "  simplify <expression>      expand <expression>\n"
         "  factor <expression>        latex <expression>\n"
+        "  trigexpand <expression>    trig of sums/multiples -> single angles\n"
+        "  trigreduce <expression>    products/powers of sin,cos -> multiples\n"
         "  cancel <expression>[, <variable>]      cancel a rational's GCD\n"
         "  together <expression>                  sum of fractions over one denom\n"
         "  debug <expression>         (s-expression dump)\n"
@@ -1700,6 +1802,7 @@ std::vector<std::string> split_top_level_commas(const std::string& s) {
 
 bool is_repl_command(std::string_view word) {
     return word == "simplify" || word == "expand" || word == "factor" ||
+           word == "trigexpand" || word == "trigreduce" ||
            word == "cancel" || word == "together" || word == "solve" ||
            word == "diff" || word == "integrate" ||
            word == "eval" || word == "latex" || word == "debug" ||
@@ -1714,7 +1817,8 @@ bool is_repl_command(std::string_view word) {
            word == "lcm" || word == "isprime" || word == "nextprime" ||
            word == "divisors" || word == "totient" || word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
-           word == "crt";
+           word == "crt" || word == "discriminant" || word == "polydiv" ||
+           word == "polygcd" || word == "polylcm";
 }
 
 // ---------------------------------------------------------------------------
@@ -2443,6 +2547,53 @@ void repl_command(const std::string& command, const std::string& rest,
         run_series(resolved, var, parts.size() > 2 ? parts[2] : "",
                    parts.size() > 3 ? parts[3] : "", PrintStyle::Plain);
         warn_assigned_variable(var, env);
+    } else if (command == "discriminant") {
+        // discriminant <polynomial>[, <var>]
+        if (parts.size() > 2) {
+            throw UsageError{"usage: discriminant <polynomial>[, <variable>]"};
+        }
+        const std::string var = parts.size() > 1 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
+        run_discriminant(resolved, var, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "polydiv") {
+        // polydiv <dividend>, <divisor>[, <var>]
+        if (parts.size() < 2 || parts.size() > 3) {
+            throw UsageError{"usage: polydiv <dividend>, <divisor>[, <variable>]"};
+        }
+        const std::string var = parts.size() > 2 ? parts[2] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string dvd =
+            to_string(resolve_expr(parse_expression_diag(parts[0]), env, excluded), PrintStyle::Plain);
+        const std::string dvs =
+            to_string(resolve_expr(parse_expression_diag(parts[1]), env, excluded), PrintStyle::Plain);
+        run_polydiv(dvd, dvs, var, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "polygcd" || command == "polylcm") {
+        // polygcd <a>, <b>[, <var>]
+        if (parts.size() < 2 || parts.size() > 3) {
+            throw UsageError{std::format("usage: {} <a>, <b>[, <variable>]", command)};
+        }
+        const std::string var = parts.size() > 2 ? parts[2] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string ea =
+            to_string(resolve_expr(parse_expression_diag(parts[0]), env, excluded), PrintStyle::Plain);
+        const std::string eb =
+            to_string(resolve_expr(parse_expression_diag(parts[1]), env, excluded), PrintStyle::Plain);
+        run_polygcd(ea, eb, var, command == "polylcm", PrintStyle::Plain);
+        warn_assigned_variable(var, env);
     } else if (command == "laplace" || command == "ilaplace") {
         if (parts.size() > 2) {
             throw UsageError{std::format(
@@ -2497,6 +2648,10 @@ void repl_command(const std::string& command, const std::string& rest,
         run_factor(resolve_input_text(input, env), PrintStyle::Plain);
     } else if (command == "together") {
         run_together(resolve_input_text(input, env), PrintStyle::Plain);
+    } else if (command == "trigexpand") {
+        run_trigexpand(resolve_input_text(input, env), PrintStyle::Plain);
+    } else if (command == "trigreduce") {
+        run_trigreduce(resolve_input_text(input, env), PrintStyle::Plain);
     } else if (command == "latex") {
         run_latex(input);
     } else {  // debug

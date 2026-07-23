@@ -45,6 +45,18 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "factor 360",
       },
       {
+        insert: "trigexpand",
+        usage: "trigexpand <expr>",
+        hint: "Expand trig of sums/multiples: sin(a+b), cos(2x), …",
+        example: "trigexpand sin(a + b)",
+      },
+      {
+        insert: "trigreduce",
+        usage: "trigreduce <expr>",
+        hint: "Products/powers of sin,cos → multiple angles (sin(x)² → …)",
+        example: "trigreduce sin(x)^2",
+      },
+      {
         insert: "cancel",
         usage: "cancel <expr>",
         hint: "Cancel a rational's common polynomial factor",
@@ -191,6 +203,30 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         usage: "series <expr>[, <var>[, <center>[, <order>]]]",
         hint: "Taylor expansion (center 0, order 6 by default)",
         example: "series sin(x), x, 0, 5",
+      },
+      {
+        insert: "discriminant",
+        usage: "discriminant <polynomial>[, <var>]",
+        hint: "Discriminant of a degree 2–4 polynomial (symbolic coefficients OK)",
+        example: "discriminant a*x^2 + b*x + c, x",
+      },
+      {
+        insert: "polydiv",
+        usage: "polydiv <dividend>, <divisor>[, <var>]",
+        hint: "Polynomial long division → quotient and remainder",
+        example: "polydiv x^3 - 1, x - 1",
+      },
+      {
+        insert: "polygcd",
+        usage: "polygcd <a>, <b>[, <var>]",
+        hint: "Monic greatest common divisor of two polynomials",
+        example: "polygcd x^2 - 1, x^3 - 1",
+      },
+      {
+        insert: "polylcm",
+        usage: "polylcm <a>, <b>[, <var>]",
+        hint: "Monic least common multiple of two polynomials",
+        example: "polylcm x - 1, x + 1",
       },
       {
         insert: "limit",

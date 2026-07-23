@@ -11,6 +11,38 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Polynomial GCD & LCM (`polygcd`, `polylcm`).** `polygcd x^2 - 1, x^3 - 1`
+  → `x - 1`; `polylcm x - 1, x + 1` → `x² - 1`. The GCD runs the Euclidean
+  algorithm over the polynomial remainder (building on `polydiv`) and returns a
+  monic result — `polygcd (x-1)²(x+2), (x-1)(x+2)²` → `x² + x - 2` — and the LCM
+  is `a·b / gcd`. In the CLI, REPL, and web console.
+- **Polynomial long division (`polydiv`).** A new verb divides one polynomial
+  by another, reporting the **quotient** and **remainder** exactly (symbolic
+  coefficients kept symbolic): `polydiv x^3 - 1, x - 1` → quotient `x² + x + 1`,
+  remainder `0`; `polydiv x^3 + 2x + 1, x^2 + 1` → quotient `x`, remainder
+  `x + 1`. In the CLI, REPL, and web console.
+- **Trigonometric reduction (`trigreduce`).** The inverse of `trigexpand`:
+  rewrite products and powers of sines and cosines into a linear combination of
+  sines and cosines of multiple angles. `sin(x)²` → `1/2 - cos(2x)/2`,
+  `2 sin(x) cos(x)` → `sin(2x)`, `cos(x)⁴` → `cos(4x)/8 + cos(2x)/2 + 3/8`, and
+  `sin(x) sin(y)` → `cos(x - y)/2 - cos(x + y)/2`. Exact, via the
+  complex-exponential form; non-trig factors ride along as coefficients. In the
+  CLI, REPL, and web console.
+- **Trigonometric expansion (`trigexpand`).** A new verb expands trig of sums
+  and integer multiples into single-angle products and powers, then
+  simplifies: `sin(a + b)` → `sin(a)cos(b) + cos(a)sin(b)`, `cos(2x)` →
+  `cos(x)² - sin(x)²`, `sin(3x)` its cubic form, and `tan(a + b)` in terms of
+  sines and cosines. Special-value angles collapse (`sin(x + π/2)` → `cos(x)`);
+  single angles and non-integer/symbolic multiples (`sin(x/2)`, `sin(ax)`) are
+  left untouched. In the CLI, REPL, and web console.
+- **Polynomial discriminant (`discriminant`).** A new verb returns the exact
+  discriminant of a degree 2–4 polynomial from its closed-form formula, with
+  **symbolic coefficients kept symbolic**: `discriminant a*x^2 + b*x + c, x` →
+  `b^2 - 4*a*c`, and the cubic/quartic forms too. When the coefficients are
+  numeric it also classifies the roots from the discriminant's sign —
+  `x^2 - 5x + 6` → `1` ("two distinct real roots"), `x^2 + 1` → `-4` ("two
+  complex-conjugate roots"), `(x-1)^2` → `0` ("one repeated real root"). In
+  the CLI, REPL, and web console.
 - **Terminal app (Ink).** A new, experimental second frontend in `apps/ink/`,
   built with [Ink](https://github.com/vadimdemedes/ink) (React for the command
   line). It loads the same WebAssembly engine as the web app and drives it with

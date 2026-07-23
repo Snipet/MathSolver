@@ -532,7 +532,13 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   suggests writing `s*p*e*e*d` instead of silently multiplying letters).
 - **Simplifier** — exact rational arithmetic, like-term/factor collection,
   power and exp/ln rules, trig special values and identities; plus `expand`,
-  `collect`, and best-effort `factor`.
+  `collect`, best-effort `factor`, `polydiv` (polynomial long division →
+  quotient and remainder, e.g. `polydiv x^3 - 1, x - 1` → `x² + x + 1`), and
+  `polygcd`/`polylcm` (monic polynomial GCD/LCM). **`trigexpand`** expands trig of sums
+  and multiples into single angles (`sin(a+b)` → `sin(a)cos(b) + cos(a)sin(b)`,
+  `cos(2x)` → `cos(x)² - sin(x)²`); **`trigreduce`** inverts it, turning
+  products and powers back into multiple angles (`sin(x)²` → `1/2 - cos(2x)/2`,
+  `2 sin(x) cos(x)` → `sin(2x)`).
 - **Derivatives** — full symbolic differentiation (chain/product/general
   power rule) over sin/cos/tan, inverse trig, hyperbolics, ln, abs.
 - **Integrals** — rule-based symbolic integration (table forms, linearity,
@@ -545,6 +551,11 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   rational-root peeling for higher degrees, isolation through invertible
   layers (`ln(x+1)=2` → `x = e^2 - 1`), and a Newton/bisection numeric
   fallback for the rest (`cos(x) = x`).
+- **Discriminant** — `discriminant a*x^2 + b*x + c, x` → `b^2 - 4*a*c`,
+  exact closed forms for degree 2–4 with symbolic coefficients kept
+  symbolic. With numeric coefficients it also reports the nature of the
+  roots (`x^2 - 5x + 6` → `1`, "two distinct real roots"; `x^2 + 1` → `-4`,
+  "two complex-conjugate roots").
 - **Inequalities** — `solve x^2 < 4` → `x ∈ (-2, 2)`. The solver combines
   the two sides over a common denominator, takes the real roots of the
   numerator (zeros) and denominator (poles) as breakpoints, sign-tests each

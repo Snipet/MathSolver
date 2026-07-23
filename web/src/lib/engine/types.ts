@@ -226,6 +226,8 @@ export interface EngineApi {
   simplify: [[input: string], TransformResult];
   expand: [[input: string], TransformResult];
   factor: [[input: string], TransformResult];
+  trigexpand: [[input: string], TransformResult];
+  trigreduce: [[input: string], TransformResult];
   cancel: [[input: string], TransformResult];
   together: [[input: string], TransformResult];
   latex: [[input: string], TransformResult];
@@ -262,6 +264,10 @@ export interface EngineApi {
   divisors: [[n: string], TransformResult];
   totient: [[n: string], TransformResult];
   cfrac: [[value: string], TransformResult];
+  discriminant: [[poly: string, variable: string], TransformResult];
+  polydiv: [[dividend: string, divisor: string, variable: string], TransformResult];
+  polygcd: [[a: string, b: string, variable: string], TransformResult];
+  polylcm: [[a: string, b: string, variable: string], TransformResult];
   solveIneq: [[lhs: string, rhs: string, op: string, variable: string], TransformResult];
   mod: [[args: string], TransformResult];
   powmod: [[args: string], TransformResult];
