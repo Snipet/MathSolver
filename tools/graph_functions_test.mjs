@@ -11,7 +11,7 @@ const entry = join(dir, "entry.ts");
 writeFileSync(
   entry,
   `export { classifyRow } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/classify.ts")};
-   export { findInnermostAny, findInnermostAppl, stripCalls, freshPlaceholders } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/functions.ts")};`,
+   export { findInnermostAny, findInnermostAppl, stripCalls, freshPlaceholders, hasCalcCall } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/functions.ts")};`,
 );
 const out = join(dir, "bundle.mjs");
 execFileSync(
@@ -19,7 +19,7 @@ execFileSync(
   ["esbuild", entry, "--bundle", "--format=esm", `--outfile=${out}`],
   { cwd: process.cwd(), stdio: ["ignore", "ignore", "inherit"] },
 );
-const { classifyRow, findInnermostAny, findInnermostAppl, stripCalls, freshPlaceholders } = await import(out);
+const { classifyRow, findInnermostAny, findInnermostAppl, stripCalls, freshPlaceholders, hasCalcCall } = await import(out);
 rmSync(dir, { recursive: true, force: true });
 
 let pass = 0, fail = 0;
@@ -104,6 +104,12 @@ check("appl-only: f(diff(x)) treats diff as opaque, picks f", (() => { const c =
 check("appl-only: no user call → null even with calc present", findInnermostAppl("diff(x)", ["f"]) === null);
 check("appl-only: composition picks inner", (() => { const c = findInnermostAppl("g(f(x))", ["f", "g"]); return c && c.name === "f"; })());
 check("appl-only: prime carried", (() => { const c = findInnermostAppl("f'(x)", ["f"]); return c && c.primes === 1; })());
+
+// --- hasCalcCall (memoization gate: pure-appl rows are cacheable) ----------
+check("hasCalcCall: diff(...) is a calc row", hasCalcCall("diff(f(x))") === true);
+check("hasCalcCall: integral(...) is a calc row", hasCalcCall("y = integral(x^2)") === true);
+check("hasCalcCall: pure function application is not", hasCalcCall("f(x) + g(x)") === false);
+check("hasCalcCall: plain expression is not", hasCalcCall("a*x^2 + 1") === false);
 
 // --- freshPlaceholders -----------------------------------------------------
 check("freshPlaceholders avoids letters in the body/args", (() => {
