@@ -909,7 +909,10 @@
           is labelled from the CAS. Restrict a curve's
           domain with a trailing clause, e.g. <code>{"{"}0 &lt;= t &lt;= 6pi{"}"}</code>.
           Drag a point to move it — a point like <code>(a, b)</code> moves its
-          variables everywhere.
+          variables everywhere. Make a list with <code>L = [1, 2, 3]</code> or a
+          range <code>[1...10]</code>, then plot it as points:
+          <code>(L, L^2)</code> scatters a parabola (scalars broadcast, two lists
+          zip).
         </p>
       {:else}
         <History onrestore={restore} />
