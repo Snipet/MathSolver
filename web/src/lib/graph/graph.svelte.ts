@@ -32,6 +32,8 @@ export interface ExprRow {
   /** Line dash style and stroke/point weight (per-row, Desmos-like). */
   lineStyle: LineStyle;
   weight: LineWeight;
+  /** Optional text label drawn at the point(s) / along the curve (empty = off). */
+  label: string;
   visible: boolean;
 }
 
@@ -60,6 +62,7 @@ interface PersistedRow {
   visible: boolean;
   lineStyle?: string;
   weight?: string;
+  label?: string;
   kind?: "expr" | "table";
   points?: DataPoint[];
   /** Loose `string` (not FitModelName) so decoded share data is assignable;
@@ -105,6 +108,7 @@ function normalizeRow(r: PersistedRow): ExprRow {
     color: typeof r.color === "string" ? r.color : GRAPH_COLORS[0],
     lineStyle: LINE_STYLES.includes(r.lineStyle as LineStyle) ? (r.lineStyle as LineStyle) : "solid",
     weight: LINE_WEIGHTS.includes(r.weight as LineWeight) ? (r.weight as LineWeight) : "normal",
+    label: typeof r.label === "string" ? r.label.slice(0, 60) : "",
     visible: r.visible !== false,
   };
 }
@@ -132,7 +136,7 @@ function load(): { rows: ExprRow[]; view: View } {
 }
 
 function seedRow(): ExprRow {
-  return { id: nextId++, kind: "expr", text: "", points: [], fit: "", color: GRAPH_COLORS[0], lineStyle: "solid", weight: "normal", visible: true };
+  return { id: nextId++, kind: "expr", text: "", points: [], fit: "", color: GRAPH_COLORS[0], lineStyle: "solid", weight: "normal", label: "", visible: true };
 }
 
 class GraphStore {
@@ -152,7 +156,7 @@ class GraphStore {
 
   addRow(text = ""): number {
     if (this.rows.length >= CAP) return -1;
-    const row: ExprRow = { id: nextId++, kind: "expr", text, points: [], fit: "", color: this.#nextColor(), lineStyle: "solid", weight: "normal", visible: true };
+    const row: ExprRow = { id: nextId++, kind: "expr", text, points: [], fit: "", color: this.#nextColor(), lineStyle: "solid", weight: "normal", label: "", visible: true };
     this.rows.push(row);
     this.persist();
     return row.id;
@@ -174,6 +178,7 @@ class GraphStore {
       color: this.#nextColor(),
       lineStyle: "solid",
       weight: "normal",
+      label: "",
       visible: true,
     };
     this.rows.push(row);
@@ -244,6 +249,13 @@ class GraphStore {
     if (patch.weight) r.weight = patch.weight;
     this.persist();
   }
+  /** Set a row's display label (empty string clears it). */
+  setLabel(id: number, label: string): void {
+    const r = this.rows.find((x) => x.id === id);
+    if (!r) return;
+    r.label = label.slice(0, 60);
+    this.persistSoon();
+  }
   toggleVisible(id: number): void {
     const r = this.rows.find((x) => x.id === id);
     if (r) {
@@ -253,7 +265,7 @@ class GraphStore {
   }
 
   #rowSnapshot(r: ExprRow): PersistedRow {
-    const style = { lineStyle: r.lineStyle, weight: r.weight };
+    const style = { lineStyle: r.lineStyle, weight: r.weight, label: r.label };
     return r.kind === "table"
       ? { kind: "table", text: "", color: r.color, visible: r.visible, ...style, points: r.points.map((p) => ({ x: p.x, y: p.y })), fit: r.fit }
       : { text: r.text, color: r.color, visible: r.visible, ...style };

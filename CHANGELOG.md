@@ -11,6 +11,11 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — point & curve labels.** Each row's style popover now has a
+  **label** field; the text is drawn on the graph — next to every point of a
+  point/scatter row, or at the end of the curve for a function row — in the
+  row's color. Labels persist with the document.
+
 - **Grapher — zoom to fit.** A **Fit** button in the graph toolbar frames every
   plotted curve, point, and shaded area in the viewport (keeping units square).
   A single point or a flat horizontal/vertical set expands to a sensible window;
