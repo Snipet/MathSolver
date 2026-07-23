@@ -167,6 +167,61 @@ export function zoomedAt(
   };
 }
 
+export interface Bounds {
+  xmin: number;
+  xmax: number;
+  ymin: number;
+  ymax: number;
+}
+
+/** World-space bounding box of the finite plotted data across all visible
+ *  series (lines, points, areas, POIs). Whole-view fills (region shading,
+ *  direction fields) are ignored — they have no finite extent to frame. Null
+ *  when nothing plottable is present. */
+export function seriesBounds(series: DrawSeries[]): Bounds | null {
+  let xmin = Infinity;
+  let xmax = -Infinity;
+  let ymin = Infinity;
+  let ymax = -Infinity;
+  let any = false;
+  for (const s of series) {
+    if (!s.visible || s.kind === "region" || s.kind === "field") continue;
+    for (let i = 0; i < s.xs.length; i++) {
+      const x = s.xs[i];
+      const y = s.ys[i];
+      if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+      if (x < xmin) xmin = x;
+      if (x > xmax) xmax = x;
+      if (y < ymin) ymin = y;
+      if (y > ymax) ymax = y;
+      any = true;
+    }
+  }
+  return any ? { xmin, xmax, ymin, ymax } : null;
+}
+
+/** A view that frames `b` in a `w`×`h` canvas with a margin, keeping units
+ *  square (Desmos "zoom to fit"). A degenerate extent (single point, or a
+ *  purely horizontal/vertical set) expands to a sensible square window. */
+export function fitView(b: Bounds, w: number, h: number, marginFrac = 0.08): View {
+  const cx = (b.xmin + b.xmax) / 2;
+  const cy = (b.ymin + b.ymax) / 2;
+  let dx = b.xmax - b.xmin;
+  let dy = b.ymax - b.ymin;
+  if (!(dx > 0) && !(dy > 0)) {
+    dx = 2;
+    dy = 2; // single point → ±1 window
+  } else if (!(dx > 0)) {
+    dx = dy; // vertical extent → keep it square
+  } else if (!(dy > 0)) {
+    dy = dx; // horizontal extent → keep it square
+  }
+  const usableW = Math.max(1, w) * (1 - 2 * marginFrac);
+  const usableH = Math.max(1, h) * (1 - 2 * marginFrac);
+  const scale = clampScale(Math.min(usableW / dx, usableH / dy));
+  return { cx, cy, scale };
+}
+
 /** A "nice" step (1, 2 or 5 × 10^k) giving about `target` ticks over `range`. */
 export function niceStep(range: number, target: number): number {
   const raw = Math.abs(range) / Math.max(1, target);

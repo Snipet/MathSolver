@@ -477,6 +477,8 @@ Prioritized from a full inventory. `S/M/L` = effort.
 - **Animated sliders (play button)** — *med, M.* A rAF loop stepping a slider
   var between its bounds; the slider infra already exists.
 - **Zoom-to-fit** — *low, S.* Frame the sampled data extent in the viewport.
+  *Shipped:* a **Fit** toolbar button (`seriesBounds` + `fitView` in
+  `graph/viewport.ts`).
 - **Folders / notes / organization** — *low, M.* Row-list grouping UI.
 - **LaTeX / live math input field** — *med, L.* A large input-UX change; the
   console already has a typeset preview to build on.

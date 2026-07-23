@@ -11,6 +11,11 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — zoom to fit.** A **Fit** button in the graph toolbar frames every
+  plotted curve, point, and shaded area in the viewport (keeping units square).
+  A single point or a flat horizontal/vertical set expands to a sensible window;
+  region fills and direction fields (which have no finite extent) are ignored.
+
 - **Console — result reveal animation.** When you press Enter, the new result
   cell fades and slides in (~210ms) instead of popping, and the prompt shows a
   subtle "thinking" accent while the engine computes (delayed, so quick results
