@@ -27,6 +27,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
     title: "Compute",
     items: [
       {
+        insert: "f(x) = ",
+        usage: "<name>(<params>) = <body>   define a function",
+        hint: "Define a function, then use f(3), f'(x), g(f(x)) — list them with funcs",
+        example: "f(x) = x^2 - 3",
+      },
+      {
         insert: "simplify",
         usage: "simplify <expr>   (or just type a bare expression)",
         hint: "Simplify an expression",

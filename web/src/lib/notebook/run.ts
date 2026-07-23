@@ -9,6 +9,9 @@
 import { call } from "../engine";
 import type { EngineError, PluginMeta } from "../engine/types";
 import { splitRelation } from "../graph/classify";
+import { RESERVED_NAMES } from "../graph/functions";
+import { expandApplications } from "../graph/expand";
+import { sessionFunctions } from "../graph/registry";
 import { hasTopLevelSemicolon, splitTopLevelCommas } from "../format";
 import type { Outcome } from "../outcome";
 import { vars } from "../vars.svelte";
@@ -259,13 +262,14 @@ function helpMessage(): NotebookMessage {
       "plot <expr>[, <lo>, <hi>]           chart an expression",
       "wave [<columns>][, fixed|free|robin|filtered|absorbing]   interactive 2D wave field (drag to add energy)",
       "<name> := <value>      bind a variable (applies to later lines)",
+      "<name>(<params>) = <body>   define a function, e.g. f(x) = x^2 — then f(3), f'(x), g(f(x))",
       "save <name>    save this session's commands as a notebook",
       "open <name>    load a notebook's commands (without running)",
       "run <name>     run a notebook top-to-bottom in a fresh scope",
       "notebooks      list saved notebooks",
       "<plugin>.<command> …   call a plugin (run plugins for the catalog),",
       "                       e.g. dsp.butter lowpass, 4, 1000, 48000",
-      "vars      unset <name>      clear      plugins      help",
+      "vars      funcs      unset <name>      clear      plugins      help",
     ],
   };
 }
@@ -282,7 +286,7 @@ function varsMessage(scope?: ScopeEnv): NotebookMessage {
   };
 }
 
-function clearVars(scope?: ScopeEnv): NotebookMessage {
+async function clearVars(scope?: ScopeEnv): Promise<NotebookMessage> {
   if (scope) {
     const n = scope.bindings.length;
     scope.bindings.length = 0;
@@ -293,15 +297,15 @@ function clearVars(scope?: ScopeEnv): NotebookMessage {
     };
   }
   const n = vars.active.length;
+  const fn = sessionFunctions.list().length;
   vars.clearAll();
-  return {
-    kind: "message",
-    tone: "muted",
-    lines: [`cleared ${n} assignment${n === 1 ? "" : "s"}`],
-  };
+  await sessionFunctions.clear();
+  const parts = [`cleared ${n} assignment${n === 1 ? "" : "s"}`];
+  if (fn) parts.push(`${fn} function${fn === 1 ? "" : "s"}`);
+  return { kind: "message", tone: "muted", lines: [parts.join(" and ")] };
 }
 
-function unsetVar(rest: string, scope?: ScopeEnv): CellResult {
+async function unsetVar(rest: string, scope?: ScopeEnv): Promise<CellResult> {
   const name = rest.trim();
   if (!name) return usage("unset needs a variable name, e.g. unset a");
   const target = normalizeTypedName(name);
@@ -312,6 +316,8 @@ function unsetVar(rest: string, scope?: ScopeEnv): CellResult {
     scope.bindings.splice(i, 1);
     return { kind: "message", tone: "muted", lines: [`unset ${target}`] };
   }
+  if (await sessionFunctions.remove(name))
+    return { kind: "message", tone: "muted", lines: [`unset ${name}`] };
   const row = vars.rows.find(
     (r) => r.status.symbol === target || r.name === name,
   );
@@ -319,6 +325,46 @@ function unsetVar(rest: string, scope?: ScopeEnv): CellResult {
     return { kind: "message", tone: "muted", lines: [`no variable '${name}'`] };
   vars.remove(row.id);
   return { kind: "message", tone: "muted", lines: [`unset ${target}`] };
+}
+
+// --- user functions --------------------------------------------------------
+
+/** Recognize a function definition `f(x) = …` or `f(x) := …`. A reserved name
+ *  (`sin`, `pi`, …) is not a definition, so `sin(x) = 0` still solves. */
+function matchFunctionDef(
+  line: string,
+): { name: string; params: string[]; body: string } | null {
+  const m = /^([A-Za-z][A-Za-z0-9_]*)\s*\(\s*([^()]*?)\s*\)\s*:?=\s*(.+)$/.exec(line);
+  if (!m || RESERVED_NAMES.has(m[1])) return null;
+  const params = splitTopLevelCommas(m[2]).map((p) => p.trim()).filter(Boolean);
+  if (!params.length) return null; // `f() = …` is not a function
+  return { name: m[1], params, body: m[3].trim() };
+}
+
+async function runFunctionDef(def: {
+  name: string;
+  params: string[];
+  body: string;
+}): Promise<CellResult> {
+  const err = await sessionFunctions.commit(def);
+  if (err) return { kind: "error", message: err, input: def.body };
+  return {
+    kind: "message",
+    tone: "info",
+    lines: [`${def.name}(${def.params.join(", ")}) := ${def.body}`],
+  };
+}
+
+function funcsMessage(): NotebookMessage {
+  const list = sessionFunctions.list();
+  if (list.length === 0)
+    return { kind: "message", tone: "muted", lines: ["no functions defined"] };
+  return {
+    kind: "message",
+    tone: "info",
+    title: "Functions",
+    lines: list.map((f) => `${f.name}(${f.params.join(", ")}) := ${f.body}`),
+  };
 }
 
 // --- assignment ------------------------------------------------------------
@@ -1015,9 +1061,22 @@ export async function runLine(
   ov?: EnvOverrides,
   scope?: ScopeEnv,
 ): Promise<CellResult> {
-  const line = raw.trim();
+  let line = raw.trim();
   if (!line) return { kind: "message", tone: "muted", lines: ["(empty)"] };
   try {
+    // A user-function definition (`f(x) = …`) commits to the session registry;
+    // otherwise expand any function applications in the line before dispatch so
+    // `f(3)`, `g(f(x))`, and `f'(x)` reduce first.
+    const fdef = matchFunctionDef(line);
+    if (fdef) return await runFunctionDef(fdef);
+    if (sessionFunctions.fnNames().length) {
+      line = await expandApplications(
+        line,
+        (n) => sessionFunctions.getFn(n),
+        sessionFunctions.fnNames(),
+      );
+    }
+
     if (splitAssignment(line)) return await runAssignment(line, scope);
 
     const { head, rest } = splitHead(line);
@@ -1039,10 +1098,12 @@ export async function runLine(
         return await pluginsMessage();
       case "vars":
         return varsMessage(scope);
+      case "funcs":
+        return funcsMessage();
       case "clear":
-        return clearVars(scope);
+        return await clearVars(scope);
       case "unset":
-        return unsetVar(rest, scope);
+        return await unsetVar(rest, scope);
       case "quit":
       case "exit":
         return {
