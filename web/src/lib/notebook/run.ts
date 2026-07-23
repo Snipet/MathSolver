@@ -59,6 +59,7 @@ export const MATH_VERBS = new Set([
   "ilaplace",
   "dsolve",
   "series",
+  "pade",
   "grad",
   "div",
   "curl",
@@ -525,6 +526,19 @@ async function runVerb(
         return usage(`series order must be an integer, got '${args[3]}'`);
       const env = await applyEnv(expr, [v], "expr", ov, scope);
       const r = await call("series", [env.text, v, args[2] ?? "", order]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "pade": {
+      if (args.length < 3 || args.length > 4)
+        return usage("usage: pade <expr>, <m>, <n>[, <var>]");
+      const m = Number.parseInt(args[1], 10);
+      const n = Number.parseInt(args[2], 10);
+      if (Number.isNaN(m) || Number.isNaN(n))
+        return usage("pade degrees m and n must be non-negative integers");
+      const v = args[3] ?? (await inferVar(expr));
+      const env = await applyEnv(expr, [v], "expr", ov, scope);
+      const r = await call("pade", [env.text, v, m, n]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }

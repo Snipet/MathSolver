@@ -11,6 +11,18 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Padé approximants (`pade`).** `pade exp(x), 2, 2` →
+  `(x^2/12 + x/2 + 1)/(x^2/12 - x/2 + 1)`; `pade sin(x), 3, 2` →
+  `(-7*x^3/60 + x)/(x^2/20 + 1)`. The [m/n] Padé approximant is the rational
+  function P(x)/Q(x) whose Maclaurin series matches the input through order
+  m + n — often tracking a function well past the reach of its Taylor
+  polynomial. Built from the exact Taylor coefficients (via `series`) by
+  solving the denominator's defining linear system over exact arithmetic;
+  coefficients stay symbolic, so `pade exp(a*x), 1, 1, x` keeps the parameter
+  `a`. A rational input is reproduced exactly (`pade 1/(1-x), 2, 2` →
+  `1/(1-x)`), including defective (non-normal) table entries where the
+  denominator collapses to lower degree.
+
 - **Grapher — definite-integral area shading.** A row written as
   `integral(f, a, b)` shades the signed area between `y = f(x)` and the x-axis
   over `[a, b]` (the band flips below the axis wherever `f < 0`) and labels the

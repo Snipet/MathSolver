@@ -23,6 +23,7 @@
 #include "mathsolver/polydiv.hpp"
 #include "mathsolver/printer.hpp"
 #include "mathsolver/rational.hpp"
+#include "mathsolver/pade.hpp"
 #include "mathsolver/series.hpp"
 #include "mathsolver/simplify.hpp"
 #include "mathsolver/stats.hpp"

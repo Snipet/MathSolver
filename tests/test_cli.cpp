@@ -1506,3 +1506,20 @@ TEST_CASE("cli: seq recognizes patterns and predicts terms") {
     CHECK(bad.exit_code == 2);
     CHECK(contains(bad.output, "exact numbers"));
 }
+
+TEST_CASE("cli: pade approximant") {
+    // exp(x) [2/2] = (12 + 6x + x^2)/(12 - 6x + x^2); printed with 1/12 scaling.
+    const RunResult r = run_cli({"pade", "exp(x)", "2", "2"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "x/2"));   // numerator/denominator both carry x/2
+    CHECK(contains(r.output, "/12"));   // the x^2/12 terms
+
+    // A non-integer degree is a usage error (exit code 2).
+    const RunResult bad = run_cli({"pade", "exp(x)", "2", "x"}, "2>&1 1>/dev/null");
+    CHECK(bad.exit_code == 2);
+
+    // REPL form with an explicit variable.
+    const RunResult repl = run_repl("pade exp(t), 1, 1, t\nquit\n");
+    CHECK(contains(repl.output, "t/2"));
+}

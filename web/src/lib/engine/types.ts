@@ -246,6 +246,10 @@ export interface EngineApi {
     [input: string, variable: string, center: string, order: number],
     TransformResult,
   ];
+  pade: [
+    [input: string, variable: string, m: number, n: number],
+    TransformResult,
+  ];
   vectorOp: [[op: string, fieldSemi: string, varsCsv: string], TransformResult];
   limit: [
     [input: string, variable: string, point: string, direction: string],
