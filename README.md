@@ -255,6 +255,25 @@ model: exponential
 R^2: 1
 ```
 
+Summary statistics — `stats` reports the mean, median, quartiles (Moore &
+McCabe), spread, and both population and sample standard deviation of a
+data list. On rational data every statistic is **exact** — the mean stays
+a fraction and the standard deviation a simplified radical, where a
+calculator can only show a decimal:
+
+```console
+$ mathsolver stats "1, 2, 3, 4, 5"
+n = 5
+mean = 3
+median = 3
+variance (pop) = 2
+stdev (pop) = sqrt(2)
+stdev (sample) = sqrt(10)/2
+$ mathsolver stats "1, 2, 4"
+mean = 7/3
+stdev (pop) = sqrt(14)/3
+```
+
 Multivariate and vector calculus — `grad`, `div`, `curl` (3-D vector and
 2-D scalar), `laplacian`, `jacobian`, and `hessian` operate on
 `;`-separated fields over an explicit variable list, and the web console's

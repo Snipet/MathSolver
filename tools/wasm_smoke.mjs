@@ -97,6 +97,13 @@ check("fit exact fractions", ms.fit("0,1; 1,2; 2,2; 3,4", "linear", ""), (r) => 
 check("fit exponential", ms.fit("0,1; 1,2.71828; 2,7.38906", "exp", ""), (r) => r.ok && r.model === "exponential" && r.r2 > 0.999, "a*e^(bx)");
 check("fit error few points", ms.fit("0,0", "linear", ""), (r) => !r.ok && r.error.includes("at least 2"), "needs 2 points");
 check("fit error bad model", ms.fit("0,0; 1,1", "wiggle", ""), (r) => !r.ok && r.error.includes("unknown fit model"), "unknown model rejected");
+// stats — exact summary statistics
+const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
+check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");
+check("stats exact stdev radical", ms.stats("1, 2, 3, 4, 5"), (r) => r.ok && statVal(r, "stdev (pop)") === "sqrt(2)" && statVal(r, "stdev (sample)") === "sqrt(10)/2", "sqrt radicals");
+check("stats quartiles (TI method)", ms.stats("1, 2, 3, 4, 5"), (r) => r.ok && statVal(r, "Q1") === "3/2" && statVal(r, "Q3") === "9/2", "Q1=3/2 Q3=9/2");
+check("stats numeric fallback", ms.stats("1, pi, 2"), (r) => r.ok && r.exact === false && r.n === 3, "irrational → numeric");
+check("stats error empty", ms.stats(""), (r) => !r.ok && r.error.includes("no data"), "empty rejected");
 // series at infinity + mlimit
 check("series at inf rational", ms.series("(x+1)/(x-1)", "x", "inf", 3), (r) => r.ok && r.plain.includes("2/x"), "1 + 2/x + ...");
 check("series at inf error", ms.series("e^x", "x", "inf", 3), (r) => !r.ok && r.error.includes("no expansion"), "e^x rejected");

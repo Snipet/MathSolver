@@ -377,6 +377,22 @@ std::string ms_fit(std::string data, std::string model, std::string degree) {
     });
 }
 
+/// stats(data): exact summary statistics of a data list. Returns an ordered
+/// `items` array of {label, plain, latex} plus the exact flag and count.
+std::string ms_stats(std::string data) {
+    return guarded([&]() -> std::string {
+        const StatsResult r = compute_stats(parse_stat_data(data));
+        if (r.status != StatsResult::Status::Ok) return err_json(r.message);
+        std::string items;
+        for (const StatItem& s : r.items) {
+            if (!items.empty()) items += ",";
+            items += std::format("{{\"label\":{},{}}}", jstr(s.label), rendered_fields(s.value));
+        }
+        return std::format("{{\"ok\":true,\"exact\":{},\"n\":{},\"items\":[{}]}}",
+                           r.exact ? "true" : "false", r.n, items);
+    });
+}
+
 /// Split on ';' (vector-field component separator), trimming blanks.
 std::vector<std::string> split_semi(std::string_view s) {
     std::vector<std::string> out;
@@ -1086,6 +1102,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("derivative", &ms_derivative);
     emscripten::function("apart", &ms_apart);
     emscripten::function("fit", &ms_fit);
+    emscripten::function("stats", &ms_stats);
     emscripten::function("dsolve", &ms_dsolve);
     emscripten::function("series", &ms_series);
     emscripten::function("vectorOp", &ms_vector_op);

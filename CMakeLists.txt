@@ -58,6 +58,7 @@ add_library(mathsolver_core STATIC
     src/limit.cpp
     src/apart.cpp
     src/fit.cpp
+    src/stats.cpp
     src/ode.cpp
     src/series.cpp
     src/vector_calculus.cpp

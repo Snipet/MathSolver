@@ -22,6 +22,7 @@ add_executable(mathsolver_tests
     test_integrate.cpp
     test_apart.cpp
     test_fit.cpp
+    test_stats.cpp
     test_cancel.cpp
     test_together.cpp
     test_solver.cpp
