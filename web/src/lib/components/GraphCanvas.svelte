@@ -200,6 +200,7 @@
     for (const s of series) {
       if (!s.visible || s.kind !== "line" || s.xs.length === 0) continue;
       ctx.strokeStyle = s.color;
+      ctx.setLineDash(s.dash ? [6, 5] : []);
       ctx.beginPath();
       let pen = false;
       for (let i = 0; i < s.xs.length; i++) {
@@ -221,6 +222,7 @@
       }
       ctx.stroke();
     }
+    ctx.setLineDash([]); // don't let an asymptote's dash leak into later strokes
 
     let ghostDrawn = false;
     for (const s of series) {

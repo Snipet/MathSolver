@@ -56,6 +56,8 @@ export interface DrawSeries {
   /** For "poi" (points of interest): per-point coordinate label shown on hover
    *  (an exact form like "(√2, 0)" from the CAS, or a numeric fallback). */
   labels?: (string | null)[];
+  /** For "line": draw dashed (e.g. a horizontal asymptote). */
+  dash?: boolean;
 }
 
 /**
