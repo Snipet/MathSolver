@@ -5,12 +5,20 @@
   // `fit` verb — see GraphCalculator.buildTable).
   import { graph, type ExprRow, type FitModelName } from "../graph/graph.svelte";
 
+  interface ColStats {
+    n: number;
+    mean: string;
+    median: string;
+    stdev: string;
+  }
   interface TableInfo {
     equation?: string;
     r2?: number;
     exact?: boolean;
     model?: string;
     error?: string;
+    statsX?: ColStats;
+    statsY?: ColStats;
   }
   interface Props {
     row: ExprRow;
@@ -96,6 +104,25 @@
         {#if info.exact}<span class="badge" title="Coefficients are exact (rational)">exact</span>{/if}
         {#if info.r2 !== undefined}<span class="r2">R² = {info.r2.toFixed(4)}</span>{/if}
       </span>
+    </div>
+  {/if}
+
+  {#if info?.statsX || info?.statsY}
+    <div class="col-stats" title="Exact summary statistics of each column">
+      {#if info.statsX}
+        <div class="stat-row">
+          <span class="stat-col">x</span>
+          <span>mean {info.statsX.mean}</span><span>med {info.statsX.median}</span
+          ><span>s {info.statsX.stdev}</span>
+        </div>
+      {/if}
+      {#if info.statsY}
+        <div class="stat-row">
+          <span class="stat-col">y</span>
+          <span>mean {info.statsY.mean}</span><span>med {info.statsY.median}</span
+          ><span>s {info.statsY.stdev}</span>
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -213,5 +240,25 @@
     margin: 0;
     font-size: 0.78rem;
     color: var(--error);
+  }
+  .col-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-size: 0.75rem;
+    color: var(--fg-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.55rem;
+    align-items: baseline;
+  }
+  .stat-col {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--fg);
+    min-width: 0.8rem;
   }
 </style>

@@ -28,7 +28,10 @@ per-feature specs are under docs/proposals/.
   verb, so `(0,1) (1,2) (2,2) (3,4)` fits to `x²/4 + 3x/20 + 23/20`, not a
   rounded decimal) plus **exponential / power / logarithmic** numeric models —
   and shows the fitted equation with its R² and an "exact" badge. Tables
-  persist to localStorage and ride along in share links.
+  persist to localStorage and ride along in share links. Each table also shows
+  **exact per-column summary statistics** (mean, median, sample standard
+  deviation) from the CAS `stats` verb — so `x = 1, 2, 3, 4` reports mean `5/2`
+  and `s = √15/3`, not decimals.
 - **Grapher — extrema, intersections & asymptote markers.** The CAS-powered
   points-of-interest layer (exact zeros + y-intercept) gains three more, all
   computed by the symbolic engine: **local extrema** — critical points from
