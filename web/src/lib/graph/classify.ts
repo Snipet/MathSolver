@@ -22,7 +22,7 @@ export type RowKind =
   | { t: "slopefield"; expr: string; restrict?: string[] } // y' = f(x, y) / dy/dx = …
   | { t: "pointish"; coords: [string, string][]; restrict?: string[] } // points or parametric
   | { t: "define"; name: string; expr: string; params?: string[]; restrict?: string[] } // name = expr, or name(params) = expr
-  | { t: "listdef"; name: string; inside: string; restrict?: string[] } // name = [ … ] (a list)
+  | { t: "listdef"; name: string; expr: string; restrict?: string[] } // name = <list> ([…], sort(L), L[a...b], …)
   | { t: "piecewise"; branches: { cond: string; value: string }[]; otherwise?: string; restrict?: string[] } // {cond: val, …[, else]}
   | { t: "area"; expr: string; lo: string; hi: string; restrict?: string[] } // ∫ f dx shaded over [a, b]
   | { t: "relation"; lhs: string; rhs: string; op: RelOp; restrict?: string[] }; // implicit / ineq
@@ -262,6 +262,17 @@ function matchPiecewise(text: string): RowKind | null {
   return { t: "piecewise", branches, otherwise };
 }
 
+// Is an assignment RHS list-valued by syntax? Kept local so the classifier
+// stays dependency-free; lists.ts has the deeper evaluation.
+function looksListValued(rhs: string): boolean {
+  const t = rhs.trim();
+  if (t.startsWith("[")) return true;
+  if (/^(sort|unique|reverse|join)\s*\(/.test(t)) return true;
+  // A whole-expression slice `name[ … a...b … ]`.
+  const m = /^[A-Za-z][A-Za-z0-9_]*\s*\[(.*)\]$/.exec(t);
+  return m !== null && m[1].includes("...");
+}
+
 export function classifyRow(text: string): RowKind {
   // A piecewise `{cond: val, …}` must be recognized before splitRestrictions,
   // which would otherwise peel the whole brace group off as a restriction.
@@ -310,14 +321,13 @@ function classifyBody(text: string): RowKind {
           // parameter); fall through to a relation so it reads as an error/plot.
           if (params.length) return { t: "define", name: dm[1], expr: rhs.trim(), params };
         } else {
-          // `name = [ … ]` is a list, not a scalar value definition. Any RHS
-          // that opens a bracket is treated as a list attempt (even mid-type,
-          // so a partial `[1,` never commits as a broken scalar variable); an
-          // incomplete/malformed body simply fails to materialize on its row.
+          // `name = <list>` is a list definition, not a scalar value: a `[ … ]`
+          // literal/range/comprehension (any RHS opening a bracket, even
+          // mid-type, so a partial `[1,` never commits as a broken scalar
+          // variable), a list-returning call (`sort`/`unique`/`reverse`/`join`),
+          // or a slice `L[a...b]`. The whole RHS is kept and materialized later.
           const rt = rhs.trim();
-          if (rt.startsWith("[")) {
-            return { t: "listdef", name: dm[1], inside: rt.replace(/^\[/, "").replace(/\]$/, "") };
-          }
+          if (looksListValued(rt)) return { t: "listdef", name: dm[1], expr: rt };
           return { t: "define", name: dm[1], expr: rhs.trim() };
         }
       }

@@ -916,7 +916,9 @@
           reduce them with <code>mean(L)</code>/<code>total(L)</code>/<code>max(L)</code>,
           or index with <code>L[3]</code> (1-based). Plot a list as lines with
           <code>y = [1, 2, 3]</code> or <code>y = L</code> (and <code>x = [ … ]</code>
-          for vertical lines).
+          for vertical lines). Transform lists with <code>sort(L)</code>,
+          <code>unique(L)</code>, <code>join(A, B)</code>, or a slice
+          <code>L[2...4]</code>.
         </p>
       {:else}
         <History onrestore={restore} />
