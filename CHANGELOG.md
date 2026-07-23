@@ -11,6 +11,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Trigonometric expansion (`trigexpand`).** A new verb expands trig of sums
+  and integer multiples into single-angle products and powers, then
+  simplifies: `sin(a + b)` → `sin(a)cos(b) + cos(a)sin(b)`, `cos(2x)` →
+  `cos(x)² - sin(x)²`, `sin(3x)` its cubic form, and `tan(a + b)` in terms of
+  sines and cosines. Special-value angles collapse (`sin(x + π/2)` → `cos(x)`);
+  single angles and non-integer/symbolic multiples (`sin(x/2)`, `sin(ax)`) are
+  left untouched. In the CLI, REPL, and web console.
 - **Polynomial discriminant (`discriminant`).** A new verb returns the exact
   discriminant of a degree 2–4 polynomial from its closed-form formula, with
   **symbolic coefficients kept symbolic**: `discriminant a*x^2 + b*x + c, x` →

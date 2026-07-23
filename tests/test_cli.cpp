@@ -169,6 +169,19 @@ TEST_CASE("cli: number-theory verbs") {
     CHECK(bad.exit_code == 2);
 }
 
+TEST_CASE("cli: trigexpand of sums and multiples") {
+    const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
+    INFO(sum.output);
+    CHECK(sum.exit_code == 0);
+    CHECK(contains(sum.output, "sin(a)*cos(b)"));
+    CHECK(contains(sum.output, "sin(b)*cos(a)"));
+
+    const RunResult dbl = run_cli({"trigexpand", "cos(2*x)"});
+    CHECK(dbl.exit_code == 0);
+    CHECK(contains(dbl.output, "cos(x)^2"));
+    CHECK(contains(dbl.output, "sin(x)^2"));
+}
+
 TEST_CASE("cli: discriminant of a polynomial") {
     const RunResult sym = run_cli({"discriminant", "a*x^2 + b*x + c", "x"});
     INFO(sym.output);

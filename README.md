@@ -510,7 +510,9 @@ for the full workflow.
   suggests writing `s*p*e*e*d` instead of silently multiplying letters).
 - **Simplifier** — exact rational arithmetic, like-term/factor collection,
   power and exp/ln rules, trig special values and identities; plus `expand`,
-  `collect`, and best-effort `factor`.
+  `collect`, and best-effort `factor`. **`trigexpand`** expands trig of sums
+  and multiples into single angles (`sin(a+b)` → `sin(a)cos(b) + cos(a)sin(b)`,
+  `cos(2x)` → `cos(x)² - sin(x)²`).
 - **Derivatives** — full symbolic differentiation (chain/product/general
   power rule) over sin/cos/tan, inverse trig, hyperbolics, ln, abs.
 - **Integrals** — rule-based symbolic integration (table forms, linearity,
