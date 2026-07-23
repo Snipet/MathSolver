@@ -372,6 +372,40 @@ void run_apart(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(apart(e, var), style));
 }
 
+/// `fit`: least-squares regression of "x,y; x,y; ..." data. The model defaults
+/// to linear; a named poly alias (quadratic/cubic/quartic) or "poly <degree>"
+/// fits a polynomial exactly over the rationals; exp/power/log fit linearized
+/// numeric models. Prints the fitted expression, then `model:` and `R^2:` notes.
+void run_fit(const std::string& input, const std::string& model_text,
+             const std::string& degree_text, PrintStyle style) {
+    auto [xs, ys] = parse_point_data(input);
+    const std::string name = model_text.empty() ? "linear" : model_text;
+    const auto spec = parse_fit_model(name);
+    if (!spec) {
+        throw UsageError{std::format(
+            "unknown fit model '{}' (linear, quadratic, cubic, quartic, poly, "
+            "exp, power, log)",
+            name)};
+    }
+    auto [model, degree] = *spec;
+    if (model == FitModel::Poly && degree < 0) { // generic "poly": read degree
+        degree = 2;
+        if (!degree_text.empty()) {
+            const auto d = parse_double(degree_text);
+            if (!d || *d != std::floor(*d)) {
+                throw UsageError{std::format(
+                    "polynomial degree must be an integer, got '{}'", degree_text)};
+            }
+            degree = static_cast<int>(*d);
+        }
+    }
+    const FitResult r = fit(xs, ys, model, degree, "x");
+    if (r.status != FitResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", to_string(r.expr, style));
+    std::println("model: {}{}", r.model, r.exact ? " (exact)" : "");
+    std::println("R^2: {:.6g}", r.r2);
+}
+
 /// `series`: Taylor expansion about a center (default 0) to an order
 /// (default 6); the variable is inferred like diff when omitted.
 void run_series(const std::string& input, const std::string& explicit_var,
@@ -1066,6 +1100,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver ilaplace \"1/(s^2 + 2s + 5)\" [s]\n"
                "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
                "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
+               "  mathsolver fit      \"0,0; 1,1; 2,4\" quadratic\n"
                "  mathsolver stirling x [3]\n"
                "  mathsolver seq      0 1 1 2 3 5 8\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
@@ -1102,7 +1137,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
            s == "rsolve" || s == "mlimit" || s == "stirling" ||
-           s == "seq";
+           s == "seq" || s == "fit" || s == "regress";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1249,6 +1284,15 @@ int run_one_shot(const std::vector<std::string>& args) {
             run_series(input, positionals.size() > 1 ? positionals[1] : "",
                        positionals.size() > 2 ? positionals[2] : "",
                        positionals.size() > 3 ? positionals[3] : "", style);
+        } else if (sub == "fit" || sub == "regress") {
+            if (positionals.size() > 3) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver fit "
+                    "\"x,y; x,y; ...\" [model] [degree])",
+                    positionals[3])};
+            }
+            run_fit(input, positionals.size() > 1 ? positionals[1] : "",
+                    positionals.size() > 2 ? positionals[2] : "", style);
         } else if (sub == "seq") {
             run_seq(positionals, style);
         } else if (sub == "stirling") {
@@ -1334,6 +1378,8 @@ void print_repl_help() {
         "  dsolve <ode>[, y(0)=v, y'(0)=v, ...]   solve an IVP, e.g.\n"
         "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
+        "  fit <x,y; x,y; ...> [| <model> [<degree>]]  least-squares regression\n"
+        "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
         "  stirling [<var>[, <terms>]]            ln Gamma asymptotics\n"
         "  seq <a0>, <a1>, <a2>, <a3>[, ...]      recognize the pattern\n"
         "  limit <expression>, <variable>, <point>[, left|right]\n"
@@ -1376,7 +1422,8 @@ bool is_repl_command(std::string_view word) {
            word == "curl" || word == "laplacian" || word == "jacobian" ||
            word == "hessian" || word == "limit" || word == "sum" ||
            word == "product" || word == "rsolve" || word == "mlimit" ||
-           word == "stirling" || word == "seq";
+           word == "stirling" || word == "seq" || word == "fit" ||
+           word == "regress";
 }
 
 // ---------------------------------------------------------------------------
@@ -1910,6 +1957,29 @@ void repl_command(const std::string& command, const std::string& rest,
                 "dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0"};
         }
         run_dsolve(rest, PrintStyle::Plain);
+        return;
+    }
+    if (command == "fit" || command == "regress") {
+        // The data holds commas and semicolons, so the model/degree come after
+        // a '|': fit 0,0; 1,1; 2,4 | quadratic
+        std::string data = rest;
+        std::string model;
+        std::string degree;
+        if (const auto bar = rest.rfind('|'); bar != std::string::npos) {
+            data = rest.substr(0, bar);
+            const std::string opts = trim(rest.substr(bar + 1));
+            const auto sp = opts.find_first_of(" \t");
+            if (sp == std::string::npos) {
+                model = opts;
+            } else {
+                model = opts.substr(0, sp);
+                degree = trim(opts.substr(sp + 1));
+            }
+        }
+        if (trim(data).empty()) {
+            throw UsageError{"usage: fit <x,y; x,y; ...> [| <model> [<degree>]]"};
+        }
+        run_fit(data, model, degree, PrintStyle::Plain);
         return;
     }
     const std::vector<std::string> parts = split_top_level_commas(rest);

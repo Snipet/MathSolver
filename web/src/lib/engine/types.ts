@@ -23,6 +23,21 @@ export type TransformResult =
   | ({ ok: true; notes?: string[] } & Rendered)
   | EngineError;
 
+/** Regression fit: the fitted expression (plottable in x) plus its stats. */
+export type FitResult =
+  | ({
+      ok: true;
+      /** Model label, e.g. "linear", "quadratic", "exponential". */
+      model: string;
+      /** True when the polynomial fit was solved exactly over the rationals. */
+      exact: boolean;
+      /** Coefficient of determination (0..1, may be negative). */
+      r2: number;
+      /** Number of data points used. */
+      n: number;
+    } & Rendered)
+  | EngineError;
+
 export type SeqCallResult =
   | ({
       ok: true;
@@ -209,6 +224,7 @@ export interface EngineApi {
   ];
   collect: [[input: string, variable: string], TransformResult];
   apart: [[input: string, variable: string], TransformResult];
+  fit: [[data: string, model: string, degree: string], FitResult];
   dsolve: [[ode: string, conditionsCsv: string], DsolveResult];
   series: [
     [input: string, variable: string, center: string, order: number],

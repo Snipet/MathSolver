@@ -232,6 +232,29 @@ ln Gamma(x) ~ ln(x)*(x - 1/2) - x + ln(2*pi)/2 + 1/(12*x) - 1/(360*x^3) + 1/(126
 note: ln Gamma(10): Stirling 12.8018274801 vs exact 12.8018274801 (|error| = 5.87e-11)
 ```
 
+Least-squares regression — `fit` fits `x,y` data. Polynomial fits are
+solved **exactly** over the rationals (the normal equations reduce to
+exact power sums, then Gaussian elimination over `Q`), so a best fit comes
+back as exact fractions where other tools show only a rounded decimal; it
+falls back to double precision on overflow or non-rational data. `exp`,
+`power`, and `log` fit their linearized numeric models. Each fit reports
+its model, whether it is exact, and R²:
+
+```console
+$ mathsolver fit "0,1; 1,2; 2,2; 3,4"
+9*x/10 + 9/10
+model: linear (exact)
+R^2: 0.852632
+$ mathsolver fit "0,0; 1,1; 2,4; 3,9" quadratic
+x^2
+model: quadratic (exact)
+R^2: 1
+$ mathsolver fit "0,1; 1,2.72; 2,7.39" exp
+e^x
+model: exponential
+R^2: 1
+```
+
 Multivariate and vector calculus — `grad`, `div`, `curl` (3-D vector and
 2-D scalar), `laplacian`, `jacobian`, and `hessian` operate on
 `;`-separated fields over an explicit variable list, and the web console's
