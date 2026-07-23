@@ -261,6 +261,7 @@ export interface EngineApi {
   nextprime: [[n: string], TransformResult];
   divisors: [[n: string], TransformResult];
   totient: [[n: string], TransformResult];
+  cfrac: [[value: string], TransformResult];
   sum: [[term: string, variable: string, lo: string, hi: string], SumCallResult];
   product: [
     [term: string, variable: string, lo: string, hi: string],

@@ -342,6 +342,41 @@ std::string ms_divisors(std::string arg) {
         return nt_json(plain, "\\{" + latex + "\\}", {std::format("{} divisors", ds.size())});
     });
 }
+
+/// cfrac(value): continued fraction of a rational, sqrt(n), or real, with its
+/// convergents. Returns {ok, plain, latex, notes} like a transform result.
+std::string ms_cfrac(std::string input) {
+    return guarded([&]() -> std::string {
+        const Expr s = simplify(parse_expression(input));
+        CFrac cf;
+        if (s->kind() == Kind::Number) {
+            const Rational r = s->number();
+            cf = cf_rational(r.num(), r.den());
+        } else if (s->kind() == Kind::Pow && s->arg(0)->kind() == Kind::Number &&
+                   s->arg(0)->number().is_integer() && s->arg(0)->number().num() >= 1 &&
+                   s->arg(1)->kind() == Kind::Number &&
+                   s->arg(1)->number() == Rational(1, 2)) {
+            cf = cf_sqrt(s->arg(0)->number().num());
+        } else {
+            cf = cf_numeric(evaluate(s, Bindings{}));
+        }
+        std::vector<std::string> notes;
+        if (!cf.convergents.empty()) {
+            std::string cs = "convergents: ";
+            for (std::size_t i = 0; i < cf.convergents.size(); ++i) {
+                const auto& [p, q] = cf.convergents[i];
+                if (i > 0) cs += ", ";
+                cs += q == 1 ? std::to_string(p)
+                             : std::to_string(p) + "/" + std::to_string(q);
+            }
+            notes.push_back(cs);
+        }
+        if (!cf.exact) notes.push_back("numeric expansion — later terms are approximate");
+        return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{},\"notes\":{}}}",
+                           jstr(format_cfrac(cf)), jstr(format_cfrac_latex(cf)),
+                           jarr_str(notes));
+    });
+}
 std::string ms_cancel(std::string input) {
     return transform_json(input, [](const Expr& e) { return cancel(e); });
 }
@@ -1230,6 +1265,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("nextprime", &ms_nextprime);
     emscripten::function("divisors", &ms_divisors);
     emscripten::function("totient", &ms_totient);
+    emscripten::function("cfrac", &ms_cfrac);
     emscripten::function("sum", &ms_sum);
     emscripten::function("product", &ms_product);
     emscripten::function("rsolve", &ms_rsolve);

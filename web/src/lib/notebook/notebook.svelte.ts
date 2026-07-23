@@ -122,6 +122,7 @@ const NO_ENV_VERBS = new Set([
   "nextprime",
   "divisors",
   "totient",
+  "cfrac",
   "wave",
   "help",
   "vars",

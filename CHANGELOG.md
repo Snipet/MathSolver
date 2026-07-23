@@ -11,6 +11,15 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Continued fractions (`cfrac`).** A new verb expands a value into its
+  continued fraction `[a0; a1, a2, …]` and lists the **convergents** — the
+  successive best rational approximations. Exact rationals give a **finite**
+  expansion (`cfrac 355/113` → `[3; 7, 16]`); **`sqrt(n)`** gets its exact
+  **periodic** expansion (`sqrt(2)` → `[1; (2)]`, with the period overlined in
+  the console); anything else falls back to a numeric expansion. The
+  convergents surface the famous approximations — `cfrac pi` walks
+  `3, 22/7, 333/106, 355/113`, and feeding a decimal like `3.14159`
+  recovers them exactly. Available in the CLI, REPL, and web console.
 - **Number theory over the integers.** A new pack of exact integer verbs —
   available in the CLI, the REPL, and the web console. **`factor`** now
   prime-factorizes a bare integer (`factor 360` → `2^3 · 3^2 · 5`) instead of

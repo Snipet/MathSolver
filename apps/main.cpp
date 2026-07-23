@@ -568,6 +568,48 @@ void run_divisors(const std::string& input) {
     std::println("{}", out);
 }
 
+/// Route an expression to the right continued-fraction routine: an exact
+/// rational (finite), sqrt(n) for integer n (periodic), or anything else
+/// (numeric, via double).
+CFrac cfrac_of(const Expr& e) {
+    const Expr s = simplify(e);
+    if (s->kind() == Kind::Number) {
+        const Rational r = s->number();
+        return cf_rational(r.num(), r.den());
+    }
+    if (s->kind() == Kind::Pow) {
+        const Expr& base = s->arg(0);
+        const Expr& exp = s->arg(1);
+        if (base->kind() == Kind::Number && base->number().is_integer() &&
+            base->number().num() >= 1 && exp->kind() == Kind::Number &&
+            exp->number() == Rational(1, 2)) {
+            return cf_sqrt(base->number().num());
+        }
+    }
+    return cf_numeric(evaluate(s, Bindings{}));
+}
+
+/// `cfrac`: continued fraction of a rational, sqrt(n), or real, with
+/// convergents (the successive best rational approximations).
+void run_cfrac(const std::string& input, PrintStyle style) {
+    const CFrac cf = cfrac_of(parse_expression_diag(input));
+    std::println("{}", style == PrintStyle::LaTeX ? format_cfrac_latex(cf)
+                                                  : format_cfrac(cf));
+    if (!cf.convergents.empty()) {
+        std::string cs;
+        for (const auto& [p, q] : cf.convergents) {
+            if (!cs.empty()) cs += ", ";
+            cs += q == 1 ? std::to_string(p)
+                         : std::to_string(p) + "/" + std::to_string(q);
+        }
+        std::println("convergents: {}", cs);
+    }
+    if (!cf.exact) {
+        std::println("note: numeric expansion (double precision) — later terms "
+                     "and convergents are approximate");
+    }
+}
+
 /// `seq`: recognize the pattern behind a list of exact terms.
 void run_seq(const std::vector<std::string>& term_texts, PrintStyle style) {
     std::vector<Rational> terms;
@@ -1211,6 +1253,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver gcd      \"48, 36\"           lcm, gcd of a list\n"
                "  mathsolver isprime  97                 isprime/nextprime\n"
                "  mathsolver divisors 360                divisors, totient\n"
+               "  mathsolver cfrac    \"355/113\"          continued fraction + convergents\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
                "  mathsolver mlimit   \"x*y/(x^2+y^2)\" x 0 y 0\n"
                "  mathsolver sum      \"k^2\" k 1 n\n"
@@ -1247,7 +1290,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "rsolve" || s == "mlimit" || s == "stirling" ||
            s == "seq" || s == "fit" || s == "regress" || s == "stats" ||
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
-           s == "divisors" || s == "totient";
+           s == "divisors" || s == "totient" || s == "cfrac";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1427,6 +1470,14 @@ int run_one_shot(const std::vector<std::string>& args) {
             else if (sub == "nextprime") run_nextprime(input);
             else if (sub == "divisors") run_divisors(input);
             else run_totient(input);
+        } else if (sub == "cfrac") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the value in one quoted "
+                    "argument: mathsolver cfrac \"355/113\")",
+                    positionals[1])};
+            }
+            run_cfrac(input, style);
         } else if (sub == "stirling") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
@@ -1518,6 +1569,7 @@ void print_repl_help() {
         "  factor <n>                             integer -> prime factorization\n"
         "  gcd <a, b, ...>   lcm <a, b, ...>       exact over the integers\n"
         "  isprime <n>   nextprime <n>   divisors <n>   totient <n>\n"
+        "  cfrac <rational | sqrt(n) | real>      continued fraction + convergents\n"
         "  limit <expression>, <variable>, <point>[, left|right]\n"
         "         (point accepts numbers, inf, -inf)\n"
         "  mlimit <expr>, <x>, <a>, <y>, <b>      2-D limit by path sampling\n"
@@ -1561,7 +1613,7 @@ bool is_repl_command(std::string_view word) {
            word == "stirling" || word == "seq" || word == "fit" ||
            word == "regress" || word == "stats" || word == "gcd" ||
            word == "lcm" || word == "isprime" || word == "nextprime" ||
-           word == "divisors" || word == "totient";
+           word == "divisors" || word == "totient" || word == "cfrac";
 }
 
 // ---------------------------------------------------------------------------
@@ -2142,6 +2194,13 @@ void repl_command(const std::string& command, const std::string& rest,
         else if (command == "nextprime") run_nextprime(rest);
         else if (command == "divisors") run_divisors(rest);
         else run_totient(rest);
+        return;
+    }
+    if (command == "cfrac") {
+        if (trim(rest).empty()) {
+            throw UsageError{"usage: cfrac <rational | sqrt(n) | real>"};
+        }
+        run_cfrac(rest, PrintStyle::Plain);
         return;
     }
     const std::vector<std::string> parts = split_top_level_commas(rest);

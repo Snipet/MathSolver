@@ -121,6 +121,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         hint: "Euler's φ(n): count of integers ≤ n coprime to n",
         example: "totient 36",
       },
+      {
+        insert: "cfrac",
+        usage: "cfrac <rational | sqrt(n) | real>",
+        hint: "Continued fraction + convergents (best rational approximations)",
+        example: "cfrac 355/113",
+      },
     ],
   },
   {
