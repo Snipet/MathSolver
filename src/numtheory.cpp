@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <climits>
 #include <cstdint>
+#include <format>
 #include <string>
 
 #include "mathsolver/errors.hpp"
@@ -197,6 +198,84 @@ long long int_mod(long long a, long long m) {
     long long r = a % m;
     if (r < 0) r += m < 0 ? -m : m;
     return r;
+}
+
+long long pow_mod(long long base, long long exponent, long long modulus) {
+    if (modulus <= 0) throw EvalError{"powmod requires a positive modulus"};
+    if (exponent < 0) {
+        throw EvalError{"powmod requires a non-negative exponent (use modinv for "
+                        "negative powers)"};
+    }
+    if (modulus == 1) return 0;
+    // Reduce the base into [0, m) first (handles negatives), then square-and-
+    // multiply with 128-bit products so nothing overflows.
+    std::uint64_t b = static_cast<std::uint64_t>(int_mod(base, modulus));
+    std::uint64_t e = static_cast<std::uint64_t>(exponent);
+    const std::uint64_t m = static_cast<std::uint64_t>(modulus);
+    return static_cast<long long>(powmod(b, e, m));
+}
+
+namespace {
+
+/// Extended Euclid: returns g = gcd(|a|, |b|) and sets x, y so a*x + b*y = g.
+long long ext_gcd(long long a, long long b, long long& x, long long& y) {
+    if (b == 0) {
+        x = a < 0 ? -1 : 1; // sign so that a*x = |a|
+        y = 0;
+        return a < 0 ? -a : a;
+    }
+    long long x1 = 0, y1 = 0;
+    const long long g = ext_gcd(b, a % b, x1, y1);
+    x = y1;
+    y = x1 - (a / b) * y1;
+    return g;
+}
+
+} // namespace
+
+long long mod_inverse(long long a, long long m) {
+    if (m <= 1) throw EvalError{"modinv requires a modulus > 1"};
+    long long x = 0, y = 0;
+    const long long g = ext_gcd(int_mod(a, m), m, x, y);
+    if (g != 1) {
+        throw EvalError{std::format("{} is not invertible mod {} (gcd is {})",
+                                    a, m, g)};
+    }
+    return int_mod(x, m);
+}
+
+Crt crt_solve(const std::vector<long long>& residues,
+              const std::vector<long long>& moduli) {
+    if (residues.empty() || residues.size() != moduli.size()) {
+        throw EvalError{"crt needs an equal, non-empty count of residues and moduli"};
+    }
+    long long r = 0;    // running solution
+    long long mod = 1;  // running modulus (lcm so far)
+    for (std::size_t i = 0; i < moduli.size(); ++i) {
+        const long long mi = moduli[i];
+        if (mi < 1) throw EvalError{"crt moduli must be positive"};
+        const long long ri = int_mod(residues[i], mi);
+        // Combine x == r (mod mod) with x == ri (mod mi).
+        long long p = 0, q = 0;
+        const long long g = ext_gcd(mod, mi, p, q);
+        const long long diff = ri - r;
+        if (diff % g != 0) {
+            throw EvalError{std::format(
+                "crt system is inconsistent at x == {} (mod {})", ri, mi)};
+        }
+        // new modulus = lcm(mod, mi); step = mod/g * ((diff/g) mod (mi/g)).
+        const long long lcm = int_lcm(mod, mi); // overflow-checked
+        const long long mi_g = mi / g;
+        // r += mod * (((diff/g) * p) mod mi_g), kept in 128-bit then reduced.
+        const long long t = int_mod(static_cast<long long>(
+                                        (static_cast<__int128_t>(diff / g) * p) % mi_g),
+                                    mi_g);
+        r = static_cast<long long>(
+            (static_cast<__int128_t>(r) + static_cast<__int128_t>(mod) * t) % lcm);
+        if (r < 0) r += lcm;
+        mod = lcm;
+    }
+    return {r, mod};
 }
 
 std::string format_factorization(const std::vector<PrimePower>& factors,

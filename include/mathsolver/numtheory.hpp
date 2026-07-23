@@ -48,6 +48,30 @@ long long euler_totient(long long n);
 /// throws DivisionByZeroError.
 long long int_mod(long long a, long long m);
 
+/// Modular exponentiation base^exponent mod m, in [0, m). exponent >= 0 and
+/// m > 0 are required (throws otherwise); handles huge exponents that would
+/// overflow ordinary evaluation.
+long long pow_mod(long long base, long long exponent, long long modulus);
+
+/// Modular inverse a^{-1} mod m (the b in [0, m) with a*b == 1 mod m), via the
+/// extended Euclidean algorithm. Requires m > 1 and gcd(a, m) == 1; throws
+/// EvalError when a is not invertible.
+long long mod_inverse(long long a, long long m);
+
+/// Solution of a system of congruences x == residues[i] (mod moduli[i]) by the
+/// Chinese remainder theorem, allowing non-coprime moduli. `residue` is the
+/// unique solution in [0, modulus), where `modulus` is the lcm of the moduli.
+struct Crt {
+    long long residue;
+    long long modulus;
+};
+
+/// Solve the congruence system. The lists must be non-empty and equal length,
+/// every modulus >= 1; throws EvalError on a size mismatch or an inconsistent
+/// system (e.g. x == 0 mod 2 and x == 1 mod 4).
+Crt crt_solve(const std::vector<long long>& residues,
+              const std::vector<long long>& moduli);
+
 /// Render a factorization as e.g. "2^3 * 3^2 * 5" using `times` between
 /// factors (pass " * " for plain, " · " for pretty). An empty list is "1".
 /// The caller supplies any leading sign.

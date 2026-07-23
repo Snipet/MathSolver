@@ -150,3 +150,51 @@ TEST_CASE("next/prev prime and Euclidean mod") {
     CHECK(int_mod(7, -3) == 1);   // sign of m does not affect the residue range
     CHECK_THROWS_AS(int_mod(1, 0), DivisionByZeroError);
 }
+
+TEST_CASE("modular exponentiation") {
+    CHECK(pow_mod(7, 100, 13) == 9);
+    CHECK(pow_mod(2, 10, 1000) == 24);       // 1024 mod 1000
+    CHECK(pow_mod(2, 0, 7) == 1);            // b^0 = 1
+    CHECK(pow_mod(0, 5, 7) == 0);
+    CHECK(pow_mod(-3, 3, 7) == int_mod(-27, 7)); // negative base reduced first
+    CHECK(pow_mod(5, 3, 1) == 0);            // everything is 0 mod 1
+    // Fermat: a^(p-1) == 1 (mod p) for prime p, gcd(a,p)=1.
+    CHECK(pow_mod(3, 10, 11) == 1);
+    // Huge exponent that would overflow ordinary evaluation.
+    CHECK(pow_mod(7, 1000000, 13) == pow_mod(7, 1000000 % 12, 13));
+    CHECK_THROWS_AS(pow_mod(2, -1, 7), EvalError);
+    CHECK_THROWS_AS(pow_mod(2, 3, 0), EvalError);
+}
+
+TEST_CASE("modular inverse") {
+    CHECK(mod_inverse(3, 11) == 4);    // 3*4 = 12 == 1 (mod 11)
+    CHECK(mod_inverse(10, 17) == 12);  // 10*12 = 120 == 1 (mod 17)
+    CHECK(int_mod(mod_inverse(7, 100) * 7, 100) == 1);
+    CHECK(mod_inverse(-3, 11) == mod_inverse(8, 11)); // -3 == 8 (mod 11)
+    // Not invertible when gcd(a, m) != 1.
+    CHECK_THROWS_AS(mod_inverse(6, 9), EvalError);
+    CHECK_THROWS_AS(mod_inverse(2, 1), EvalError);
+}
+
+TEST_CASE("Chinese remainder theorem") {
+    // The classic Sun-tzu problem: x == 2 (3), 3 (5), 2 (7) -> 23 (mod 105).
+    const Crt s = crt_solve({2, 3, 2}, {3, 5, 7});
+    CHECK(s.residue == 23);
+    CHECK(s.modulus == 105);
+
+    // Two congruences with coprime moduli.
+    const Crt t = crt_solve({1, 2}, {4, 5});
+    CHECK(t.modulus == 20);
+    CHECK(int_mod(t.residue, 4) == 1);
+    CHECK(int_mod(t.residue, 5) == 2);
+
+    // Non-coprime but consistent moduli: lcm(6, 4) = 12.
+    const Crt u = crt_solve({2, 2}, {6, 4});
+    CHECK(u.modulus == 12);
+    CHECK(int_mod(u.residue, 6) == 2);
+    CHECK(int_mod(u.residue, 4) == 2);
+
+    // Inconsistent system throws.
+    CHECK_THROWS_AS(crt_solve({0, 1}, {2, 4}), EvalError);
+    CHECK_THROWS_AS(crt_solve({1}, {2, 3}), EvalError); // size mismatch
+}

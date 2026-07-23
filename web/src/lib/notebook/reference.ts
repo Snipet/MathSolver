@@ -127,6 +127,30 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         hint: "Continued fraction + convergents (best rational approximations)",
         example: "cfrac 355/113",
       },
+      {
+        insert: "powmod",
+        usage: "powmod <base>, <exponent>, <modulus>",
+        hint: "Modular exponentiation — handles huge exponents exactly",
+        example: "powmod 7, 100, 13",
+      },
+      {
+        insert: "modinv",
+        usage: "modinv <a>, <m>",
+        hint: "Modular inverse a⁻¹ mod m (extended Euclid)",
+        example: "modinv 3, 11",
+      },
+      {
+        insert: "mod",
+        usage: "mod <a>, <m>",
+        hint: "Euclidean remainder in [0, m)",
+        example: "mod 17, 5",
+      },
+      {
+        insert: "crt",
+        usage: "crt <r1, r2, …; m1, m2, …>",
+        hint: "Chinese remainder theorem (allows non-coprime moduli)",
+        example: "crt 2, 3, 2; 3, 5, 7",
+      },
     ],
   },
   {
