@@ -28,7 +28,7 @@ export const RESERVED_NAMES: ReadonlySet<string> = new Set([
   "e", "i", "pi",
   // calc operators (CALC_FNS)
   "diff", "derivative", "integral", "antiderivative", "series", "taylor",
-  "tangent", "normal",
+  "tangent", "normal", "sum", "product",
 ]);
 
 /** A calc-operator or user-function call site found in a row. */
@@ -63,6 +63,11 @@ function callAt(
   if (allowPrime) while (text[j] === "'") (primes++, j++);
   while (j < text.length && /\s/.test(text[j])) j++;
   return text[j] === "(" ? { primes, parenAt: j } : null;
+}
+
+/** Escape a string for literal use inside a RegExp. */
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Match the closing paren for the `(` at index `open`, or -1 if unbalanced. */
@@ -134,8 +139,22 @@ export function stripCalls(
     const c = findInnermostAny(s, fnNames);
     if (!c) break;
     if (c.kind === "appl") called.add(c.name);
-    const firstArg = splitTopLevelCommas(c.inner)[0] ?? "";
-    s = s.slice(0, c.start) + "(" + firstArg + ")" + s.slice(c.end);
+    let replacement: string;
+    if (c.kind === "calc" && (c.name === "sum" || c.name === "product")) {
+      // sum/product(term, index, lo, hi): the index is BOUND — it must not leak
+      // out as a free symbol (would become a phantom slider). Neutralize it in
+      // the term, then surface the term's remaining symbols plus lo/hi (which
+      // may hold real sliders, e.g. the upper bound `n`).
+      const p = splitTopLevelCommas(c.inner).map((x) => x.trim());
+      const bv = p[1] ?? "";
+      const termNoIdx = bv
+        ? (p[0] ?? "").replace(new RegExp(`\\b${escapeRe(bv)}\\b`, "g"), "1")
+        : (p[0] ?? "");
+      replacement = `((${termNoIdx})+(${p[2] ?? ""})+(${p[3] ?? ""}))`;
+    } else {
+      replacement = "(" + (splitTopLevelCommas(c.inner)[0] ?? "") + ")";
+    }
+    s = s.slice(0, c.start) + replacement + s.slice(c.end);
   }
   return { text: s, calledFns: [...called] };
 }

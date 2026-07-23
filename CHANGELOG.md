@@ -11,6 +11,16 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — inline `sum` / `product`.** A plotted row can now contain a
+  summation or product: `y = sum(x^k, k, 0, 5)` draws the geometric partial sum
+  `1 + x + … + x⁵`, and `product(x, j, 1, 4)` draws `x⁴`. The CAS closes the
+  form symbolically and the result is sampled like any other curve, so nested
+  and combined forms work too (`1 + sum(x^k, k, 1, 3)`). The summation index is
+  bound — it never leaks out as a slider — while the bounds do: `sum(x^k, k, 0,
+  n)` turns `n` into a slider, so dragging it animates the number of terms
+  (a live Taylor/partial-sum explorer). Also composes with the other calc
+  operators, e.g. `diff(sum(x^k, k, 0, 5))`.
+
 - **Grapher — piecewise functions.** A Desmos-style piecewise row
   `{condition: value, …}` plots a curve that switches between cases:
   `{x < 0: -x, x}` draws `|x|`, `{x > 0: 1, x < 0: -1, 0}` the sign step, and

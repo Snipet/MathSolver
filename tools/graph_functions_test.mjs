@@ -96,6 +96,19 @@ check("stripCalls of a prime call drops the prime", (() => {
   const r = stripCalls("f'(x)", ["f"]);
   return r.text === "(x)";
 })());
+check("stripCalls sum: bound index neutralized, x kept", (() => {
+  const r = stripCalls("sum(x^k, k, 0, 5)", []);
+  // index k → 1 in the term; lo/hi surfaced; no phantom `k` symbol
+  return r.text === "((x^1)+(0)+(5))" && !r.text.includes("k");
+})());
+check("stripCalls sum: upper-bound slider survives", (() => {
+  const r = stripCalls("sum(a*x^k, k, 0, n)", []);
+  return r.text === "((a*x^1)+(0)+(n))";
+})());
+check("stripCalls product: bound index neutralized too", (() => {
+  const r = stripCalls("product(x/j, j, 1, m)", []);
+  return r.text === "((x/1)+(1)+(m))";
+})());
 
 // --- findInnermostAppl (console: user-function calls only) ------------------
 check("appl-only: f(x) found", (() => { const c = findInnermostAppl("f(x)", ["f"]); return c && c.name === "f"; })());
