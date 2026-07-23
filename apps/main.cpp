@@ -568,6 +568,39 @@ void run_divisors(const std::string& input) {
     std::println("{}", out);
 }
 
+/// `mod` / `powmod` / `modinv`: modular arithmetic on integers. `mod a, m`,
+/// `powmod b, e, m`, `modinv a, m`.
+void run_mod(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "mod");
+    if (v.size() != 2) throw UsageError{"usage: mod <a>, <m>"};
+    std::println("{}", int_mod(v[0], v[1]));
+}
+void run_powmod(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "powmod");
+    if (v.size() != 3) throw UsageError{"usage: powmod <base>, <exponent>, <modulus>"};
+    std::println("{}", pow_mod(v[0], v[1], v[2]));
+}
+void run_modinv(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "modinv");
+    if (v.size() != 2) throw UsageError{"usage: modinv <a>, <m>"};
+    std::println("{}", mod_inverse(v[0], v[1]));
+}
+
+/// `crt`: Chinese remainder theorem. `crt <r1, r2, …; m1, m2, …>` — residues
+/// before the ';', moduli after.
+void run_crt(const std::string& input) {
+    const auto semi = input.find(';');
+    if (semi == std::string::npos) {
+        throw UsageError{"usage: crt <r1, r2, …; m1, m2, …>  (residues ; moduli)"};
+    }
+    const std::vector<long long> residues =
+        parse_integer_list(input.substr(0, semi), "crt");
+    const std::vector<long long> moduli =
+        parse_integer_list(input.substr(semi + 1), "crt");
+    const Crt r = crt_solve(residues, moduli);
+    std::println("{} (mod {})", r.residue, r.modulus);
+}
+
 /// Route an expression to the right continued-fraction routine: an exact
 /// rational (finite), sqrt(n) for integer n (periodic), or anything else
 /// (numeric, via double).
@@ -1254,6 +1287,8 @@ void print_usage(std::FILE* out) {
                "  mathsolver isprime  97                 isprime/nextprime\n"
                "  mathsolver divisors 360                divisors, totient\n"
                "  mathsolver cfrac    \"355/113\"          continued fraction + convergents\n"
+               "  mathsolver powmod   \"7, 100, 13\"        modular pow/inverse/mod\n"
+               "  mathsolver crt      \"2,3,2; 3,5,7\"      Chinese remainder theorem\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
                "  mathsolver mlimit   \"x*y/(x^2+y^2)\" x 0 y 0\n"
                "  mathsolver sum      \"k^2\" k 1 n\n"
@@ -1290,7 +1325,8 @@ bool is_known_subcommand(std::string_view s) {
            s == "rsolve" || s == "mlimit" || s == "stirling" ||
            s == "seq" || s == "fit" || s == "regress" || s == "stats" ||
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
-           s == "divisors" || s == "totient" || s == "cfrac";
+           s == "divisors" || s == "totient" || s == "cfrac" ||
+           s == "mod" || s == "powmod" || s == "modinv" || s == "crt";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1478,6 +1514,18 @@ int run_one_shot(const std::vector<std::string>& args) {
                     positionals[1])};
             }
             run_cfrac(input, style);
+        } else if (sub == "mod" || sub == "powmod" || sub == "modinv" ||
+                   sub == "crt") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the arguments in one quoted "
+                    "argument: mathsolver {} \"...\")",
+                    positionals[1], sub)};
+            }
+            if (sub == "mod") run_mod(input);
+            else if (sub == "powmod") run_powmod(input);
+            else if (sub == "modinv") run_modinv(input);
+            else run_crt(input);
         } else if (sub == "stirling") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
@@ -1570,6 +1618,8 @@ void print_repl_help() {
         "  gcd <a, b, ...>   lcm <a, b, ...>       exact over the integers\n"
         "  isprime <n>   nextprime <n>   divisors <n>   totient <n>\n"
         "  cfrac <rational | sqrt(n) | real>      continued fraction + convergents\n"
+        "  mod <a, m>   powmod <b, e, m>   modinv <a, m>   modular arithmetic\n"
+        "  crt <r1, r2, …; m1, m2, …>             Chinese remainder theorem\n"
         "  limit <expression>, <variable>, <point>[, left|right]\n"
         "         (point accepts numbers, inf, -inf)\n"
         "  mlimit <expr>, <x>, <a>, <y>, <b>      2-D limit by path sampling\n"
@@ -1613,7 +1663,9 @@ bool is_repl_command(std::string_view word) {
            word == "stirling" || word == "seq" || word == "fit" ||
            word == "regress" || word == "stats" || word == "gcd" ||
            word == "lcm" || word == "isprime" || word == "nextprime" ||
-           word == "divisors" || word == "totient" || word == "cfrac";
+           word == "divisors" || word == "totient" || word == "cfrac" ||
+           word == "mod" || word == "powmod" || word == "modinv" ||
+           word == "crt";
 }
 
 // ---------------------------------------------------------------------------
@@ -2201,6 +2253,17 @@ void repl_command(const std::string& command, const std::string& rest,
             throw UsageError{"usage: cfrac <rational | sqrt(n) | real>"};
         }
         run_cfrac(rest, PrintStyle::Plain);
+        return;
+    }
+    if (command == "mod" || command == "powmod" || command == "modinv" ||
+        command == "crt") {
+        if (trim(rest).empty()) {
+            throw UsageError{std::format("usage: {} <arguments>", command)};
+        }
+        if (command == "mod") run_mod(rest);
+        else if (command == "powmod") run_powmod(rest);
+        else if (command == "modinv") run_modinv(rest);
+        else run_crt(rest);
         return;
     }
     const std::vector<std::string> parts = split_top_level_commas(rest);

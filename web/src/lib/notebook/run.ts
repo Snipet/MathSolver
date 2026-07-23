@@ -78,6 +78,10 @@ export const MATH_VERBS = new Set([
   "divisors",
   "totient",
   "cfrac",
+  "mod",
+  "powmod",
+  "modinv",
+  "crt",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -446,6 +450,24 @@ async function runVerb(
       if (args.length > 1) return usage("usage: cfrac <rational | sqrt(n) | real>");
       const r = await call("cfrac", [expr]);
       if (!r.ok) return err(expr, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "mod":
+    case "powmod":
+    case "modinv":
+    case "crt": {
+      // The whole line is the argument list (commas, and ';' for crt).
+      if (!rest.trim()) {
+        const u =
+          verb === "crt"
+            ? "crt <r1, r2, …; m1, m2, …>"
+            : verb === "powmod"
+              ? "powmod <base>, <exponent>, <modulus>"
+              : `${verb} <a>, <m>`;
+        return usage(`usage: ${u}`);
+      }
+      const r = await call(verb, [rest]);
+      if (!r.ok) return err(rest, r);
       return { kind: "transform", result: r, computedFrom: null };
     }
     case "series": {

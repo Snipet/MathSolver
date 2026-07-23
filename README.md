@@ -544,6 +544,19 @@ for the full workflow.
   $ mathsolver totient 36
   12
   ```
+- **Modular arithmetic** — `mod`, `powmod` (modular exponentiation that
+  handles huge exponents no plain evaluation could), `modinv` (modular
+  inverse via extended Euclid), and `crt` (Chinese remainder theorem, even
+  with non-coprime moduli):
+
+  ```console
+  $ mathsolver powmod "7, 1000000, 13"
+  9
+  $ mathsolver modinv "3, 11"
+  4
+  $ mathsolver crt "2, 3, 2; 3, 5, 7"
+  23 (mod 105)
+  ```
 - **Continued fractions** — `cfrac` expands a rational (finite), `sqrt(n)`
   (exact periodic expansion), or any real (numeric) into `[a0; a1, a2, …]`
   and lists the **convergents** — the successive best rational

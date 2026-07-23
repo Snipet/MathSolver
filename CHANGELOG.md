@@ -11,6 +11,15 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Modular arithmetic (`mod`, `powmod`, `modinv`, `crt`).** Rounds out the
+  number-theory suite. **`powmod b, e, m`** does modular exponentiation with
+  square-and-multiply over 128-bit products, so `powmod 7, 1000000, 13`
+  returns instantly where ordinary evaluation would overflow. **`modinv a, m`**
+  gives the modular inverse via the extended Euclidean algorithm (and reports
+  when `a` isn't invertible). **`crt r1, r2, …; m1, m2, …`** solves a system of
+  congruences by the Chinese remainder theorem, allowing non-coprime moduli
+  (`crt 2,3,2; 3,5,7` → `23 (mod 105)`). **`mod a, m`** is the Euclidean
+  remainder in `[0, m)`. In the CLI, REPL, and web console.
 - **Continued fractions (`cfrac`).** A new verb expands a value into its
   continued fraction `[a0; a1, a2, …]` and lists the **convergents** — the
   successive best rational approximations. Exact rationals give a **finite**

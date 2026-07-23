@@ -169,6 +169,30 @@ TEST_CASE("cli: number-theory verbs") {
     CHECK(bad.exit_code == 2);
 }
 
+TEST_CASE("cli: modular arithmetic verbs") {
+    const RunResult pm = run_cli({"powmod", "7, 100, 13"});
+    INFO(pm.output);
+    CHECK(pm.exit_code == 0);
+    CHECK(contains(pm.output, "9"));
+
+    // A huge exponent that would overflow ordinary evaluation still works.
+    const RunResult big = run_cli({"powmod", "7, 1000000, 13"});
+    CHECK(big.exit_code == 0);
+    CHECK(contains(big.output, "9"));
+
+    const RunResult inv = run_cli({"modinv", "3, 11"});
+    CHECK(inv.exit_code == 0);
+    CHECK(contains(inv.output, "4"));
+
+    const RunResult crt = run_cli({"crt", "2, 3, 2; 3, 5, 7"});
+    CHECK(crt.exit_code == 0);
+    CHECK(contains(crt.output, "23 (mod 105)"));
+
+    // Non-invertible input is an error (exit 3, an engine Error).
+    const RunResult bad = run_cli({"modinv", "6, 9"});
+    CHECK(bad.exit_code != 0);
+}
+
 TEST_CASE("cli: cfrac — rational, surd, and convergents") {
     const RunResult rat = run_cli({"cfrac", "355/113"});
     INFO(rat.output);

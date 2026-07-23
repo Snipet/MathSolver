@@ -262,6 +262,10 @@ export interface EngineApi {
   divisors: [[n: string], TransformResult];
   totient: [[n: string], TransformResult];
   cfrac: [[value: string], TransformResult];
+  mod: [[args: string], TransformResult];
+  powmod: [[args: string], TransformResult];
+  modinv: [[args: string], TransformResult];
+  crt: [[system: string], TransformResult];
   sum: [[term: string, variable: string, lo: string, hi: string], SumCallResult];
   product: [
     [term: string, variable: string, lo: string, hi: string],

@@ -377,6 +377,60 @@ std::string ms_cfrac(std::string input) {
                            jarr_str(notes));
     });
 }
+
+/// Parse a CSV of integers; nullopt if any token isn't an integer.
+std::optional<std::vector<long long>> nt_int_list(const std::string& list) {
+    std::vector<long long> out;
+    for (const std::string& t : split_csv(list)) {
+        const auto v = nt_int(t);
+        if (!v) return std::nullopt;
+        out.push_back(*v);
+    }
+    return out;
+}
+
+/// Modular arithmetic: mod(a,m), powmod(b,e,m), modinv(a,m). One CSV argument.
+std::string ms_mod(std::string list) {
+    return guarded([&]() -> std::string {
+        const auto v = nt_int_list(list);
+        if (!v || v->size() != 2) return err_json("usage: mod <a>, <m>");
+        const std::string s = std::to_string(int_mod((*v)[0], (*v)[1]));
+        return nt_json(s, s);
+    });
+}
+std::string ms_powmod(std::string list) {
+    return guarded([&]() -> std::string {
+        const auto v = nt_int_list(list);
+        if (!v || v->size() != 3) return err_json("usage: powmod <base>, <exponent>, <modulus>");
+        const std::string s = std::to_string(pow_mod((*v)[0], (*v)[1], (*v)[2]));
+        return nt_json(s, s, {std::format("{}^{} mod {}", (*v)[0], (*v)[1], (*v)[2])});
+    });
+}
+std::string ms_modinv(std::string list) {
+    return guarded([&]() -> std::string {
+        const auto v = nt_int_list(list);
+        if (!v || v->size() != 2) return err_json("usage: modinv <a>, <m>");
+        const std::string s = std::to_string(mod_inverse((*v)[0], (*v)[1]));
+        return nt_json(s, s, {std::format("{}^(-1) mod {}", (*v)[0], (*v)[1])});
+    });
+}
+
+/// crt(system): "r1, r2, …; m1, m2, …" — residues before ';', moduli after.
+std::string ms_crt(std::string system) {
+    return guarded([&]() -> std::string {
+        const auto semi = system.find(';');
+        if (semi == std::string::npos) {
+            return err_json("usage: crt <r1, r2, …; m1, m2, …>  (residues ; moduli)");
+        }
+        const auto residues = nt_int_list(system.substr(0, semi));
+        const auto moduli = nt_int_list(system.substr(semi + 1));
+        if (!residues || !moduli) return err_json("crt: residues and moduli must be integers");
+        const Crt r = crt_solve(*residues, *moduli);
+        const std::string plain = std::format("{} (mod {})", r.residue, r.modulus);
+        const std::string latex = std::format("{} \\pmod{{{}}}", r.residue, r.modulus);
+        return nt_json(plain, latex);
+    });
+}
 std::string ms_cancel(std::string input) {
     return transform_json(input, [](const Expr& e) { return cancel(e); });
 }
@@ -1266,6 +1320,10 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("divisors", &ms_divisors);
     emscripten::function("totient", &ms_totient);
     emscripten::function("cfrac", &ms_cfrac);
+    emscripten::function("mod", &ms_mod);
+    emscripten::function("powmod", &ms_powmod);
+    emscripten::function("modinv", &ms_modinv);
+    emscripten::function("crt", &ms_crt);
     emscripten::function("sum", &ms_sum);
     emscripten::function("product", &ms_product);
     emscripten::function("rsolve", &ms_rsolve);
