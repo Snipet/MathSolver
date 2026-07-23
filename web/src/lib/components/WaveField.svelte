@@ -517,10 +517,11 @@
   // sort). Ignoring a handful of hot cells — the near-field spike of a driven
   // point source — keeps the color scale on the wave the user cares about.
   const histBuf = new Int32Array(64);
-  function robustPeak(cur: Float32Array): number {
+  function robustPeak(cur: Float32Array, mean = 0): number {
     let mx = 0;
     for (let k = 0; k < cur.length; k++) {
-      const a = cur[k] < 0 ? -cur[k] : cur[k];
+      const d = cur[k] - mean;
+      const a = d < 0 ? -d : d;
       if (a > mx) mx = a;
     }
     if (mx < 1e-9) return mx;
@@ -528,7 +529,8 @@
     bins.fill(0);
     const s = 63 / mx;
     for (let k = 0; k < cur.length; k++) {
-      const a = cur[k] < 0 ? -cur[k] : cur[k];
+      const d = cur[k] - mean;
+      const a = d < 0 ? -d : d;
       bins[(a * s) | 0]++;
     }
     const want = cur.length * 0.97;
@@ -565,7 +567,29 @@
     // palette's positive arm); wave view paints the live signed displacement.
     const intensityMode = viewMode === "intensity";
     const srcArr = intensityMode ? s.intensityField() : s.cur;
-    const peak = robustPeak(srcArr);
+    // Scene overlays: solid cells paint as opaque walls; a slower medium
+    // (cScale < 1) is shaded a touch darker so the "glass" is visible.
+    const solid = s.hasScene ? s.obstacles : null;
+    const med = s.hasScene ? s.medium : null; // per-cell cScale²
+
+    // Remove the DC offset before the diverging color map: centre the scale on
+    // the field's spatial mean (over non-solid cells) so a uniformly-shifted
+    // field — e.g. an all-positive initial condition, or any drift away from
+    // zero rest — reads as the neutral colour instead of a solid red or blue
+    // screen; only the deviation about the mean gets colour. Intensity view is
+    // one-sided energy ⟨u²⟩, so it keeps its zero base.
+    let mean = 0;
+    if (!intensityMode) {
+      let sum = 0;
+      let cnt = 0;
+      for (let k = 0; k < srcArr.length; k++) {
+        if (solid && solid[k]) continue;
+        sum += srcArr[k];
+        cnt++;
+      }
+      mean = cnt > 0 ? sum / cnt : 0;
+    }
+    const peak = robustPeak(srcArr, mean);
     let inv: number;
     if (intensityMode) {
       scaleI += (Math.max(peak, 1e-4) - scaleI) * 0.05;
@@ -583,10 +607,6 @@
     }
     ensureLut(colormap, bgRgb);
     const px = imgData.data;
-    // Scene overlays: solid cells paint as opaque walls; a slower medium
-    // (cScale < 1) is shaded a touch darker so the "glass" is visible.
-    const solid = s.hasScene ? s.obstacles : null;
-    const med = s.hasScene ? s.medium : null; // per-cell cScale²
     for (let k = 0; k < srcArr.length; k++) {
       const o = k * 4;
       if (solid && solid[k]) {
@@ -603,7 +623,7 @@
         t = t > 1 ? 1 : t;
         m = ((0.5 + 0.5 * t ** 0.7) * 255) | 0;
       } else {
-        let t = srcArr[k] * inv; // ~[-1, 1]
+        let t = (srcArr[k] - mean) * inv; // deviation about the mean, ~[-1, 1]
         t = t < -1 ? -1 : t > 1 ? 1 : t;
         // Signed-gamma boost: emphasize small displacements so ripples read
         // against the near-background rest state.
