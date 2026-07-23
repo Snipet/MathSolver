@@ -127,6 +127,24 @@ export type DefiniteResult =
   | { ok: true; status: "unsolved"; method: string; warnings: string[] }
   | EngineError;
 
+export type RootCountResult =
+  | { ok: true; count: number; lo?: string; hi?: string }
+  | EngineError;
+
+/** One isolated real root: exact rational `value`, or the open interval
+ *  (lo, hi) with a numeric `approx` when irrational. */
+export interface IsolatedRoot {
+  exact: boolean;
+  value: string | null;
+  lo: number;
+  hi: number;
+  approx: number;
+}
+
+export type IsolateResult =
+  | { ok: true; count: number; roots: IsolatedRoot[] }
+  | EngineError;
+
 export interface Solution extends Rendered {
   exact: boolean;
   note: string;
@@ -250,6 +268,11 @@ export interface EngineApi {
     [input: string, variable: string, m: number, n: number],
     TransformResult,
   ];
+  rootcount: [
+    [input: string, variable: string, lo: string, hi: string],
+    RootCountResult,
+  ];
+  isolate: [[input: string, variable: string], IsolateResult];
   vectorOp: [[op: string, fieldSemi: string, varsCsv: string], TransformResult];
   limit: [
     [input: string, variable: string, point: string, direction: string],

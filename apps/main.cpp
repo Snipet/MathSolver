@@ -581,6 +581,77 @@ void run_pade(const std::string& input, const std::string& m_text,
     std::println("{}", to_string(pade(e, var, m, n).approximant, style));
 }
 
+/// Reduce `lhs = rhs` to the polynomial `(lhs) - (rhs)` so root verbs accept an
+/// equation; a bare expression (roots of expr = 0) is returned unchanged.
+std::string equation_to_poly(const std::string& input) {
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        if (input[i] != '=') continue;
+        const char prev = i > 0 ? input[i - 1] : '\0';
+        const char next = i + 1 < input.size() ? input[i + 1] : '\0';
+        if (prev != '<' && prev != '>' && prev != '!' && prev != '=' && next != '=') {
+            return "(" + input.substr(0, i) + ") - (" + input.substr(i + 1) + ")";
+        }
+    }
+    return input;
+}
+
+Rational bound_rational(const std::string& text) {
+    const Expr s = simplify(parse_expression_diag(text));
+    if (s->kind() != Kind::Number) {
+        throw UsageError{
+            std::format("bound must be a rational number, got '{}'", text)};
+    }
+    return s->number();
+}
+
+/// `rootcount`: the number of distinct real roots of a rational-coefficient
+/// polynomial (Sturm's theorem), over all of R or a given (lo, hi] interval.
+void run_rootcount(const std::string& input, const std::string& explicit_var,
+                   const std::string& lo_text, const std::string& hi_text) {
+    const Expr e = parse_expression_diag(equation_to_poly(input));
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "rootcount");
+    std::optional<Rational> lo, hi;
+    if (!lo_text.empty() || !hi_text.empty()) {
+        if (lo_text.empty() || hi_text.empty()) {
+            throw UsageError{"give both interval bounds: rootcount <poly>, <var>, <lo>, <hi>"};
+        }
+        lo = bound_rational(lo_text);
+        hi = bound_rational(hi_text);
+    }
+    const int n = sturm_root_count(e, var, lo, hi);
+    const char* noun = n == 1 ? "root" : "roots";
+    if (lo && hi) {
+        std::println("{} distinct real {} in ({}, {}]", n, noun, lo->to_string(),
+                     hi->to_string());
+    } else {
+        std::println("{} distinct real {}", n, noun);
+    }
+}
+
+/// `isolate`: a disjoint rational interval around every distinct real root
+/// (exact rationals reported exactly), with a numeric approximation.
+void run_isolate(const std::string& input, const std::string& explicit_var,
+                 PrintStyle style) {
+    const Expr e = parse_expression_diag(equation_to_poly(input));
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "isolate");
+    const std::vector<RootInterval> roots = sturm_isolate_roots(e, var);
+    std::println("{} distinct real {}{}", roots.size(),
+                 roots.size() == 1 ? "root" : "roots", roots.empty() ? "" : ":");
+    for (const RootInterval& r : roots) {
+        if (r.exact) {
+            const std::string val = to_string(make_num(r.lo), style);
+            if (r.lo.is_integer()) {
+                std::println("  {} = {}", var, val);
+            } else {
+                std::println("  {} = {}  (≈ {:.10g})", var, val, r.approx);
+            }
+        } else {
+            std::println("  {} ≈ {:.10g}   in ({:.10g}, {:.10g})", var, r.approx,
+                         r.lo.to_double(), r.hi.to_double());
+        }
+    }
+}
+
 /// `stirling`: the Stirling asymptotic series for ln Gamma(var) with exact
 /// Bernoulli coefficients; the lgamma accuracy check prints as notes.
 void run_stirling(const std::string& var_text, const std::string& terms_text,
@@ -1451,6 +1522,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
                "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
                "  mathsolver pade     \"exp(x)\" 2 2\n"
+               "  mathsolver isolate  \"x^3 - x - 1\"\n"
                "  mathsolver fit      \"0,0; 1,1; 2,4\" quadratic\n"
                "  mathsolver stats    \"1, 2, 3, 4, 5\"\n"
                "  mathsolver stirling x [3]\n"
@@ -1497,6 +1569,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "latex" || s == "subs" || s == "collect" || s == "laplace" ||
            s == "ilaplace" ||
            s == "apart" || s == "dsolve" || s == "series" || s == "pade" ||
+           s == "rootcount" || s == "isolate" ||
            s == "grad" ||
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
@@ -1664,6 +1737,24 @@ int run_one_shot(const std::vector<std::string>& args) {
             run_pade(input, positionals.size() > 1 ? positionals[1] : "",
                      positionals.size() > 2 ? positionals[2] : "",
                      positionals.size() > 3 ? positionals[3] : "", style);
+        } else if (sub == "rootcount") {
+            if (positionals.size() > 4) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver rootcount "
+                    "\"<poly>\" [var] [lo] [hi])",
+                    positionals[4])};
+            }
+            run_rootcount(input, positionals.size() > 1 ? positionals[1] : "",
+                          positionals.size() > 2 ? positionals[2] : "",
+                          positionals.size() > 3 ? positionals[3] : "");
+        } else if (sub == "isolate") {
+            if (positionals.size() > 2) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver isolate "
+                    "\"<poly>\" [var])",
+                    positionals[2])};
+            }
+            run_isolate(input, positionals.size() > 1 ? positionals[1] : "", style);
         } else if (sub == "fit" || sub == "regress") {
             if (positionals.size() > 3) {
                 throw UsageError{std::format(
@@ -1840,6 +1931,8 @@ void print_repl_help() {
         "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
         "  pade <expression>, <m>, <n>[, <var>]   [m/n] Padé approximant\n"
+        "  rootcount <poly>[, <var>[, <lo>, <hi>]]  distinct real roots (Sturm)\n"
+        "  isolate <poly>[, <var>]                isolate the real roots\n"
         "  discriminant <polynomial>[, <var>]     discriminant (degree 2–4)\n"
         "  polydiv <dividend>, <divisor>[, <var>] quotient + remainder\n"
         "  polygcd <a>, <b>[, <var>]   polylcm <a>, <b>[, <var>]   monic gcd/lcm\n"
@@ -1896,7 +1989,8 @@ bool is_repl_command(std::string_view word) {
            word == "eval" || word == "latex" || word == "debug" ||
            word == "subs" || word == "collect" || word == "laplace" ||
            word == "ilaplace" || word == "apart" || word == "dsolve" ||
-           word == "series" || word == "pade" || word == "grad" || word == "div" ||
+           word == "series" || word == "pade" || word == "rootcount" ||
+           word == "isolate" || word == "grad" || word == "div" ||
            word == "curl" || word == "laplacian" || word == "jacobian" ||
            word == "hessian" || word == "limit" || word == "sum" ||
            word == "product" || word == "rsolve" || word == "mlimit" ||
@@ -2649,6 +2743,33 @@ void repl_command(const std::string& command, const std::string& rest,
             resolve_expr(parse_expression_diag(input), env, excluded),
             PrintStyle::Plain);
         run_pade(resolved, parts[1], parts[2], var, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "rootcount") {
+        // rootcount <poly>[, <var>[, <lo>, <hi>]]
+        if (parts.size() > 4) {
+            throw UsageError{"usage: rootcount <poly>[, <variable>[, <lo>, <hi>]]"};
+        }
+        const std::string var = parts.size() > 1 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) excluded.insert(var);
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(equation_to_poly(input)), env, excluded),
+            PrintStyle::Plain);
+        run_rootcount(resolved, var, parts.size() > 2 ? parts[2] : "",
+                      parts.size() > 3 ? parts[3] : "");
+        warn_assigned_variable(var, env);
+    } else if (command == "isolate") {
+        // isolate <poly>[, <var>]
+        if (parts.size() > 2) {
+            throw UsageError{"usage: isolate <poly>[, <variable>]"};
+        }
+        const std::string var = parts.size() > 1 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) excluded.insert(var);
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(equation_to_poly(input)), env, excluded),
+            PrintStyle::Plain);
+        run_isolate(resolved, var, PrintStyle::Plain);
         warn_assigned_variable(var, env);
     } else if (command == "discriminant") {
         // discriminant <polynomial>[, <var>]

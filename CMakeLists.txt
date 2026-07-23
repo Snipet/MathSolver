@@ -69,6 +69,7 @@ add_library(mathsolver_core STATIC
     src/ode.cpp
     src/pade.cpp
     src/series.cpp
+    src/sturm.cpp
     src/vector_calculus.cpp
     src/solver.cpp
     src/transform.cpp

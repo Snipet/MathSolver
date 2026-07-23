@@ -202,6 +202,26 @@ $ mathsolver pade "1/(1-x)" 2 2
 1/(-x + 1)
 ```
 
+Real roots — `rootcount` and `isolate` count and bracket the distinct real
+roots of a polynomial *exactly*, by Sturm's theorem over rational
+arithmetic (no numeric root-finding). Multiplicity never inflates the
+count, rational roots come out exactly, and irrational ones are isolated
+in a rational interval and refined:
+
+```console
+$ mathsolver rootcount "x^5 - 3x + 1"
+3 distinct real roots
+$ mathsolver rootcount "x^2 - 2" x 0 5
+1 distinct real root in (0, 5]
+$ mathsolver isolate "2x^2 - 3x + 1"
+2 distinct real roots:
+  x = 1/2
+  x = 1
+$ mathsolver isolate "x^3 - x - 1"
+1 distinct real root:
+  x ≈ 1.324717957   in (1.324717522, 1.324718475)
+```
+
 Limits — exact where the structure allows (substitution guarded by
 defined-at-the-point checks, L'Hôpital on 0/0 quotients, rational degree
 analysis at infinity), with an honest numeric-extrapolation fallback that

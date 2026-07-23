@@ -223,6 +223,18 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "pade exp(x), 2, 2",
       },
       {
+        insert: "rootcount",
+        usage: "rootcount <poly>[, <var>[, <lo>, <hi>]]",
+        hint: "Distinct real roots of a polynomial (Sturm's theorem), exactly",
+        example: "rootcount x^5 - 3x + 1",
+      },
+      {
+        insert: "isolate",
+        usage: "isolate <poly>[, <var>]",
+        hint: "Isolate each real root in a rational interval (exact rationals shown)",
+        example: "isolate x^3 - x - 1",
+      },
+      {
         insert: "discriminant",
         usage: "discriminant <polynomial>[, <var>]",
         hint: "Discriminant of a degree 2–4 polynomial (symbolic coefficients OK)",
