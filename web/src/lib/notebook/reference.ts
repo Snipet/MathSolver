@@ -241,6 +241,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "polylcm x - 1, x + 1",
       },
       {
+        insert: "resultant",
+        usage: "resultant <a>, <b>[, <var>]",
+        hint: "Resultant of two polynomials (0 iff they share a root)",
+        example: "resultant x^2 - 1, x - 2",
+      },
+      {
         insert: "limit",
         usage: "limit <expr>, <var>, <point>[, left|right]",
         hint: "Limit at a point or ±inf (exact where possible)",

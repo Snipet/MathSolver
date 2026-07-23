@@ -11,6 +11,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Polynomial resultant (`resultant`).** `resultant x^2 - 1, x - 2` → `3`;
+  `resultant x^2 - 1, x - 1` → `0` (they share the root `x = 1`). The resultant
+  of two polynomials is zero exactly when they have a common factor; it's
+  computed via the Euclidean recursion over the polynomial remainder (no
+  Sylvester matrix), so symbolic coefficients stay symbolic —
+  `resultant x^2 + b*x + c, 2x + b` recovers the discriminant `-(b² - 4c)`. In
+  the CLI, REPL, and web console.
 - **Logarithm expansion & combination (`logexpand`, `logcombine`).** The log
   analog of the trig-rewrite pair. `logexpand ln(x*y)` → `ln(x) + ln(y)`,
   `ln(x^3)` → `3·ln(x)`, `ln(x/y)` → `ln(x) - ln(y)`; `logcombine` inverts it,

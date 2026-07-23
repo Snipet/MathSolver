@@ -119,6 +119,49 @@ PolyGcdResult polynomial_gcd(const Expr& a, const Expr& b, std::string_view var)
     return out;
 }
 
+namespace {
+
+/// The resultant recursion over the polynomial remainder. Both inputs are
+/// polynomials (checked by the caller). res(f, g) is 0 when they share a root.
+Expr resultant_rec(const Expr& f, const Expr& g, std::string_view var) {
+    const auto cf = polynomial_coefficients(simplify(f), var);
+    const auto cg = polynomial_coefficients(simplify(g), var);
+    const int m = cf ? effective_degree(*cf) : -1;
+    const int n = cg ? effective_degree(*cg) : -1;
+    if (m < 0 || n < 0) return make_num(0); // a zero polynomial
+    if (n == 0) return simplify(make_pow((*cg)[0], make_num(m))); // g constant: g^m
+    if (m == 0) return simplify(make_pow((*cf)[0], make_num(n))); // f constant: f^n
+
+    const auto sign = [](int k) { return make_num((k % 2 == 0) ? 1 : -1); };
+    if (m < n) {
+        // res(f, g) = (-1)^(m·n) res(g, f); keep the first degree the larger.
+        return simplify(make_mul({sign(m * n), resultant_rec(g, f, var)}));
+    }
+    const Expr r = polynomial_divide(f, g, var).remainder;
+    const auto crv = polynomial_coefficients(simplify(r), var);
+    const int p = crv ? effective_degree(*crv) : -1;
+    if (p < 0) return make_num(0); // remainder 0 → common factor → resultant 0
+    // res(f, g) = (-1)^(m·n) · lc(g)^(m - p) · res(g, r).
+    return simplify(make_mul({sign(m * n),
+                              make_pow((*cg)[n], make_num(m - p)),
+                              resultant_rec(g, r, var)}));
+}
+
+} // namespace
+
+PolyGcdResult polynomial_resultant(const Expr& a, const Expr& b, std::string_view var) {
+    PolyGcdResult out;
+    if (!polynomial_coefficients(simplify(a), var) ||
+        !polynomial_coefficients(simplify(b), var)) {
+        out.status = PolyGcdResult::Status::NotPolynomial;
+        out.message = "resultant: both arguments must be polynomials in the variable";
+        return out;
+    }
+    out.status = PolyGcdResult::Status::Ok;
+    out.value = simplify(resultant_rec(a, b, var));
+    return out;
+}
+
 PolyGcdResult polynomial_lcm(const Expr& a, const Expr& b, std::string_view var) {
     const PolyGcdResult g = polynomial_gcd(a, b, var);
     if (g.status != PolyGcdResult::Status::Ok) return g;
