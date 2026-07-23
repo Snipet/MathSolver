@@ -24,6 +24,15 @@ test("direct transforms call the matching engine method with the raw input", asy
   assert.deepEqual(stub.calls, [{ fn: "simplify", args: ["2x + 3x"] }]);
 });
 
+test("the latex verb forces LaTeX output", async () => {
+  const { stub, outcome } = await run("latex sqrt(x)/2", (s) => {
+    s.responses.latex = () => ({ ok: true, plain: "sqrt(x)/2", latex: "\\frac{\\sqrt{x}}{2}" });
+  });
+  assert.deepEqual(stub.calls, [{ fn: "latex", args: ["sqrt(x)/2"] }]);
+  assert.equal(outcome.kind, "render");
+  if (outcome.kind === "render") assert.equal(outcome.forceLatex, true);
+});
+
 test("rsolve splits the recurrence from its conditions", async () => {
   const { stub } = await run("rsolve a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1");
   assert.deepEqual(stub.calls, [

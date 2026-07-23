@@ -30,5 +30,7 @@ export type Outcome =
       noun?: "sum" | "product";
       /** The exact string the engine parsed, for caret diagnostics. */
       source?: string;
+      /** Always render the LaTeX field (the `latex` verb, regardless of flag). */
+      forceLatex?: boolean;
     }
   | { kind: "lines"; lines: OutLine[] };

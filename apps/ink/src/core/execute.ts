@@ -13,7 +13,7 @@ import { isSymbolName } from "./text.js";
 function renderOut(
   render: RenderKind,
   result: unknown,
-  extra: { variable?: string; noun?: "sum" | "product"; source?: string } = {},
+  extra: { variable?: string; noun?: "sum" | "product"; source?: string; forceLatex?: boolean } = {},
 ): Outcome {
   return { kind: "render", render, result, ...extra };
 }
@@ -107,7 +107,12 @@ export async function executeIntent(engine: Engine, jobToRun: Job): Promise<Outc
     case "together":
       return renderOut("transform", await engine.together(j.input), { source: j.input });
     case "latex":
-      return renderOut("transform", await engine.latex(j.input), { source: j.input });
+      // The `latex` verb exists to show the LaTeX rendering — always emit it,
+      // independent of the global --latex flag (mirrors run_latex in main.cpp).
+      return renderOut("transform", await engine.latex(j.input), {
+        source: j.input,
+        forceLatex: true,
+      });
     case "collect":
       return renderOut("transform", await engine.collect(j.input, j.variable), { source: j.input });
     case "apart":

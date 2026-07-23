@@ -222,8 +222,9 @@ function formatSeq(r: SeqResult, latex: boolean): OutLine[] {
 /** Render an Outcome to output lines. */
 export function formatOutcome(outcome: Outcome, opts: FormatOptions = {}): OutLine[] {
   if (outcome.kind === "lines") return outcome.lines;
-  const latex = opts.latex ?? false;
   const { result, source, variable, noun } = outcome;
+  // The `latex` verb forces LaTeX; every other verb follows the global flag.
+  const latex = (opts.latex ?? false) || (outcome.forceLatex ?? false);
   switch (outcome.render) {
     case "transform":
       return formatTransform(result as TransformResult, source, latex);

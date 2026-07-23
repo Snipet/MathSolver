@@ -18,6 +18,17 @@ test("transform renders plain or latex plus notes", () => {
   assert.deepEqual(texts(o, true), ["5x", "convergents: 3, 22/7"]);
 });
 
+test("forceLatex renders the latex field even when the flag is off", () => {
+  const o: Outcome = {
+    kind: "render",
+    render: "transform",
+    result: { ok: true, plain: "sqrt(x)/2", latex: "\\frac{\\sqrt{x}}{2}" },
+    forceLatex: true,
+  };
+  // Plain-mode output still shows LaTeX because the `latex` verb forces it.
+  assert.deepEqual(texts(o, false), ["\\frac{\\sqrt{x}}{2}"]);
+});
+
 test("parse error renders a caret when the source is known", () => {
   const o: Outcome = {
     kind: "render",
