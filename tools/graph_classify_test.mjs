@@ -36,6 +36,11 @@ check("integral(f, t) 2-arg stays function", kind("integral(sin(x), t)") === "fu
 check("integral(f, a, b) + 1 is not a whole-row area", kind("integral(x, 0, 1) + 1") !== "area");
 check("area integrand keeps nested commas", (() => { const r = classifyRow("integral(max(x, 0), 0, 3)"); return r.t === "area" && r.expr === "max(x, 0)" && r.lo === "0" && r.hi === "3"; })());
 
+// Inline sum / product (calc operators, sampled as ordinary functions)
+check("sum(...) row is a plain function", (() => { const r = classifyRow("y = sum(x^k, k, 0, 5)"); return r.t === "function" && r.expr === "sum(x^k, k, 0, 5)"; })());
+check("bare sum(...) is a function, not a point list", kind("sum(x^k, k, 0, 5)") === "function");
+check("product(...) row is a plain function", kind("product(x/j, j, 1, 4)") === "function");
+
 // Piecewise / conditionals
 check("piecewise {cond: val, else}", (() => { const r = classifyRow("{x < 0: -x, x}"); return r.t === "piecewise" && r.branches.length === 1 && r.branches[0].cond === "x < 0" && r.branches[0].value === "-x" && r.otherwise === "x"; })());
 check("piecewise with y = lead", (() => { const r = classifyRow("y = {x > 0: 1, -1}"); return r.t === "piecewise" && r.branches[0].value === "1" && r.otherwise === "-1"; })());

@@ -897,7 +897,10 @@
           <code>y = f(x) + 1</code>, its derivative <code>f'(x)</code>,
           a value <code>f(3)</code>, or a composition <code>g(f(x))</code>.
           Define reusable values with <code>f = x^2</code>, and plot
-          <code>diff(f)</code> or <code>integral(f)</code>. Split a curve into
+          <code>diff(f)</code> or <code>integral(f)</code>. Plot a partial sum
+          with <code>sum(x^k, k, 0, 5)</code> (or <code>product(…)</code>) — a
+          slider bound like <code>sum(x^k, k, 0, n)</code> animates the number of
+          terms. Split a curve into
           cases with a piecewise <code>{"{"}x &lt; 0: -x, x{"}"}</code>. Shade the signed area
           under a curve with <code>integral(f, a, b)</code> — the exact ∫ value
           is labelled from the CAS. Restrict a curve's
