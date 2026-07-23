@@ -11,6 +11,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — plot a list as constant lines.** A list-valued function row draws
+  one line per value: `y = [1, 2, 3]` draws three horizontal lines, `x = [-2, 0,
+  2]` three vertical lines, and `y = L` / `y = L^2` a line at each element of the
+  list. It composes with list operations — `y = [mean(A), mean(B)]` draws a line
+  at each mean — while a scalar like `y = mean(L)` stays a single line. (A row
+  whose value reduces to a scalar still samples as an ordinary curve.)
+
 - **Grapher — list operations (comprehensions, aggregates, indexing).** Building
   on lists: **comprehensions** `[k^2 for k = [1...5]]` (or over a named list,
   `[2*n for n = L]`) build a list by evaluating a body per element;
