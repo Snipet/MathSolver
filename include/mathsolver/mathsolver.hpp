@@ -24,6 +24,7 @@
 #include "mathsolver/series.hpp"
 #include "mathsolver/simplify.hpp"
 #include "mathsolver/stats.hpp"
+#include "mathsolver/trig.hpp"
 #include "mathsolver/vector_calculus.hpp"
 #include "mathsolver/solver.hpp"
 #include "mathsolver/transform.hpp"

@@ -263,6 +263,17 @@ void run_expand(const std::string& input, PrintStyle style) {
     }
 }
 
+/// `trigexpand`: expand trig of sums/multiples into single-angle products.
+void run_trigexpand(const std::string& input, PrintStyle style) {
+    const auto parsed = parse_input_diag(input);
+    if (std::holds_alternative<Expr>(parsed)) {
+        std::println("{}", to_string(trig_expand(std::get<Expr>(parsed)), style));
+    } else {
+        const Equation& eq = std::get<Equation>(parsed);
+        std::println("{}", to_string(Equation{trig_expand(eq.lhs), trig_expand(eq.rhs)}, style));
+    }
+}
+
 void run_factor(const std::string& input, PrintStyle style) {
     const auto parsed = parse_input_diag(input);
     if (std::holds_alternative<Expr>(parsed)) {
@@ -1327,6 +1338,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver simplify \"2x + 3x\"\n"
                "  mathsolver expand   \"(x+1)^3\"\n"
                "  mathsolver factor   \"x^2 - 5x + 6\"\n"
+               "  mathsolver trigexpand \"sin(a+b)\"     sin/cos of sums & multiples\n"
                "  mathsolver cancel   \"(x^2 - 1)/(x - 1)\" [x]\n"
                "  mathsolver together \"1/x + 1/y\"\n"
                "  mathsolver solve    \"x^2 = 4\" [x] [--range LO HI]\n"
@@ -1389,7 +1401,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
            s == "divisors" || s == "totient" || s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
-           s == "discriminant";
+           s == "discriminant" || s == "trigexpand";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1635,6 +1647,8 @@ int run_one_shot(const std::vector<std::string>& args) {
                 run_factor(input, style);
             } else if (sub == "together") {
                 run_together(input, style);
+            } else if (sub == "trigexpand") {
+                run_trigexpand(input, style);
             } else {  // latex
                 run_latex(input);
             }
@@ -1704,6 +1718,7 @@ void print_repl_help() {
         "  laplacian <f>, <vars...>  jacobian <F1;..>, <vars...>  hessian <f>, <vars...>\n"
         "  simplify <expression>      expand <expression>\n"
         "  factor <expression>        latex <expression>\n"
+        "  trigexpand <expression>    trig of sums/multiples -> single angles\n"
         "  cancel <expression>[, <variable>]      cancel a rational's GCD\n"
         "  together <expression>                  sum of fractions over one denom\n"
         "  debug <expression>         (s-expression dump)\n"
@@ -1724,6 +1739,7 @@ std::vector<std::string> split_top_level_commas(const std::string& s) {
 
 bool is_repl_command(std::string_view word) {
     return word == "simplify" || word == "expand" || word == "factor" ||
+           word == "trigexpand" ||
            word == "cancel" || word == "together" || word == "solve" ||
            word == "diff" || word == "integrate" ||
            word == "eval" || word == "latex" || word == "debug" ||
@@ -2536,6 +2552,8 @@ void repl_command(const std::string& command, const std::string& rest,
         run_factor(resolve_input_text(input, env), PrintStyle::Plain);
     } else if (command == "together") {
         run_together(resolve_input_text(input, env), PrintStyle::Plain);
+    } else if (command == "trigexpand") {
+        run_trigexpand(resolve_input_text(input, env), PrintStyle::Plain);
     } else if (command == "latex") {
         run_latex(input);
     } else {  // debug

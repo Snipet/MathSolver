@@ -45,6 +45,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "factor 360",
       },
       {
+        insert: "trigexpand",
+        usage: "trigexpand <expr>",
+        hint: "Expand trig of sums/multiples: sin(a+b), cos(2x), …",
+        example: "trigexpand sin(a + b)",
+      },
+      {
         insert: "cancel",
         usage: "cancel <expr>",
         hint: "Cancel a rational's common polynomial factor",
