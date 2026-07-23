@@ -896,6 +896,9 @@
           Define a function with <code>f(x) = x^2</code>, then use it anywhere:
           <code>y = f(x) + 1</code>, its derivative <code>f'(x)</code>,
           a value <code>f(3)</code>, or a composition <code>g(f(x))</code>.
+          Hit <span aria-hidden="true">▶</span> on a slider to animate it (set a
+          <em>step</em> to snap it — e.g. step 1 counts the terms of
+          <code>sum(x^k, k, 0, n)</code> one by one).
           Define reusable values with <code>f = x^2</code>, and plot
           <code>diff(f)</code> or <code>integral(f)</code>. Plot a partial sum
           with <code>sum(x^k, k, 0, 5)</code> (or <code>product(…)</code>) — a
