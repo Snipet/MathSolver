@@ -5,6 +5,10 @@ per-feature specs are under docs/proposals/.
 
 ## Unreleased (v0.6)
 
+### Fixed
+
+- **Grapher — no more vertical lines through asymptotes.** A curve like `tan(x)`, `1/x`, or `sec(x)` no longer draws a spurious near-vertical connector straight through each pole: the sampler now breaks the polyline where two consecutive samples straddle zero, both sit well off-screen, and the jump dwarfs the visible span — the pen lifts at the asymptote instead. Applies to `y=f(x)` and `x=f(y)`.
+
 ### Added
 
 - **Grapher — Taylor-series overlay operator.** The graph expression list now
@@ -25,6 +29,14 @@ per-feature specs are under docs/proposals/.
   `derivative`. `a` defaults to `0`. Where the curve is flat the normal line is
   vertical (undefined slope) and the row reports that rather than drawing a
   bogus line.
+- **Grapher — exact points of interest.** A `y=f(x)` curve now shows hollow
+  markers at its **zeros / x-intercepts** and its **y-intercept**, computed by
+  the CAS rather than eyeballed: `solve` finds the roots over the visible
+  window and hovering a marker reveals the *exact* coordinate — `(√2, 0)`,
+  `(π/6, 0)` — where a numeric grapher can only show a rounded decimal. Zeros
+  refresh as you pan/zoom; the curve still draws if the solve can't close a
+  form (markers are best-effort). First slice of the CAS-powered
+  points-of-interest suite (extrema, intersections, and asymptotes to follow).
 - **Console cookbook.** The console side panel gains a **Cookbook** tab beside
   the flat **Commands** reference: a set of curated, worked recipes — grouped
   by topic (getting started, algebra, equations, calculus, series & discrete,
@@ -61,6 +73,20 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **`fit` — least-squares regression, exact for polynomials.** A new verb that
+  fits `x,y` data. Polynomial models (`linear`, `quadratic`, `cubic`,
+  `quartic`, or `poly <degree>`) are solved **exactly over the rationals**: the
+  normal equations `XᵀX·c = Xᵀy` reduce to exact power sums, and Gaussian
+  elimination over `Q` returns exact coefficients — so `0,1; 1,2; 2,2; 3,4`
+  fits to `9*x/10 + 9/10`, not a rounded decimal, and perfectly fittable data
+  recovers its generating polynomial (`x^2`, `x^3`). It falls back to double
+  precision on 64-bit overflow or non-rational data. `exp` (`a·e^{bx}`),
+  `power` (`a·x^b`), and `log` (`a + b·ln x`) fit their linearized numeric
+  models. Each fit reports the model, whether it is exact, and the coefficient
+  of determination R². The fitted expression is a plottable function of `x`.
+  Shipped across the CLI (`fit "0,0; 1,1; 2,4" quadratic`), REPL
+  (`fit … | <model>`), the `fit` wasm binding, and the web console (with a
+  reference-panel entry).
 - **`together` — combine a sum of fractions over a common denominator**
   (docs/proposals/together.md): the companion to `cancel`, closing the other
   half of the "combine and reduce fractions" gap. `1/x + 1/y` now becomes

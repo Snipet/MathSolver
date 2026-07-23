@@ -68,6 +68,8 @@ export const MATH_VERBS = new Set([
   "sum",
   "product",
   "rsolve",
+  "fit",
+  "regress",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -370,6 +372,33 @@ async function runVerb(
       const r = await call("dsolve", [expr, args.slice(1).join(",")]);
       if (!r.ok) return err(expr, r);
       return { kind: "dsolve", result: r, computedFrom: null };
+    }
+    case "fit":
+    case "regress": {
+      // The data holds commas and semicolons, so it can't go through the
+      // comma-split args. Everything up to a '|' is the data; after it come the
+      // model and optional degree: fit 0,0; 1,1; 2,4 | quadratic
+      let data = rest;
+      let model = "linear";
+      let degree = "";
+      const bar = rest.lastIndexOf("|");
+      if (bar >= 0) {
+        data = rest.slice(0, bar);
+        const opts = rest.slice(bar + 1).trim().split(/\s+/).filter(Boolean);
+        model = opts[0] ?? "linear";
+        degree = opts[1] ?? "";
+      }
+      if (!data.trim()) return usage("usage: fit <x,y; x,y; ...> [| <model> [degree]]");
+      const r = await call("fit", [data, model, degree]);
+      if (!r.ok) return err(data, r);
+      const notes = [
+        `${r.model} fit${r.exact ? " (exact)" : ""} · ${r.n} points · R² = ${r.r2.toFixed(4)}`,
+      ];
+      return {
+        kind: "transform",
+        result: { ok: true, plain: r.plain, latex: r.latex, notes },
+        computedFrom: null,
+      };
     }
     case "series": {
       if (args.length > 4)

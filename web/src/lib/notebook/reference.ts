@@ -152,6 +152,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "rsolve a(n+2) = a(n+1) + a(n), a(0)=0, a(1)=1",
       },
       {
+        insert: "fit",
+        usage: "fit <x,y; x,y; …> [| <model> [degree]]",
+        hint: "Least-squares regression — polynomial fits are exact; also exp/power/log",
+        example: "fit 0,1; 1,2; 2,2; 3,4 | linear",
+      },
+      {
         insert: "stirling",
         usage: "stirling [<var>[, <terms>]]",
         hint: "Stirling series for ln Γ with exact Bernoulli coefficients",

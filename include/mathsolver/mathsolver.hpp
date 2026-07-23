@@ -10,6 +10,7 @@
 #include "mathsolver/errors.hpp"
 #include "mathsolver/evaluator.hpp"
 #include "mathsolver/expr.hpp"
+#include "mathsolver/fit.hpp"
 #include "mathsolver/integrate.hpp"
 #include "mathsolver/limit.hpp"
 #include "mathsolver/ode.hpp"

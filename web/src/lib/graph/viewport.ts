@@ -46,13 +46,56 @@ export interface DrawSeries {
   id: string;
   color: string;
   visible: boolean;
-  kind: "line" | "points" | "region";
-  /** For "line"/"points": aligned world coords; a null in either breaks the
-   *  polyline (x can be null for x=f(y) where f is undefined). */
+  kind: "line" | "points" | "region" | "poi";
+  /** For "line"/"points"/"poi": aligned world coords; a null in either breaks
+   *  the polyline (x can be null for x=f(y) where f is undefined). */
   xs: (number | null)[];
   ys: (number | null)[];
   /** For "region": the inequality shading grid. */
   region?: RegionMask;
+  /** For "poi" (points of interest): per-point coordinate label shown on hover
+   *  (an exact form like "(√2, 0)" from the CAS, or a numeric fallback). */
+  labels?: (string | null)[];
+}
+
+/**
+ * Break a sampled polyline across likely poles. Between two consecutive finite
+ * samples that straddle zero (opposite signs) with a jump far larger than the
+ * visible span — the signature of a `1/x`, `tan`, `sec`, `csc`, `cot`
+ * asymptote — null the sample nearer the pole so the renderer lifts the pen
+ * instead of drawing a spurious near-vertical connector across the canvas.
+ * `span` is the visible extent of the SAMPLED axis (the y-span for `y=f(x)`,
+ * the x-span for `x=f(y)`). A genuinely steep but continuous segment (jump ≤
+ * ~8 screen-heights) is left intact. Returns a new array; the input is
+ * untouched. Same-sign spikes (e.g. `1/x²`) are intentionally left as drawn.
+ */
+export function breakDiscontinuities(
+  ys: (number | null)[],
+  span: number,
+): (number | null)[] {
+  const out = ys.slice();
+  if (!(span > 0) || !Number.isFinite(span)) return out;
+  const thresh = span * 8;
+  for (let i = 0; i + 1 < ys.length; i++) {
+    const a = ys[i];
+    const b = ys[i + 1];
+    if (a === null || b === null || !Number.isFinite(a) || !Number.isFinite(b)) continue;
+    // A pole's signature: the two samples straddle zero, BOTH are well off the
+    // visible span (so the connector would sweep the whole canvas), and the
+    // jump dwarfs the span. Requiring both magnitudes large avoids breaking the
+    // steep-but-real recovery segment just past a pole (one side small).
+    if (
+      a * b < 0 &&
+      Math.abs(a - b) > thresh &&
+      Math.min(Math.abs(a), Math.abs(b)) > span
+    ) {
+      // Null the sample nearer the asymptote (larger magnitude), keeping as
+      // much of each branch as possible while breaking the connector.
+      if (Math.abs(a) >= Math.abs(b)) out[i] = null;
+      else out[i + 1] = null;
+    }
+  }
+  return out;
 }
 
 // Deep zoom is allowed, but bounded so float precision stays usable.

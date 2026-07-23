@@ -246,6 +246,26 @@
       drawPointDot(ctx, xToPx(ghost.x, v, w), yToPx(ghost.y, v, h), s?.color ?? "#2563eb", true);
     }
 
+    // Points of interest (exact zeros / y-intercept from the CAS): hollow
+    // rings, always visible; hovering one reveals its exact coordinate label.
+    for (const s of series) {
+      if (!s.visible || s.kind !== "poi") continue;
+      for (let i = 0; i < s.xs.length; i++) {
+        const x = s.xs[i];
+        const y = s.ys[i];
+        if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+        const px = xToPx(x, v, w);
+        const py = yToPx(y, v, h);
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, 2 * Math.PI);
+        ctx.fillStyle = bg;
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = s.color;
+        ctx.stroke();
+      }
+    }
+
     drawTrace(ctx, v, w, h, label, bg);
     ctx.restore();
   }
@@ -311,10 +331,19 @@
     bg: string,
   ): void {
     if (!cursor || dragging || pointDrag) return;
-    let best: { px: number; py: number; x: number; y: number; color: string } | null = null;
+    let best: {
+      px: number;
+      py: number;
+      x: number;
+      y: number;
+      color: string;
+      label?: string;
+    } | null = null;
     let bestD = 24 * 24;
     for (const s of series) {
-      if (!s.visible || s.kind !== "line") continue;
+      // Snap to sampled curve vertices and to points-of-interest markers; the
+      // latter carry an exact coordinate label from the CAS.
+      if (!s.visible || (s.kind !== "line" && s.kind !== "poi")) continue;
       for (let i = 0; i < s.xs.length; i++) {
         const y = s.ys[i];
         const x = s.xs[i];
@@ -324,7 +353,7 @@
         const d = (px - cursor.x) ** 2 + (py - cursor.y) ** 2;
         if (d < bestD) {
           bestD = d;
-          best = { px, py, x, y, color: s.color };
+          best = { px, py, x, y, color: s.color, label: s.kind === "poi" ? s.labels?.[i] ?? undefined : undefined };
         }
       }
     }
@@ -336,7 +365,7 @@
     ctx.lineWidth = 2;
     ctx.strokeStyle = bg;
     ctx.stroke();
-    const txt = `(${fmtCoord(best.x)}, ${fmtCoord(best.y)})`;
+    const txt = best.label ?? `(${fmtCoord(best.x)}, ${fmtCoord(best.y)})`;
     ctx.font = "12px " + (cssColor(canvas!, "--font-mono", "") || "monospace");
     const tw = ctx.measureText(txt).width;
     let lx = best.px + 10;
