@@ -43,6 +43,20 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **`fit` — least-squares regression, exact for polynomials.** A new verb that
+  fits `x,y` data. Polynomial models (`linear`, `quadratic`, `cubic`,
+  `quartic`, or `poly <degree>`) are solved **exactly over the rationals**: the
+  normal equations `XᵀX·c = Xᵀy` reduce to exact power sums, and Gaussian
+  elimination over `Q` returns exact coefficients — so `0,1; 1,2; 2,2; 3,4`
+  fits to `9*x/10 + 9/10`, not a rounded decimal, and perfectly fittable data
+  recovers its generating polynomial (`x^2`, `x^3`). It falls back to double
+  precision on 64-bit overflow or non-rational data. `exp` (`a·e^{bx}`),
+  `power` (`a·x^b`), and `log` (`a + b·ln x`) fit their linearized numeric
+  models. Each fit reports the model, whether it is exact, and the coefficient
+  of determination R². The fitted expression is a plottable function of `x`.
+  Shipped across the CLI (`fit "0,0; 1,1; 2,4" quadratic`), REPL
+  (`fit … | <model>`), the `fit` wasm binding, and the web console (with a
+  reference-panel entry).
 - **`together` — combine a sum of fractions over a common denominator**
   (docs/proposals/together.md): the companion to `cancel`, closing the other
   half of the "combine and reduce fractions" gap. `1/x + 1/y` now becomes

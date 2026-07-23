@@ -345,6 +345,38 @@ std::string ms_apart(std::string input, std::string variable) {
     });
 }
 
+/// fit(data, model, degree): least-squares regression of "x,y; x,y; ..." data.
+/// The polynomial models are solved exactly over the rationals; exp/power/log
+/// are numeric. Returns the fitted expression (plottable in x) plus the model
+/// label, exact flag, R², and point count.
+std::string ms_fit(std::string data, std::string model, std::string degree) {
+    return guarded([&]() -> std::string {
+        auto [xs, ys] = parse_point_data(data);
+        std::string name = trim(model);
+        if (name.empty()) name = "linear";
+        const auto spec = parse_fit_model(name);
+        if (!spec) return err_json("unknown fit model '" + name + "'");
+        auto [fam, deg] = *spec;
+        if (fam == FitModel::Poly && deg < 0) { // generic "poly": read the degree
+            deg = 2;
+            const std::string dt = trim(degree);
+            if (!dt.empty()) {
+                try {
+                    deg = std::stoi(dt);
+                } catch (...) {
+                    return err_json("polynomial degree must be an integer");
+                }
+            }
+        }
+        const FitResult r = fit(xs, ys, fam, deg, "x");
+        if (r.status != FitResult::Status::Ok) return err_json(r.message);
+        return std::format(
+            "{{\"ok\":true,{},\"model\":{},\"exact\":{},\"r2\":{},\"n\":{}}}",
+            rendered_fields(r.expr), jstr(r.model), r.exact ? "true" : "false",
+            jnum(r.r2), r.n);
+    });
+}
+
 /// Split on ';' (vector-field component separator), trimming blanks.
 std::vector<std::string> split_semi(std::string_view s) {
     std::vector<std::string> out;
@@ -1053,6 +1085,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("collect", &ms_collect);
     emscripten::function("derivative", &ms_derivative);
     emscripten::function("apart", &ms_apart);
+    emscripten::function("fit", &ms_fit);
     emscripten::function("dsolve", &ms_dsolve);
     emscripten::function("series", &ms_series);
     emscripten::function("vectorOp", &ms_vector_op);
