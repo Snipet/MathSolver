@@ -419,7 +419,79 @@
         /* ignore */
       }
     }
+    // Local extrema: critical points f'(x) = 0 over the window, classified as
+    // max/min by sampling the two neighbours (skips inflections/saddles). The
+    // x-coordinate carries the exact closed form where `solve` finds one.
+    try {
+      const der = await call("derivative", [exprText, "x"]);
+      if (der.ok) {
+        const cr = await call("solve", [`(${der.plain}) = 0`, "x", lo, hi, true]);
+        if (cr.ok) {
+          const d = Math.max(1e-6, (hi - lo) * 0.004);
+          let count = 0;
+          for (const sol of cr.solutions) {
+            const a = sol.approx;
+            if (a === null || !Number.isFinite(a) || a <= lo || a >= hi) continue;
+            const [c0, cl, cH] = await Promise.all([
+              call("evaluate", [exprText, `x=${a}`]),
+              call("evaluate", [exprText, `x=${a - d}`]),
+              call("evaluate", [exprText, `x=${a + d}`]),
+            ]);
+            if (!c0.ok || !cl.ok || !cH.ok) continue;
+            const ya = c0.value;
+            const yl = cl.value;
+            const yh = cH.value;
+            if (ya === null || yl === null || yh === null) continue;
+            if (![ya, yl, yh].every(Number.isFinite)) continue;
+            const kind = ya > yl && ya > yh ? "max" : ya < yl && ya < yh ? "min" : null;
+            if (!kind) continue;
+            const xlabel = sol.exact && sol.plain.length <= 12 ? sol.plain : fmtNum(a);
+            xs.push(a);
+            ys.push(ya);
+            labels.push(`${kind} (${xlabel}, ${fmtNum(ya)})`);
+            if (++count >= 12) break;
+          }
+        }
+      }
+    } catch {
+      /* extrema are best-effort */
+    }
     return xs.length ? { xs, ys, labels } : null;
+  }
+
+  /** Horizontal asymptotes of y=f(x): the finite limits at x→±∞. Returns the y
+   *  levels (exact limits resolved to a number via `evaluate`) with a label for
+   *  each. Best-effort — a diverging/indeterminate limit yields nothing. */
+  async function horizontalAsymptotes(
+    exprText: string,
+  ): Promise<{ ys: number[]; labels: string[] }> {
+    const ys: number[] = [];
+    const labels: string[] = [];
+    for (const pt of ["inf", "-inf"]) {
+      try {
+        const r = await call("limit", [exprText, "x", pt, ""]);
+        if (!r.ok) continue;
+        let L: number | null = null;
+        let label = "";
+        if (r.status === "exact" && r.plain) {
+          const ev = await call("evaluate", [r.plain, ""]);
+          if (ev.ok && ev.value !== null && Number.isFinite(ev.value)) {
+            L = ev.value;
+            label = r.plain;
+          }
+        } else if (r.status === "numeric" && r.approx !== undefined && Number.isFinite(r.approx)) {
+          L = r.approx;
+          label = fmtNum(r.approx);
+        }
+        if (L !== null && !ys.some((v) => Math.abs(v - L!) < 1e-9)) {
+          ys.push(L);
+          labels.push(label);
+        }
+      } catch {
+        /* limit failing is not fatal */
+      }
+    }
+    return { ys, labels };
   }
 
   interface Built {
@@ -474,6 +546,19 @@
             ys: poi.ys,
             labels: poi.labels,
           });
+        // Horizontal asymptotes: dashed lines at the finite limits at ±∞.
+        const asy = await horizontalAsymptotes(env.text);
+        for (let k = 0; k < asy.ys.length; k++) {
+          out.push({
+            id: `${id}:asy:${k}`,
+            color,
+            visible: true,
+            kind: "line",
+            dash: true,
+            xs: [lo, hi],
+            ys: [asy.ys[k], asy.ys[k]],
+          });
+        }
       }
       return { series: out };
     }
@@ -677,6 +762,70 @@
         errs[r.id] = e instanceof Error ? e.message : String(e);
       }
     }
+
+    // Curve–curve intersections (exact): for each pair of plain y=f(x) rows,
+    // solve f − g = 0 over the visible x-range. Capped so the pair count stays
+    // small; markers use a neutral colour since they belong to both curves.
+    const fnRows = analyzed.filter(
+      (a) => !a.err && a.spec.t === "function" && !(a.spec.restrict && a.spec.restrict.length),
+    );
+    if (fnRows.length >= 2 && fnRows.length <= 6) {
+      const [ixlo, ixhi] = xRange(graph.view, graphW);
+      const resolved: (string | null)[] = [];
+      for (const a of fnRows) {
+        try {
+          const expr = a.spec.t === "function" ? a.spec.expr : "";
+          resolved.push((await applyEnv(await resolveCalculus(expr), ["x"], "expr", overrides)).text);
+        } catch {
+          resolved.push(null);
+        }
+      }
+      if (my !== seq) return;
+      const ixXs: number[] = [];
+      const ixYs: number[] = [];
+      const ixLabels: string[] = [];
+      const seen = new Set<string>();
+      outer: for (let i = 0; i < fnRows.length; i++) {
+        for (let j = i + 1; j < fnRows.length; j++) {
+          const fx = resolved[i];
+          const gx = resolved[j];
+          if (!fx || !gx) continue;
+          try {
+            const sr = await call("solve", [`(${fx}) - (${gx}) = 0`, "x", ixlo, ixhi, true]);
+            if (my !== seq) return;
+            if (!sr.ok) continue;
+            for (const sol of sr.solutions) {
+              const a = sol.approx;
+              if (a === null || !Number.isFinite(a) || a < ixlo || a > ixhi) continue;
+              const key = a.toFixed(6);
+              if (seen.has(key)) continue;
+              const ye = await call("evaluate", [fx, `x=${a}`]);
+              if (!ye.ok || ye.value === null || !Number.isFinite(ye.value)) continue;
+              seen.add(key);
+              const xlabel = sol.exact && sol.plain.length <= 12 ? sol.plain : fmtNum(a);
+              ixXs.push(a);
+              ixYs.push(ye.value);
+              ixLabels.push(`(${xlabel}, ${fmtNum(ye.value)})`);
+              if (ixXs.length >= 24) break outer;
+            }
+          } catch {
+            /* a pair that won't solve is skipped */
+          }
+        }
+      }
+      if (my !== seq) return;
+      if (ixXs.length)
+        out.push({
+          id: "intersections",
+          color: "#64748b",
+          visible: true,
+          kind: "poi",
+          xs: ixXs,
+          ys: ixYs,
+          labels: ixLabels,
+        });
+    }
+
     rowErrors = errs;
     if (my === seq) {
       series = out;

@@ -11,6 +11,18 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — extrema, intersections & asymptote markers.** The CAS-powered
+  points-of-interest layer (exact zeros + y-intercept) gains three more, all
+  computed by the symbolic engine: **local extrema** — critical points from
+  `solve(f'=0)`, classified max/min and labelled with the exact coordinate;
+  **curve–curve intersections** — `solve(f−g=0)` across each pair of `y=f(x)`
+  rows, marked in a neutral colour since a crossing belongs to both curves;
+  and **horizontal asymptotes** — the finite limits at `x→±∞` (via `limit`,
+  exact where the value is like `pi/2`), drawn as dashed lines. Every marker
+  refreshes as you pan/zoom, hovering reveals its exact coordinate, and the
+  whole layer is best-effort (the curve still draws if a solve/limit can't
+  close a form). Bounds keep it responsive: extrema capped per curve,
+  intersections computed only for ≤ 6 function rows.
 - **Grapher — Taylor-series overlay operator.** The graph expression list now
   understands `series(f, center, order)` (and its alias `taylor(...)`) as an
   inline operator alongside the existing `diff(...)` / `integral(...)`: a row
