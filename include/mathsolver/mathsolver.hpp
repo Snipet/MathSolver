@@ -8,6 +8,7 @@
 #include "mathsolver/cfrac.hpp"
 #include "mathsolver/derivative.hpp"
 #include "mathsolver/discrete.hpp"
+#include "mathsolver/discriminant.hpp"
 #include "mathsolver/errors.hpp"
 #include "mathsolver/evaluator.hpp"
 #include "mathsolver/expr.hpp"

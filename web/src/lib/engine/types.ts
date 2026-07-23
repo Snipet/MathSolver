@@ -262,6 +262,7 @@ export interface EngineApi {
   divisors: [[n: string], TransformResult];
   totient: [[n: string], TransformResult];
   cfrac: [[value: string], TransformResult];
+  discriminant: [[poly: string, variable: string], TransformResult];
   solveIneq: [[lhs: string, rhs: string, op: string, variable: string], TransformResult];
   mod: [[args: string], TransformResult];
   powmod: [[args: string], TransformResult];

@@ -169,6 +169,22 @@ TEST_CASE("cli: number-theory verbs") {
     CHECK(bad.exit_code == 2);
 }
 
+TEST_CASE("cli: discriminant of a polynomial") {
+    const RunResult sym = run_cli({"discriminant", "a*x^2 + b*x + c", "x"});
+    INFO(sym.output);
+    CHECK(sym.exit_code == 0);
+    CHECK(contains(sym.output, "b^2 - 4*a*c"));
+
+    const RunResult num = run_cli({"discriminant", "x^2 - 5x + 6"});
+    CHECK(num.exit_code == 0);
+    CHECK(contains(num.output, "1"));
+    CHECK(contains(num.output, "two distinct real"));
+
+    // Degree 5 is unsupported (usage error, exit 2).
+    const RunResult bad = run_cli({"discriminant", "x^5 + 1", "x"});
+    CHECK(bad.exit_code == 2);
+}
+
 TEST_CASE("cli: solve inequalities into interval solution sets") {
     const RunResult quad = run_cli({"solve", "x^2 < 4"});
     INFO(quad.output);
