@@ -247,6 +247,23 @@ check("ilaplace cos", ms.ilaplace("s/(s^2 + 9)", "s"), (r) => r.ok && r.plain ==
 check("ilaplace default s", ms.ilaplace("1/(s - 2)", ""), (r) => r.ok && r.plain.includes("e^(2*t)"), "empty var defaults to s");
 check("ilaplace error", ms.ilaplace("s^2 + 1", "s"), (r) => !r.ok && r.error.length > 0, "polynomial has no inverse");
 
+// User-function beta-reduction: the two-phase capture-avoiding `subs` the
+// grapher runs for f(args). The multi-arg swap is the exact case a naive
+// sequential subs CSV (a=b,b=a) would corrupt to a/a.
+const beta = (params, body, args) => {
+  const used = new Set(((body + " " + args.join(" ")).match(/[A-Za-z]/g) || []));
+  const ph = [];
+  for (const c of "ZQWJKVUXYHGNMBTRCPLOSDAF") {
+    if (ph.length === params.length) break;
+    if (!used.has(c)) ph.push(c);
+  }
+  const r1 = JSON.parse(ms.subs(body, params.map((p, k) => `${p}=${ph[k]}`).join(","), false));
+  const r2 = JSON.parse(ms.subs(r1.plain, ph.map((z, k) => `${z}=(${args[k]})`).join(","), false));
+  return r2.plain;
+};
+check("fn reduce parenthesizes", JSON.stringify({ ok: true, p: beta(["x"], "x^2", ["x+1"]) }), (r) => r.p === "(x + 1)^2", "(x + 1)^2");
+check("fn reduce multi-arg swap", JSON.stringify({ ok: true, p: beta(["a", "b"], "a/b", ["b", "a"]) }), (r) => r.p === "b/a", "b/a (capture-safe, not a/a)");
+
 function b_series_ok(r) {
   const s = r.blocks.find((b) => b.type === "series");
   return s && s.x.length === s.series[0].ys.length && s.x.length > 100;

@@ -21,7 +21,7 @@ export type RowKind =
   | { t: "polar"; expr: string; restrict?: string[] } // r = f(θ)
   | { t: "slopefield"; expr: string; restrict?: string[] } // y' = f(x, y) / dy/dx = …
   | { t: "pointish"; coords: [string, string][]; restrict?: string[] } // points or parametric
-  | { t: "define"; name: string; expr: string; restrict?: string[] } // name = expr
+  | { t: "define"; name: string; expr: string; params?: string[]; restrict?: string[] } // name = expr, or name(params) = expr
   | { t: "area"; expr: string; lo: string; hi: string; restrict?: string[] } // ∫ f dx shaded over [a, b]
   | { t: "relation"; lhs: string; rhs: string; op: RelOp; restrict?: string[] }; // implicit / ineq
 
@@ -246,12 +246,19 @@ function classifyBody(text: string): RowKind {
       if (isVar(rhs, "x")) return { t: "functionY", expr: lhs.trim() };
       if (isVar(lhs, "r")) return { t: "polar", expr: rhs.trim() };
       if (isVar(rhs, "r")) return { t: "polar", expr: lhs.trim() };
-      // A definition: `name = expr` or `name(args) = expr` where `name` is a
-      // bare identifier other than the graph variables — becomes a reusable
-      // named value/expression (a session variable).
-      const dm = /^([A-Za-z][A-Za-z0-9_]*)\s*(?:\([^()]*\))?$/.exec(lhs.trim());
+      // A definition: `name = expr` (a reusable session value) or
+      // `name(params) = expr` (a user function). The parameter list is captured
+      // so `f(x) = x^2` can later be applied as `f(3)`, `f'(x)`, `g(f(x))`.
+      const dm = /^([A-Za-z][A-Za-z0-9_]*)\s*(?:\(\s*([^()]*)\s*\))?$/.exec(lhs.trim());
       if (dm && !["x", "y", "r"].includes(dm[1])) {
-        return { t: "define", name: dm[1], expr: rhs.trim() };
+        if (dm[2] !== undefined) {
+          const params = splitTopLevelCommas(dm[2]).map((p) => p.trim()).filter(Boolean);
+          // Empty parens `f() = …` is not a function (a function needs ≥1
+          // parameter); fall through to a relation so it reads as an error/plot.
+          if (params.length) return { t: "define", name: dm[1], expr: rhs.trim(), params };
+        } else {
+          return { t: "define", name: dm[1], expr: rhs.trim() };
+        }
       }
       return { t: "relation", lhs: lhs.trim(), rhs: rhs.trim(), op };
     }
