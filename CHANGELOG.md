@@ -7,6 +7,14 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — exact points of interest.** A `y=f(x)` curve now shows hollow
+  markers at its **zeros / x-intercepts** and its **y-intercept**, computed by
+  the CAS rather than eyeballed: `solve` finds the roots over the visible
+  window and hovering a marker reveals the *exact* coordinate — `(√2, 0)`,
+  `(π/6, 0)` — where a numeric grapher can only show a rounded decimal. Zeros
+  refresh as you pan/zoom; the curve still draws if the solve can't close a
+  form (markers are best-effort). First slice of the CAS-powered
+  points-of-interest suite (extrema, intersections, and asymptotes to follow).
 - **Console cookbook.** The console side panel gains a **Cookbook** tab beside
   the flat **Commands** reference: a set of curated, worked recipes — grouped
   by topic (getting started, algebra, equations, calculus, series & discrete,

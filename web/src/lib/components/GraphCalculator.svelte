@@ -339,6 +339,59 @@
     return { kind: "expr" };
   }
 
+  /** Compact numeric label (≈5 sig figs, trailing zeros stripped). */
+  function fmtNum(n: number): string {
+    if (!Number.isFinite(n)) return "?";
+    if (Math.abs(n) < 1e-12) return "0";
+    return String(Number(n.toPrecision(5)));
+  }
+
+  /** Points of interest for a y=f(x) row over the visible x-range [lo, hi]:
+   *  exact x-intercepts via the CAS `solve` (labelled with the closed form
+   *  where there is one), and the y-intercept via `evaluate`. This is the
+   *  grapher's first use of the symbolic engine for on-graph analysis — the
+   *  dots land at the exact roots and hover reveals `(√2, 0)` where a numeric
+   *  grapher can only show a rounded decimal. Any engine failure is non-fatal
+   *  (the curve still draws; there are just no markers). */
+  async function computePOIs(
+    exprText: string,
+    lo: number,
+    hi: number,
+  ): Promise<{ xs: number[]; ys: number[]; labels: string[] } | null> {
+    const xs: number[] = [];
+    const ys: number[] = [];
+    const labels: string[] = [];
+    try {
+      const zr = await call("solve", [`(${exprText}) = 0`, "x", lo, hi, true]);
+      if (zr.ok) {
+        for (const sol of zr.solutions) {
+          const a = sol.approx;
+          if (a === null || !Number.isFinite(a) || a < lo || a > hi) continue;
+          const xlabel = sol.exact && sol.plain.length <= 12 ? sol.plain : fmtNum(a);
+          xs.push(a);
+          ys.push(0);
+          labels.push(`(${xlabel}, 0)`);
+          if (xs.length >= 20) break; // clutter cap on dense zeros (sin, tan, …)
+        }
+      }
+    } catch {
+      /* solve failing is not fatal */
+    }
+    if (lo <= 0 && hi >= 0) {
+      try {
+        const yr = await call("evaluate", [exprText, "x=0"]);
+        if (yr.ok && yr.value !== null && Number.isFinite(yr.value)) {
+          xs.push(0);
+          ys.push(yr.value);
+          labels.push(`(0, ${fmtNum(yr.value)})`);
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+    return xs.length ? { xs, ys, labels } : null;
+  }
+
   interface Built {
     series: DrawSeries[];
     error?: string;
@@ -369,7 +422,24 @@
         spec.t === "function"
           ? { id: String(id), color, visible: true, kind: "line", xs: axis, ys: masked }
           : { id: String(id), color, visible: true, kind: "line", xs: masked, ys: axis };
-      return { series: [series] };
+      const out: DrawSeries[] = [series];
+      // Exact points of interest for y=f(x) over the visible x-range (skip
+      // when a { … } domain restriction is present — a zero could fall outside
+      // the drawn domain; that's a later refinement).
+      if (spec.t === "function" && !(spec.restrict && spec.restrict.length)) {
+        const poi = await computePOIs(env.text, lo0, hi0);
+        if (poi)
+          out.push({
+            id: `${id}:poi`,
+            color,
+            visible: true,
+            kind: "poi",
+            xs: poi.xs,
+            ys: poi.ys,
+            labels: poi.labels,
+          });
+      }
+      return { series: out };
     }
 
     if (spec.t === "pointish") {
