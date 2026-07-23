@@ -35,7 +35,7 @@
   import SpanHighlight from "./lib/components/SpanHighlight.svelte";
   import Notebook from "./lib/components/Notebook.svelte";
   import NotebooksPanel from "./lib/components/NotebooksPanel.svelte";
-  import CommandReference from "./lib/components/CommandReference.svelte";
+  import ConsoleReference from "./lib/components/ConsoleReference.svelte";
 
   // --- engine readiness ------------------------------------------------------
   let ready = $state(false);
@@ -888,7 +888,7 @@
       <VariablesPanel />
       {#if mode === "console"}
         <NotebooksPanel />
-        <CommandReference />
+        <ConsoleReference />
       {:else if mode === "graph"}
         <p class="graph-tip">
           Type functions, points, or relations on the left. Undefined

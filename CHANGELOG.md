@@ -3,10 +3,23 @@
 Notable user-facing changes per release. Contracts live in DESIGN.md; the
 per-feature specs are under docs/proposals/.
 
-## Unreleased (v0.5)
+## Unreleased (v0.6)
+
+### Added
+
+- **Console cookbook.** The console side panel gains a **Cookbook** tab beside
+  the flat **Commands** reference: a set of curated, worked recipes — grouped
+  by topic (getting started, algebra, equations, calculus, series & discrete,
+  ODEs & transforms, complex numbers, variables & notebooks, plotting & vector
+  calculus, and the DSP / control / linear-algebra / PDE plugins) — that show
+  how to *combine* commands into real workflows, not just what each verb does.
+  Every recipe carries a short rationale and one or more numbered console
+  lines; clicking any line drops it into the prompt. Available on desktop (the
+  console sidebar) and mobile (the collapsible "Commands & Cookbook" panel).
 
 ### Changed
 
+- **Version bumped to 0.6.0.**
 - **Wave lab — higher maximum simulation resolution.** The **Detail** slider
   (grid resolution) now reaches **512** columns, up from 300 — roughly triple
   the cell count for a much finer field on capable machines. Stability is

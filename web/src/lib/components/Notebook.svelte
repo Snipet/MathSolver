@@ -24,7 +24,7 @@
     void vars.active;
     untrack(() => notebook.syncFromVars());
   });
-  import CommandReference from "./CommandReference.svelte";
+  import ConsoleReference from "./ConsoleReference.svelte";
   import ConsolePrompt from "./ConsolePrompt.svelte";
   import Katex from "./Katex.svelte";
   import NotebookCell from "./NotebookCell.svelte";
@@ -367,7 +367,8 @@
       <span class="head-title">Console</span>
       <span class="head-hint">
         Line-by-line math, Mathematica style. Every command is listed in the
-        <strong>Commands</strong> panel — click one to insert it.
+        <strong>Commands</strong> panel; the <strong>Cookbook</strong> has worked
+        recipes — click any to drop it into the prompt.
       </span>
     </div>
     <button
@@ -381,9 +382,9 @@
   </div>
 
   <details class="ref-inline">
-    <summary>Commands</summary>
+    <summary>Commands &amp; Cookbook</summary>
     <div class="ref-inline-body">
-      <CommandReference />
+      <ConsoleReference />
     </div>
   </details>
 
