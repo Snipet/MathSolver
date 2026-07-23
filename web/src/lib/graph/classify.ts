@@ -22,6 +22,7 @@ export type RowKind =
   | { t: "slopefield"; expr: string; restrict?: string[] } // y' = f(x, y) / dy/dx = …
   | { t: "pointish"; coords: [string, string][]; restrict?: string[] } // points or parametric
   | { t: "define"; name: string; expr: string; params?: string[]; restrict?: string[] } // name = expr, or name(params) = expr
+  | { t: "listdef"; name: string; inside: string; restrict?: string[] } // name = [ … ] (a list)
   | { t: "piecewise"; branches: { cond: string; value: string }[]; otherwise?: string; restrict?: string[] } // {cond: val, …[, else]}
   | { t: "area"; expr: string; lo: string; hi: string; restrict?: string[] } // ∫ f dx shaded over [a, b]
   | { t: "relation"; lhs: string; rhs: string; op: RelOp; restrict?: string[] }; // implicit / ineq
@@ -309,6 +310,14 @@ function classifyBody(text: string): RowKind {
           // parameter); fall through to a relation so it reads as an error/plot.
           if (params.length) return { t: "define", name: dm[1], expr: rhs.trim(), params };
         } else {
+          // `name = [ … ]` is a list, not a scalar value definition. Any RHS
+          // that opens a bracket is treated as a list attempt (even mid-type,
+          // so a partial `[1,` never commits as a broken scalar variable); an
+          // incomplete/malformed body simply fails to materialize on its row.
+          const rt = rhs.trim();
+          if (rt.startsWith("[")) {
+            return { t: "listdef", name: dm[1], inside: rt.replace(/^\[/, "").replace(/\]$/, "") };
+          }
           return { t: "define", name: dm[1], expr: rhs.trim() };
         }
       }

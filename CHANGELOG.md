@@ -11,6 +11,17 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — lists + list-of-points plotting.** Define a list with
+  `L = [1, 2, 3]` or a range `[1...10]` / stepped range `[0, 2...10]`, then plot
+  it: a point row whose coordinates are list-valued becomes a scatter. Any
+  expression broadcasts element-wise over a list, so `(L, L^2)` scatters a
+  parabola, `(L, 2L + 1)` a line, and `(L, f(L))` maps a defined function over
+  the list. Scalars broadcast against a list (`(L, 0)`, `(2, L)`), two lists zip
+  by index (shortest wins), and inline literals/ranges work directly
+  (`([1,2,3], [4,5,6])`). A range bound can be a slider — `[1...n]` grows with
+  `n` — and a list name never turns into a slider. (Lists are data: a bare
+  `L = […]` row draws nothing until you plot it.)
+
 - **Grapher — animated sliders (play button) + slider step.** Each auto-created
   slider now has a ▶ button that sweeps the variable back and forth between its
   bounds (ping-pong), and an optional **step** field that snaps it to a
