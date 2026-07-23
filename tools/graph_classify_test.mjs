@@ -36,6 +36,15 @@ check("integral(f, t) 2-arg stays function", kind("integral(sin(x), t)") === "fu
 check("integral(f, a, b) + 1 is not a whole-row area", kind("integral(x, 0, 1) + 1") !== "area");
 check("area integrand keeps nested commas", (() => { const r = classifyRow("integral(max(x, 0), 0, 3)"); return r.t === "area" && r.expr === "max(x, 0)" && r.lo === "0" && r.hi === "3"; })());
 
+// Piecewise / conditionals
+check("piecewise {cond: val, else}", (() => { const r = classifyRow("{x < 0: -x, x}"); return r.t === "piecewise" && r.branches.length === 1 && r.branches[0].cond === "x < 0" && r.branches[0].value === "-x" && r.otherwise === "x"; })());
+check("piecewise with y = lead", (() => { const r = classifyRow("y = {x > 0: 1, -1}"); return r.t === "piecewise" && r.branches[0].value === "1" && r.otherwise === "-1"; })());
+check("piecewise multiple branches, no else", (() => { const r = classifyRow("{x > 0: 1, x < 0: -1}"); return r.t === "piecewise" && r.branches.length === 2 && r.otherwise === undefined; })());
+check("piecewise chained condition", (() => { const r = classifyRow("{0 < x < 5: x^2, 0}"); return r.t === "piecewise" && r.branches[0].cond === "0 < x < 5" && r.otherwise === "0"; })());
+check("restriction (no colon) is NOT piecewise", classifyRow("{x > 0}").t !== "piecewise");
+check("trailing restriction on a function stays a function", (() => { const r = classifyRow("x^2 {x > 0}"); return r.t === "function"; })());
+check("comma inside a branch value's function is respected", (() => { const r = classifyRow("{x > 0: max(x, 1), 0}"); return r.t === "piecewise" && r.branches[0].value === "max(x, 1)"; })());
+
 // Domain restrictions
 check("restriction stripped from function", (() => { const r = classifyRow("x^2 {x > 0}"); return r.t === "function" && r.expr === "x^2" && JSON.stringify(r.restrict) === JSON.stringify(["x > 0"]); })());
 check("multiple restriction clauses", (() => { const { body, restrict } = splitRestrictions("x^2 {x>0}{x<5}"); return body === "x^2" && restrict.length === 2 && restrict[0] === "x>0" && restrict[1] === "x<5"; })());
