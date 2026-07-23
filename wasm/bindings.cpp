@@ -226,7 +226,121 @@ std::string ms_expand(std::string input) {
     return transform_json(input, [](const Expr& e) { return expand(e); });
 }
 std::string ms_factor(std::string input) {
-    return transform_json(input, [](const Expr& e) { return factor(e); });
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        // A bare integer factors into primes (2^3 · 3^2 · 5) rather than
+        // echoing itself, matching FactorInteger / factorint.
+        const Expr s = simplify(e);
+        if (s->kind() == Kind::Number && s->number().is_integer()) {
+            const long long n = s->number().num();
+            if (n == 0 || n == 1 || n == -1) {
+                const std::string t = std::to_string(n);
+                return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{}}}",
+                                   jstr(t), jstr(t));
+            }
+            const auto f = factorize(n);
+            const std::string sign = n < 0 ? "-" : "";
+            return std::format(
+                "{{\"ok\":true,\"plain\":{},\"latex\":{}}}",
+                jstr(sign + format_factorization(f, " * ")),
+                jstr(sign + format_factorization_latex(f)));
+        }
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(factor(e)));
+    });
+}
+
+// ---- Number theory: gcd/lcm, primality, factorization, divisors, totient.
+// Each returns a uniform {ok, plain, latex, notes} envelope the console renders
+// like any transform result.
+
+/// Parse a single number-theory argument to an integer, or nullopt.
+std::optional<long long> nt_int(const std::string& tok) {
+    const Expr e = simplify(parse_expression(tok));
+    if (e->kind() != Kind::Number || !e->number().is_integer()) return std::nullopt;
+    return e->number().num();
+}
+
+std::string nt_json(std::string_view plain, std::string_view latex,
+                    const std::vector<std::string>& notes = {}) {
+    return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{},\"notes\":{}}}",
+                       jstr(plain), jstr(latex), jarr_str(notes));
+}
+
+/// gcd/lcm of a comma-separated integer list, folded pairwise.
+std::string ms_gcd(std::string list) {
+    return guarded([&]() -> std::string {
+        long long acc = 0;
+        int count = 0;
+        for (const std::string& t : split_csv(list)) {
+            const auto v = nt_int(t);
+            if (!v) return err_json(std::format("gcd: expected an integer, got '{}'", trim(t)));
+            acc = int_gcd(acc, *v);
+            ++count;
+        }
+        if (count == 0) return err_json("gcd: expected at least one integer");
+        const std::string s = std::to_string(acc);
+        return nt_json(s, s);
+    });
+}
+std::string ms_lcm(std::string list) {
+    return guarded([&]() -> std::string {
+        long long acc = 1;
+        int count = 0;
+        for (const std::string& t : split_csv(list)) {
+            const auto v = nt_int(t);
+            if (!v) return err_json(std::format("lcm: expected an integer, got '{}'", trim(t)));
+            acc = int_lcm(acc, *v);
+            ++count;
+        }
+        if (count == 0) return err_json("lcm: expected at least one integer");
+        const std::string s = std::to_string(acc);
+        return nt_json(s, s);
+    });
+}
+std::string ms_isprime(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("isprime: expected an integer, got '{}'", trim(arg)));
+        const bool p = is_prime(*n);
+        return nt_json(p ? "true" : "false", p ? "\\text{true}" : "\\text{false}",
+                       {std::format("{} is {}", *n, p ? "prime" : "composite")});
+    });
+}
+std::string ms_nextprime(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("nextprime: expected an integer, got '{}'", trim(arg)));
+        const std::string s = std::to_string(next_prime(*n));
+        return nt_json(s, s);
+    });
+}
+std::string ms_totient(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("totient: expected an integer, got '{}'", trim(arg)));
+        if (*n < 1) return err_json("totient is defined for positive integers");
+        const std::string s = std::to_string(euler_totient(*n));
+        return nt_json(s, s, {std::format("phi({})", *n)});
+    });
+}
+std::string ms_divisors(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("divisors: expected an integer, got '{}'", trim(arg)));
+        if (*n == 0) return err_json("divisors of 0 is undefined");
+        const std::vector<long long> ds = divisors(*n);
+        std::string plain;
+        std::string latex;
+        for (std::size_t i = 0; i < ds.size(); ++i) {
+            if (i > 0) {
+                plain += ", ";
+                latex += ", ";
+            }
+            plain += std::to_string(ds[i]);
+            latex += std::to_string(ds[i]);
+        }
+        return nt_json(plain, "\\{" + latex + "\\}", {std::format("{} divisors", ds.size())});
+    });
 }
 std::string ms_cancel(std::string input) {
     return transform_json(input, [](const Expr& e) { return cancel(e); });
@@ -1110,6 +1224,12 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("mlimit", &ms_mlimit);
     emscripten::function("stirling", &ms_stirling);
     emscripten::function("seq", &ms_seq);
+    emscripten::function("gcd", &ms_gcd);
+    emscripten::function("lcm", &ms_lcm);
+    emscripten::function("isprime", &ms_isprime);
+    emscripten::function("nextprime", &ms_nextprime);
+    emscripten::function("divisors", &ms_divisors);
+    emscripten::function("totient", &ms_totient);
     emscripten::function("sum", &ms_sum);
     emscripten::function("product", &ms_product);
     emscripten::function("rsolve", &ms_rsolve);

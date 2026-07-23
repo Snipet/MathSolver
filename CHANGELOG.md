@@ -11,6 +11,17 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Number theory over the integers.** A new pack of exact integer verbs —
+  available in the CLI, the REPL, and the web console. **`factor`** now
+  prime-factorizes a bare integer (`factor 360` → `2^3 · 3^2 · 5`) instead of
+  echoing it, while still factoring polynomials as before. New verbs:
+  **`gcd`** / **`lcm`** of a list, **`isprime`** (deterministic Miller–Rabin
+  valid across the whole 64-bit range — it isn't fooled by Carmichael
+  numbers), **`nextprime`**, **`divisors`**, and Euler's **`totient`**.
+  Factorization uses trial division plus Pollard's rho, so it handles large
+  semiprimes, and every result is exact. In the console they render like any
+  other result and appear under a new **Number theory** group in the Commands
+  reference.
 - **Grapher — contour maps of z = f(x, y).** A bare expression in **both** `x`
   and `y` — e.g. `x^2 + y^2`, `sin(x) + cos(y)`, or `x*y` — is no longer a
   broken 1-D curve: it now renders as a **contour map**, the level sets of the

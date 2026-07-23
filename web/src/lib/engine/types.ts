@@ -253,6 +253,14 @@ export interface EngineApi {
   ];
   stirling: [[variable: string, terms: number], TransformResult];
   seq: [[termsCsv: string], SeqCallResult];
+  // Number theory over the integers (exact int64). gcd/lcm take a CSV list;
+  // the rest take a single integer. All return a plain/latex result + notes.
+  gcd: [[list: string], TransformResult];
+  lcm: [[list: string], TransformResult];
+  isprime: [[n: string], TransformResult];
+  nextprime: [[n: string], TransformResult];
+  divisors: [[n: string], TransformResult];
+  totient: [[n: string], TransformResult];
   sum: [[term: string, variable: string, lo: string, hi: string], SumCallResult];
   product: [
     [term: string, variable: string, lo: string, hi: string],

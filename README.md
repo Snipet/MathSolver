@@ -527,6 +527,23 @@ for the full workflow.
   arithmetic (`solve "x + y = 3; x - y = 1"`): symbolic parameters as
   coefficients, underdetermined systems with free variables, and
   inconsistency detection.
+- **Number theory** — integer `factor` (prime factorization), `gcd`/`lcm`
+  of a list, deterministic `isprime` (Miller–Rabin over the whole 64-bit
+  range), `nextprime`, `divisors`, and Euler's `totient` — all exact,
+  factoring via trial division + Pollard's rho:
+
+  ```console
+  $ mathsolver factor 360
+  2^3 * 3^2 * 5
+  $ mathsolver gcd "1071, 462"
+  21
+  $ mathsolver isprime 2147483647
+  2147483647 is prime
+  $ mathsolver divisors 28
+  1, 2, 4, 7, 14, 28
+  $ mathsolver totient 36
+  12
+  ```
 
 ## Limitations (by design, v0.1)
 

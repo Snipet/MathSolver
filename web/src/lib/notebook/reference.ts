@@ -40,9 +40,9 @@ export const BUILTIN_GROUPS: RefGroup[] = [
       },
       {
         insert: "factor",
-        usage: "factor <expr>",
-        hint: "Best-effort factoring",
-        example: "factor x^2 - 5x + 6",
+        usage: "factor <expr | integer>",
+        hint: "Factor a polynomial, or an integer into primes",
+        example: "factor 360",
       },
       {
         insert: "cancel",
@@ -79,6 +79,47 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         usage: "plot <expr>[, <lo>, <hi>]",
         hint: "Sample and chart an expression",
         example: "plot sin(x)/x, -20, 20",
+      },
+    ],
+  },
+  {
+    title: "Number theory",
+    items: [
+      {
+        insert: "gcd",
+        usage: "gcd <a, b, …>",
+        hint: "Greatest common divisor of a list of integers (exact)",
+        example: "gcd 48, 36",
+      },
+      {
+        insert: "lcm",
+        usage: "lcm <a, b, …>",
+        hint: "Least common multiple of a list of integers (exact)",
+        example: "lcm 4, 6, 8",
+      },
+      {
+        insert: "isprime",
+        usage: "isprime <n>",
+        hint: "Deterministic primality test (all 64-bit integers)",
+        example: "isprime 97",
+      },
+      {
+        insert: "nextprime",
+        usage: "nextprime <n>",
+        hint: "Smallest prime greater than n",
+        example: "nextprime 100",
+      },
+      {
+        insert: "divisors",
+        usage: "divisors <n>",
+        hint: "All positive divisors of n, ascending",
+        example: "divisors 360",
+      },
+      {
+        insert: "totient",
+        usage: "totient <n>",
+        hint: "Euler's φ(n): count of integers ≤ n coprime to n",
+        example: "totient 36",
       },
     ],
   },
