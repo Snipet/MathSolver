@@ -557,6 +557,30 @@ void run_series(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(series(e, var, center, order), style));
 }
 
+/// `pade`: the [m/n] Padé approximant P(x)/Q(x) matching the Maclaurin series
+/// of the input through order m + n. m and n are required non-negative
+/// integers; the variable is inferred unless given.
+void run_pade(const std::string& input, const std::string& m_text,
+              const std::string& n_text, const std::string& explicit_var,
+              PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "pade");
+    const auto order = [](const std::string& t, const char* what) -> int {
+        const auto d = parse_double(t);
+        if (!d || *d != std::floor(*d) || *d < 0) {
+            throw UsageError{std::format(
+                "pade {} must be a non-negative integer, got '{}'", what, t)};
+        }
+        return static_cast<int>(*d);
+    };
+    if (m_text.empty() || n_text.empty()) {
+        throw UsageError{"usage: pade <expression>, <m>, <n>[, <variable>]"};
+    }
+    const int m = order(m_text, "numerator degree m");
+    const int n = order(n_text, "denominator degree n");
+    std::println("{}", to_string(pade(e, var, m, n).approximant, style));
+}
+
 /// `stirling`: the Stirling asymptotic series for ln Gamma(var) with exact
 /// Bernoulli coefficients; the lgamma accuracy check prints as notes.
 void run_stirling(const std::string& var_text, const std::string& terms_text,
@@ -1426,6 +1450,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver ilaplace \"1/(s^2 + 2s + 5)\" [s]\n"
                "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
                "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
+               "  mathsolver pade     \"exp(x)\" 2 2\n"
                "  mathsolver fit      \"0,0; 1,1; 2,4\" quadratic\n"
                "  mathsolver stats    \"1, 2, 3, 4, 5\"\n"
                "  mathsolver stirling x [3]\n"
@@ -1471,7 +1496,8 @@ bool is_known_subcommand(std::string_view s) {
            s == "solve" || s == "diff" || s == "integrate" || s == "eval" ||
            s == "latex" || s == "subs" || s == "collect" || s == "laplace" ||
            s == "ilaplace" ||
-           s == "apart" || s == "dsolve" || s == "series" || s == "grad" ||
+           s == "apart" || s == "dsolve" || s == "series" || s == "pade" ||
+           s == "grad" ||
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
            s == "rsolve" || s == "mlimit" || s == "stirling" ||
@@ -1628,6 +1654,16 @@ int run_one_shot(const std::vector<std::string>& args) {
             run_series(input, positionals.size() > 1 ? positionals[1] : "",
                        positionals.size() > 2 ? positionals[2] : "",
                        positionals.size() > 3 ? positionals[3] : "", style);
+        } else if (sub == "pade") {
+            if (positionals.size() > 4) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver pade "
+                    "\"<expr>\" <m> <n> [var])",
+                    positionals[4])};
+            }
+            run_pade(input, positionals.size() > 1 ? positionals[1] : "",
+                     positionals.size() > 2 ? positionals[2] : "",
+                     positionals.size() > 3 ? positionals[3] : "", style);
         } else if (sub == "fit" || sub == "regress") {
             if (positionals.size() > 3) {
                 throw UsageError{std::format(
@@ -1803,6 +1839,7 @@ void print_repl_help() {
         "  dsolve <ode>[, y(0)=v, y'(0)=v, ...]   solve an IVP, e.g.\n"
         "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
+        "  pade <expression>, <m>, <n>[, <var>]   [m/n] Padé approximant\n"
         "  discriminant <polynomial>[, <var>]     discriminant (degree 2–4)\n"
         "  polydiv <dividend>, <divisor>[, <var>] quotient + remainder\n"
         "  polygcd <a>, <b>[, <var>]   polylcm <a>, <b>[, <var>]   monic gcd/lcm\n"
@@ -1859,7 +1896,7 @@ bool is_repl_command(std::string_view word) {
            word == "eval" || word == "latex" || word == "debug" ||
            word == "subs" || word == "collect" || word == "laplace" ||
            word == "ilaplace" || word == "apart" || word == "dsolve" ||
-           word == "series" || word == "grad" || word == "div" ||
+           word == "series" || word == "pade" || word == "grad" || word == "div" ||
            word == "curl" || word == "laplacian" || word == "jacobian" ||
            word == "hessian" || word == "limit" || word == "sum" ||
            word == "product" || word == "rsolve" || word == "mlimit" ||
@@ -2597,6 +2634,21 @@ void repl_command(const std::string& command, const std::string& rest,
             PrintStyle::Plain);
         run_series(resolved, var, parts.size() > 2 ? parts[2] : "",
                    parts.size() > 3 ? parts[3] : "", PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "pade") {
+        // pade <expr>, <m>, <n>[, <var>]
+        if (parts.size() < 3 || parts.size() > 4) {
+            throw UsageError{"usage: pade <expression>, <m>, <n>[, <variable>]"};
+        }
+        const std::string var = parts.size() > 3 ? parts[3] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
+        run_pade(resolved, parts[1], parts[2], var, PrintStyle::Plain);
         warn_assigned_variable(var, env);
     } else if (command == "discriminant") {
         // discriminant <polynomial>[, <var>]

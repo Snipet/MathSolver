@@ -173,8 +173,9 @@ method: laplace transform + linear solve + partial fractions
 Two supporting verbs round out the calculus toolkit. `apart` expands a
 rational function into partial fractions over the rationals (linear and
 irreducible-quadratic factors, repeated factors, improper inputs divided
-out first), and `series` builds Taylor polynomials with exact
-coefficients:
+out first), `series` builds Taylor polynomials with exact
+coefficients, and `pade` builds the rational approximant that matches
+them:
 
 ```console
 $ mathsolver apart "(3x+2)/((x+1)(x+2))"
@@ -185,6 +186,20 @@ $ mathsolver series "sin(x)" x 0 5
 x^5/120 - x^3/6 + x
 $ mathsolver series "ln(x)" x 1 3
 (x - 1)^3/3 - (x - 1)^2/2 + x - 1
+```
+
+`pade "<expr>" <m> <n>` returns the [m/n] Padé approximant P(x)/Q(x): the
+rational function whose Maclaurin series agrees with the input through
+order m + n. It often tracks a function far past the radius of its Taylor
+polynomial, and reproduces a rational input exactly:
+
+```console
+$ mathsolver pade "exp(x)" 2 2
+(x^2/12 + x/2 + 1)/(x^2/12 - x/2 + 1)
+$ mathsolver pade "sin(x)" 3 2
+(-7*x^3/60 + x)/(x^2/20 + 1)
+$ mathsolver pade "1/(1-x)" 2 2
+1/(-x + 1)
 ```
 
 Limits — exact where the structure allows (substitution guarded by

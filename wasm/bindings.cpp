@@ -1018,6 +1018,28 @@ std::string ms_series(std::string input, std::string variable,
     });
 }
 
+/// pade(input, variable, m, n): the [m/n] Padé approximant P(x)/Q(x) matching
+/// the Maclaurin series of the input through order m + n.
+std::string ms_pade(std::string input, std::string variable, int m, int n) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string var = trim(variable);
+        if (var.empty()) {
+            const std::set<std::string> syms = free_symbols(e);
+            if (syms.size() != 1) {
+                return err_json(
+                    syms.empty()
+                        ? "cannot infer the variable: the input has no free symbols"
+                        : "give the Padé variable explicitly: pade <expr>, <m>, "
+                          "<n>, <var>");
+            }
+            var = *syms.begin();
+        }
+        return std::format("{{\"ok\":true,{}}}",
+                           rendered_fields(pade(e, var, m, n).approximant));
+    });
+}
+
 /// stirling(variable, terms): the Stirling asymptotic series for
 /// ln Gamma(variable) with exact Bernoulli coefficients; the lgamma
 /// accuracy check rides along as warnings.
@@ -1438,6 +1460,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("stats", &ms_stats);
     emscripten::function("dsolve", &ms_dsolve);
     emscripten::function("series", &ms_series);
+    emscripten::function("pade", &ms_pade);
     emscripten::function("vectorOp", &ms_vector_op);
     emscripten::function("limit", &ms_limit);
     emscripten::function("mlimit", &ms_mlimit);

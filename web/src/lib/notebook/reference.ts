@@ -217,6 +217,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "series sin(x), x, 0, 5",
       },
       {
+        insert: "pade",
+        usage: "pade <expr>, <m>, <n>[, <var>]",
+        hint: "[m/n] Padé approximant — rational fit of the Maclaurin series",
+        example: "pade exp(x), 2, 2",
+      },
+      {
         insert: "discriminant",
         usage: "discriminant <polynomial>[, <var>]",
         hint: "Discriminant of a degree 2–4 polynomial (symbolic coefficients OK)",
