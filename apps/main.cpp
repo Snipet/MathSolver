@@ -285,6 +285,28 @@ void run_trigreduce(const std::string& input, PrintStyle style) {
     }
 }
 
+/// `logexpand`: ln of products/quotients/powers -> sums and multiples of ln.
+void run_logexpand(const std::string& input, PrintStyle style) {
+    const auto parsed = parse_input_diag(input);
+    if (std::holds_alternative<Expr>(parsed)) {
+        std::println("{}", to_string(log_expand(std::get<Expr>(parsed)), style));
+    } else {
+        const Equation& eq = std::get<Equation>(parsed);
+        std::println("{}", to_string(Equation{log_expand(eq.lhs), log_expand(eq.rhs)}, style));
+    }
+}
+
+/// `logcombine`: a sum of ln terms -> a single ln.
+void run_logcombine(const std::string& input, PrintStyle style) {
+    const auto parsed = parse_input_diag(input);
+    if (std::holds_alternative<Expr>(parsed)) {
+        std::println("{}", to_string(log_combine(std::get<Expr>(parsed)), style));
+    } else {
+        const Equation& eq = std::get<Equation>(parsed);
+        std::println("{}", to_string(Equation{log_combine(eq.lhs), log_combine(eq.rhs)}, style));
+    }
+}
+
 void run_factor(const std::string& input, PrintStyle style) {
     const auto parsed = parse_input_diag(input);
     if (std::holds_alternative<Expr>(parsed)) {
@@ -1378,6 +1400,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver factor   \"x^2 - 5x + 6\"\n"
                "  mathsolver trigexpand \"sin(a+b)\"     sin/cos of sums & multiples\n"
                "  mathsolver trigreduce \"sin(x)^2\"     products/powers -> multiples\n"
+               "  mathsolver logexpand \"ln(x*y)\"       ln of products/powers -> sums\n"
                "  mathsolver cancel   \"(x^2 - 1)/(x - 1)\" [x]\n"
                "  mathsolver together \"1/x + 1/y\"\n"
                "  mathsolver solve    \"x^2 = 4\" [x] [--range LO HI]\n"
@@ -1443,7 +1466,8 @@ bool is_known_subcommand(std::string_view s) {
            s == "divisors" || s == "totient" || s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
            s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
-           s == "polydiv" || s == "polygcd" || s == "polylcm";
+           s == "polydiv" || s == "polygcd" || s == "polylcm" ||
+           s == "logexpand" || s == "logcombine";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1709,6 +1733,10 @@ int run_one_shot(const std::vector<std::string>& args) {
                 run_trigexpand(input, style);
             } else if (sub == "trigreduce") {
                 run_trigreduce(input, style);
+            } else if (sub == "logexpand") {
+                run_logexpand(input, style);
+            } else if (sub == "logcombine") {
+                run_logcombine(input, style);
             } else {  // latex
                 run_latex(input);
             }
@@ -1782,6 +1810,7 @@ void print_repl_help() {
         "  factor <expression>        latex <expression>\n"
         "  trigexpand <expression>    trig of sums/multiples -> single angles\n"
         "  trigreduce <expression>    products/powers of sin,cos -> multiples\n"
+        "  logexpand <expression>     logcombine <expression>   log identities\n"
         "  cancel <expression>[, <variable>]      cancel a rational's GCD\n"
         "  together <expression>                  sum of fractions over one denom\n"
         "  debug <expression>         (s-expression dump)\n"
@@ -1803,6 +1832,7 @@ std::vector<std::string> split_top_level_commas(const std::string& s) {
 bool is_repl_command(std::string_view word) {
     return word == "simplify" || word == "expand" || word == "factor" ||
            word == "trigexpand" || word == "trigreduce" ||
+           word == "logexpand" || word == "logcombine" ||
            word == "cancel" || word == "together" || word == "solve" ||
            word == "diff" || word == "integrate" ||
            word == "eval" || word == "latex" || word == "debug" ||
@@ -2652,6 +2682,10 @@ void repl_command(const std::string& command, const std::string& rest,
         run_trigexpand(resolve_input_text(input, env), PrintStyle::Plain);
     } else if (command == "trigreduce") {
         run_trigreduce(resolve_input_text(input, env), PrintStyle::Plain);
+    } else if (command == "logexpand") {
+        run_logexpand(resolve_input_text(input, env), PrintStyle::Plain);
+    } else if (command == "logcombine") {
+        run_logcombine(resolve_input_text(input, env), PrintStyle::Plain);
     } else if (command == "latex") {
         run_latex(input);
     } else {  // debug

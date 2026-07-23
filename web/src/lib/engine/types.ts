@@ -228,6 +228,8 @@ export interface EngineApi {
   factor: [[input: string], TransformResult];
   trigexpand: [[input: string], TransformResult];
   trigreduce: [[input: string], TransformResult];
+  logexpand: [[input: string], TransformResult];
+  logcombine: [[input: string], TransformResult];
   cancel: [[input: string], TransformResult];
   together: [[input: string], TransformResult];
   latex: [[input: string], TransformResult];

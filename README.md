@@ -516,7 +516,8 @@ for the full workflow.
   and multiples into single angles (`sin(a+b)` → `sin(a)cos(b) + cos(a)sin(b)`,
   `cos(2x)` → `cos(x)² - sin(x)²`); **`trigreduce`** inverts it, turning
   products and powers back into multiple angles (`sin(x)²` → `1/2 - cos(2x)/2`,
-  `2 sin(x) cos(x)` → `sin(2x)`).
+  `2 sin(x) cos(x)` → `sin(2x)`). **`logexpand`/`logcombine`** do the same for
+  logarithms (`ln(x·y)` → `ln x + ln y` and back).
 - **Derivatives** — full symbolic differentiation (chain/product/general
   power rule) over sin/cos/tan, inverse trig, hyperbolics, ln, abs.
 - **Integrals** — rule-based symbolic integration (table forms, linearity,

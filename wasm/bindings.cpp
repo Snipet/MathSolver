@@ -532,6 +532,12 @@ std::string ms_trigexpand(std::string input) {
 std::string ms_trigreduce(std::string input) {
     return transform_json(input, [](const Expr& e) { return trig_reduce(e); });
 }
+std::string ms_logexpand(std::string input) {
+    return transform_json(input, [](const Expr& e) { return log_expand(e); });
+}
+std::string ms_logcombine(std::string input) {
+    return transform_json(input, [](const Expr& e) { return log_combine(e); });
+}
 std::string ms_cancel(std::string input) {
     return transform_json(input, [](const Expr& e) { return cancel(e); });
 }
@@ -1400,6 +1406,8 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("factor", &ms_factor);
     emscripten::function("trigexpand", &ms_trigexpand);
     emscripten::function("trigreduce", &ms_trigreduce);
+    emscripten::function("logexpand", &ms_logexpand);
+    emscripten::function("logcombine", &ms_logcombine);
     emscripten::function("cancel", &ms_cancel);
     emscripten::function("together", &ms_together);
     emscripten::function("latex", &ms_latex);

@@ -57,6 +57,18 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "trigreduce sin(x)^2",
       },
       {
+        insert: "logexpand",
+        usage: "logexpand <expr>",
+        hint: "ln of products/quotients/powers → sums (ln(x·y) → ln x + ln y)",
+        example: "logexpand ln(x*y)",
+      },
+      {
+        insert: "logcombine",
+        usage: "logcombine <expr>",
+        hint: "Sum of logs → a single log (ln x + ln y → ln(x·y))",
+        example: "logcombine ln(x) + ln(y)",
+      },
+      {
         insert: "cancel",
         usage: "cancel <expr>",
         hint: "Cancel a rational's common polynomial factor",

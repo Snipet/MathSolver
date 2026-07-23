@@ -206,6 +206,18 @@ TEST_CASE("cli: polydiv quotient and remainder") {
     CHECK(contains(rem.output, "remainder: x + 1"));
 }
 
+TEST_CASE("cli: logexpand and logcombine") {
+    const RunResult e = run_cli({"logexpand", "ln(x*y)"});
+    INFO(e.output);
+    CHECK(e.exit_code == 0);
+    CHECK(contains(e.output, "ln(x)"));
+    CHECK(contains(e.output, "ln(y)"));
+
+    const RunResult c = run_cli({"logcombine", "ln(x) + ln(y)"});
+    CHECK(c.exit_code == 0);
+    CHECK(contains(c.output, "ln(x*y)"));
+}
+
 TEST_CASE("cli: trigreduce of products and powers") {
     const RunResult sq = run_cli({"trigreduce", "sin(x)^2"});
     INFO(sq.output);
