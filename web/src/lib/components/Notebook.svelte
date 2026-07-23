@@ -42,6 +42,11 @@
   /** The cell number the prompt line will become when run. */
   const promptIndex = $derived(notebook.cells.length + 1);
 
+  // Highest cell id already present when this console mounted; only cells run
+  // afterwards (id greater than this) get the entrance animation — so history
+  // restored on load, and a mode-switch remount, never re-animate.
+  const animBaseline = notebook.cells.reduce((m, c) => Math.max(m, c.id), 0);
+
   const EXAMPLE_GROUPS = [
     {
       title: "Try it",
@@ -418,6 +423,7 @@
           {cell}
           index={i + 1}
           islast={i === notebook.cells.length - 1}
+          animate={cell.id > animBaseline}
           onrerun={(t) => void runText(t)}
           onedit={editText}
           onrun={(t) => void runText(t)}
@@ -493,7 +499,7 @@
       </div>
     {/if}
 
-    <div class="prompt">
+    <div class="prompt" class:busy={computing}>
       <ConsolePrompt
         bind:this={exprInput}
         bind:value={input}
@@ -853,6 +859,36 @@
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
+    position: relative;
+  }
+  /* "Thinking" accent while the engine computes. The 130ms animation-delay
+     means a fast result (the common case) finishes before the bar ever shows,
+     so quick commands don't flicker; only a genuinely slow compute pulses. */
+  .prompt.busy::before {
+    content: "";
+    position: absolute;
+    left: -0.55rem;
+    top: 0.15rem;
+    bottom: 0.15rem;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    animation: prompt-pulse 0.75s ease-in-out 130ms infinite;
+  }
+  @keyframes prompt-pulse {
+    0%,
+    100% {
+      opacity: 0.2;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .prompt.busy::before {
+      animation: none;
+      opacity: 0.6;
+    }
   }
 
   /* Slim utility row under the prompt: symbol palette left, key hints right. */

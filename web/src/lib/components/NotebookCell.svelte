@@ -19,9 +19,11 @@
     onedit?: (input: string) => void;
     /** Run an arbitrary line (a "next" suggestion) as a fresh cell. */
     onrun?: (line: string) => void;
+    /** Play the entrance animation (only cells run after mount, not history). */
+    animate?: boolean;
   }
 
-  let { cell, index, islast = false, onrerun, onedit, onrun }: Props = $props();
+  let { cell, index, islast = false, onrerun, onedit, onrun, animate = false }: Props = $props();
 
   const result = $derived(cell.result);
 
@@ -69,9 +71,10 @@
   function setCollapsed(v: boolean) {
     notebook.setCollapsed(cell.id, v);
   }
+
 </script>
 
-<article class="cell">
+<article class="cell" class:reveal-anim={animate}>
   <div class="line in-line">
     <span class="label in-label">In[{index}]:=</span>
     <code class="src">{cell.input}</code>
@@ -240,6 +243,26 @@
   }
   .cell:last-child {
     border-bottom: none;
+  }
+  /* Entrance for a freshly-run result (only cells run after mount carry this
+     class — see `animate`). Fade + slide up; disabled under reduce-motion. */
+  .cell.reveal-anim {
+    animation: cell-in 0.21s ease-out both;
+  }
+  @keyframes cell-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cell.reveal-anim {
+      animation: none;
+    }
   }
   .line {
     display: grid;

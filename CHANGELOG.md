@@ -11,6 +11,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — result reveal animation.** When you press Enter, the new result
+  cell fades and slides in (~210ms) instead of popping, and the prompt shows a
+  subtle "thinking" accent while the engine computes (delayed, so quick results
+  never flicker). Only freshly-run cells animate — restored history and mode
+  switches don't — and the whole effect is disabled under the OS "reduce motion"
+  setting.
+
 - **Grapher — per-row styling.** Each row's color swatch now opens a style
   popover: pick a **color**, a **line style** (solid / dashed / dotted), and a
   **weight** (thin / normal / thick). The weight also scales point markers, so a
