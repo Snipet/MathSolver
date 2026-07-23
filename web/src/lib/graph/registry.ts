@@ -56,6 +56,8 @@ export class FunctionRegistry {
   #map = new Map<string, FnBinding>(); // computed bindings (valid only)
   #lastValid = new Map<string, FnBinding>();
   #persistKey?: string;
+  #version = 0; // bumps only when the definitions actually change
+  #lastRejects = new Map<string, string>();
 
   constructor(persistKey?: string) {
     this.#persistKey = persistKey;
@@ -68,6 +70,11 @@ export class FunctionRegistry {
     }
   }
 
+  /** Monotonic counter that changes whenever any definition changes — a cache
+   *  key component for the expansion memoization. */
+  version(): number {
+    return this.#version;
+  }
   fnNames(): string[] {
     return [...this.#map.keys()];
   }
@@ -89,10 +96,27 @@ export class FunctionRegistry {
     return [...out];
   }
 
-  /** Replace every definition (the grapher's per-recompute reconcile). */
+  /** Replace every definition (the grapher's per-recompute reconcile). A no-op
+   *  when the definitions are unchanged — so the version (hence the expansion
+   *  cache) is stable across pan/zoom/slider frames, and functions aren't
+   *  re-analyzed every recompute. */
   async reconcile(defs: FnDef[]): Promise<Map<string, string>> {
+    if (this.#sameAsCurrent(defs)) return this.#lastRejects;
     this.#defs = new Map(defs.map((d) => [d.name, d]));
     return this.#recompute();
+  }
+
+  #sameAsCurrent(defs: FnDef[]): boolean {
+    if (defs.length !== this.#defs.size) return false;
+    return defs.every((d) => {
+      const cur = this.#defs.get(d.name);
+      return (
+        cur !== undefined &&
+        cur.body === d.body &&
+        cur.params.length === d.params.length &&
+        cur.params.every((p, i) => p === d.params[i])
+      );
+    });
   }
 
   /** Upsert one definition (the console). Returns an error string or null. */
@@ -172,6 +196,8 @@ export class FunctionRegistry {
     }
     for (const n of [...this.#lastValid.keys()]) if (!names.has(n)) this.#lastValid.delete(n);
     this.#map = next;
+    this.#version++;
+    this.#lastRejects = rejects;
     this.#persist();
     return rejects;
   }
@@ -227,6 +253,9 @@ export function freeParamsOf(names: readonly string[]): string[] {
 }
 export function isFunctionName(sym: string): boolean {
   return graphReg.isFunctionName(sym);
+}
+export function graphVersion(): number {
+  return graphReg.version();
 }
 
 // --- the console's persistent session registry ------------------------------

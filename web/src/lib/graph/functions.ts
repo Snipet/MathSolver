@@ -140,6 +140,16 @@ export function stripCalls(
   return { text: s, calledFns: [...called] };
 }
 
+/** True if any calc operator (diff/integral/series/…) is called in `text`. A
+ *  row without one expands purely by user-function beta-reduction, which is
+ *  independent of the viewport and session variables — hence memoizable. */
+export function hasCalcCall(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    for (const n of CALC_FNS) if (callAt(text, i, n, false)) return true;
+  }
+  return false;
+}
+
 /** True if any user-function call occurs in `text` (calc calls ignored). */
 function containsApplCall(text: string, fnNames: readonly string[]): boolean {
   for (let i = 0; i < text.length; i++) {
