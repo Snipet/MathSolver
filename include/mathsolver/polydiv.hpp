@@ -39,4 +39,10 @@ PolyGcdResult polynomial_gcd(const Expr& a, const Expr& b, std::string_view var)
 /// The monic least common multiple, a·b / gcd(a, b). lcm with 0 is 0.
 PolyGcdResult polynomial_lcm(const Expr& a, const Expr& b, std::string_view var);
 
+/// The resultant of two polynomials in `var` — the product of the differences
+/// of their roots, times a leading-coefficient factor. It is zero exactly when
+/// the polynomials share a common factor. Computed via the Euclidean recursion
+/// over the polynomial remainder (no Sylvester matrix). Reuses PolyGcdResult.
+PolyGcdResult polynomial_resultant(const Expr& a, const Expr& b, std::string_view var);
+
 } // namespace mathsolver

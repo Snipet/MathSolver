@@ -270,6 +270,7 @@ export interface EngineApi {
   polydiv: [[dividend: string, divisor: string, variable: string], TransformResult];
   polygcd: [[a: string, b: string, variable: string], TransformResult];
   polylcm: [[a: string, b: string, variable: string], TransformResult];
+  resultant: [[a: string, b: string, variable: string], TransformResult];
   solveIneq: [[lhs: string, rhs: string, op: string, variable: string], TransformResult];
   mod: [[args: string], TransformResult];
   powmod: [[args: string], TransformResult];

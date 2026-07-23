@@ -487,6 +487,25 @@ std::string ms_polylcm(std::string a, std::string b, std::string var) {
     return ms_poly_gcd_lcm(a, b, var, true);
 }
 
+/// resultant(a, b, var): the resultant of two polynomials.
+std::string ms_resultant(std::string a, std::string b, std::string var) {
+    return guarded([&]() -> std::string {
+        const Expr ea = parse_expression(a);
+        const Expr eb = parse_expression(b);
+        std::string v = trim(var);
+        if (v.empty()) {
+            std::set<std::string> syms = free_symbols(ea);
+            for (const std::string& s : free_symbols(eb)) syms.insert(s);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json("resultant: name the variable, e.g. "
+                                 "resultant x^2 - 1, x - 2, x");
+        }
+        const PolyGcdResult r = polynomial_resultant(ea, eb, v);
+        if (r.status != PolyGcdResult::Status::Ok) return err_json(r.message);
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(r.value));
+    });
+}
+
 /// solveIneq(lhs, rhs, op, var): solve the inequality `lhs <op> rhs` for its
 /// variable (op is one of "<", "<=", ">", ">="; var may be empty to infer).
 std::string ms_solve_ineq(std::string lhs, std::string rhs, std::string op,
@@ -1435,6 +1454,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("polydiv", &ms_polydiv);
     emscripten::function("polygcd", &ms_polygcd);
     emscripten::function("polylcm", &ms_polylcm);
+    emscripten::function("resultant", &ms_resultant);
     emscripten::function("solveIneq", &ms_solve_ineq);
     emscripten::function("mod", &ms_mod);
     emscripten::function("powmod", &ms_powmod);

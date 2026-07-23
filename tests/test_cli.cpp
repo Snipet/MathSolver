@@ -182,6 +182,18 @@ TEST_CASE("cli: trigexpand of sums and multiples") {
     CHECK(contains(dbl.output, "sin(x)^2"));
 }
 
+TEST_CASE("cli: resultant of two polynomials") {
+    const RunResult nonzero = run_cli({"resultant", "x^2 - 1", "x - 2"});
+    INFO(nonzero.output);
+    CHECK(nonzero.exit_code == 0);
+    CHECK(contains(nonzero.output, "3"));
+
+    // Shared root → resultant 0.
+    const RunResult zero = run_cli({"resultant", "x^2 - 1", "x - 1"});
+    CHECK(zero.exit_code == 0);
+    CHECK(contains(zero.output, "0"));
+}
+
 TEST_CASE("cli: polygcd and polylcm") {
     const RunResult g = run_cli({"polygcd", "x^2 - 1", "x^3 - 1"});
     INFO(g.output);

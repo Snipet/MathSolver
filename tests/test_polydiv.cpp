@@ -119,6 +119,31 @@ TEST_CASE("polynomial gcd") {
     CHECK(poly_equal(gcd_str("x^4 - 1", "x^2 - 1"), "x^2 - 1"));
 }
 
+TEST_CASE("polynomial resultant") {
+    const auto res = [](const std::string& a, const std::string& b) {
+        const PolyGcdResult r =
+            polynomial_resultant(parse_expression(a), parse_expression(b), "x");
+        return r.status == PolyGcdResult::Status::Ok ? plain(r.value) : "ERR";
+    };
+    // res(x-a, x-b) = a - b.  (Here res(x-1, x-2) = 1 - 2 = -1.)
+    CHECK(res("x - 1", "x - 2") == "-1");
+    // res(f, x - c) = f(c):  res(x^2 - 1, x - 2) = 2^2 - 1 = 3.
+    CHECK(res("x^2 - 1", "x - 2") == "3");
+    // Zero exactly when they share a root.
+    CHECK(res("x^2 - 1", "x - 1") == "0");
+    CHECK(res("x^2 - 4", "x^2 - 9") != "0"); // no common root
+    CHECK(res("x^2 - 1", "x^2 - 1") == "0"); // identical → shared roots
+    // res(x^2 - 1, x^2 - 4): the four root differences product = 9.
+    CHECK(res("x^2 - 1", "x^2 - 4") == "9");
+    // Order symmetry for equal degrees: res(f,g) = res(g,f) when deg·deg even.
+    CHECK(res("x^2 - 1", "x^2 - 4") == res("x^2 - 4", "x^2 - 1"));
+    // A shared factor makes the resultant vanish even amid coprime parts.
+    CHECK(res("(x-1)*(x-2)", "(x-2)*(x-3)") == "0");
+
+    CHECK(polynomial_resultant(parse_expression("sin(x)"), parse_expression("x"), "x")
+              .status == PolyGcdResult::Status::NotPolynomial);
+}
+
 TEST_CASE("polynomial lcm") {
     const auto lcm = [](const std::string& a, const std::string& b) {
         const PolyGcdResult r =
