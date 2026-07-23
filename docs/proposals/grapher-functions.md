@@ -468,7 +468,8 @@ Prioritized from a full inventory. `S/M/L` = effort.
 - **Statistics on lists / distribution plots** — *low–med, M–L.* Builds on lists
   and the existing `stats`/`prob` verbs.
 - **Point & curve labels (`showLabel`)** — *low, M.* Per-row label text rendered
-  at the point/curve.
+  at the point/curve. *Shipped:* a label field in the row style popover, drawn
+  at each point / at the curve end, persisted per row.
 - **Per-row line/point style** (dashed/thickness/point size) — *low, M.* Extend
   `DrawSeries` + the row model + `GraphCanvas` rendering. *Shipped:* color +
   line style (solid/dashed/dotted) + weight (thin/normal/thick, also scaling

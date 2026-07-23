@@ -60,6 +60,9 @@ export interface DrawSeries {
   labels?: (string | null)[];
   /** For "area": the exact ∫ value drawn over the shaded band (e.g. "∫ = 2"). */
   label?: string;
+  /** A user-set row label drawn at the point(s) ("points") or along the curve
+   *  ("line"). Distinct from `label` (the area ∫ readout). */
+  tag?: string;
   /** For "line": draw dashed (e.g. a horizontal asymptote). */
   dash?: boolean;
   /** Per-row style overrides. `width` scales the stroke (lines) and, for

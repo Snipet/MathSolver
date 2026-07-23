@@ -305,8 +305,59 @@
       }
     }
 
+    // Row labels ("tags"): user-set text drawn at each point (point rows) or at
+    // the last on-screen sample of a curve (function rows).
+    for (const s of series) {
+      if (!s.visible || !s.tag) continue;
+      const ok = (i: number) => {
+        const x = s.xs[i];
+        const y = s.ys[i];
+        return x !== null && y !== null && Number.isFinite(x) && Number.isFinite(y);
+      };
+      if (s.kind === "points") {
+        for (let i = 0; i < s.xs.length; i++) {
+          if (!ok(i)) continue;
+          drawTag(ctx, xToPx(s.xs[i] as number, v, w) + 8, yToPx(s.ys[i] as number, v, h) - 9, s.tag, s.color, bg);
+        }
+      } else if (s.kind === "line") {
+        let ai = -1;
+        for (let i = 0; i < s.xs.length; i++) {
+          if (!ok(i)) continue;
+          const px = xToPx(s.xs[i] as number, v, w);
+          const py = yToPx(s.ys[i] as number, v, h);
+          if (px >= 0 && px <= w && py >= 0 && py <= h) ai = i;
+        }
+        if (ai >= 0) drawTag(ctx, xToPx(s.xs[ai] as number, v, w) + 6, yToPx(s.ys[ai] as number, v, h) - 9, s.tag, s.color, bg);
+      }
+    }
+
     drawTrace(ctx, v, w, h, label, bg);
     ctx.restore();
+  }
+
+  // A small pill-backed text label in the series color, clamped on-screen.
+  function drawTag(
+    ctx: CanvasRenderingContext2D,
+    px: number,
+    py: number,
+    text: string,
+    color: string,
+    bg: string,
+  ): void {
+    ctx.font = "12px " + (cssColor(canvas!, "--font-sans", "") || "system-ui, sans-serif");
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    const tw = ctx.measureText(text).width;
+    const w = canvas ? canvas.clientWidth : 1e4;
+    const x = Math.max(2, Math.min(px, w - tw - 10));
+    const y = Math.max(10, py);
+    ctx.fillStyle = bg;
+    ctx.globalAlpha = 0.85;
+    roundRect(ctx, x - 3, y - 9, tw + 8, 18, 5);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.fillText(text, x + 1, y);
   }
 
   function drawPointDot(
