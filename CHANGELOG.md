@@ -11,6 +11,16 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — piecewise functions.** A Desmos-style piecewise row
+  `{condition: value, …}` plots a curve that switches between cases:
+  `{x < 0: -x, x}` draws `|x|`, `{x > 0: 1, x < 0: -1, 0}` the sign step, and
+  `{0 < x < 5: x^2}` (no else) draws `x²` only on `(0, 5)` and leaves the rest
+  undefined. Chained conditions (`0 < x < 5`) work, the first branch whose
+  condition holds owns each point (a gap where its value is undefined, matching
+  Desmos), a trailing bare value is the `else`, and sliders/session variables in
+  the conditions and values are honored. A `{ … }` clause with no colon is still
+  a domain restriction, not a piecewise.
+
 - **User-defined functions (grapher & console).** Define a function with
   `f(x) = x^2` and use it anywhere: plot `y = f(x) + 1`, its derivative `f'(x)`
   (or `f''(x)`), a value `f(3)`, a composition `g(f(x))`, or multi-argument
