@@ -62,6 +62,36 @@ TEST_CASE("poisson pmf/cdf are correct and normalized") {
     CHECK_THAT(pr::poisson_cdf(3, 2), WithinAbs(0.4231900811, 1e-9));
 }
 
+TEST_CASE("student t: symmetry, tail values, normal limit") {
+    CHECK_THAT(pr::t_cdf(0, 10), WithinAbs(0.5, 1e-12));
+    CHECK_THAT(pr::t_cdf(1.5, 7) + pr::t_cdf(-1.5, 7), WithinAbs(1.0, 1e-12)); // symmetry
+    // The 97.5th percentile of t(10) is 2.228.
+    CHECK_THAT(pr::t_cdf(2.228138852, 10), WithinAbs(0.975, 1e-6));
+    // As nu -> inf, t -> standard normal.
+    CHECK_THAT(pr::t_cdf(1.959963985, 1e7), WithinAbs(0.975, 1e-5));
+    CHECK_THAT(pr::t_pdf(0, 1e7), WithinAbs(pr::normal_pdf(0, 0, 1), 1e-5));
+}
+
+TEST_CASE("chi-squared: known percentiles and the k=2 exponential identity") {
+    // chi^2(2) is Exponential(1/2): CDF = 1 - e^{-x/2}.
+    CHECK_THAT(pr::chi2_cdf(2, 2), WithinAbs(1.0 - std::exp(-1.0), 1e-10));
+    // The 95th percentile of chi^2(3) is 7.815.
+    CHECK_THAT(pr::chi2_cdf(7.814727903, 3), WithinAbs(0.95, 1e-6));
+    CHECK(pr::chi2_cdf(0, 3) == 0.0);
+    CHECK(pr::chi2_pdf(-1, 3) == 0.0);
+}
+
+TEST_CASE("exponential and uniform closed forms") {
+    CHECK_THAT(pr::exp_pdf(0, 0.5), WithinRel(0.5, 1e-12));
+    CHECK_THAT(pr::exp_cdf(2, 0.5), WithinAbs(1.0 - std::exp(-1.0), 1e-12));
+    CHECK(pr::exp_cdf(-1, 1) == 0.0);
+    CHECK_THAT(pr::unif_pdf(3, 0, 10), WithinRel(0.1, 1e-12));
+    CHECK(pr::unif_pdf(-1, 0, 10) == 0.0);
+    CHECK_THAT(pr::unif_cdf(3, 0, 10), WithinRel(0.3, 1e-12));
+    CHECK(pr::unif_cdf(-5, 0, 10) == 0.0);
+    CHECK(pr::unif_cdf(15, 0, 10) == 1.0);
+}
+
 TEST_CASE("plugin command envelopes and error paths") {
     register_builtin_plugins();
     const Plugin* p = find("prob");
@@ -72,6 +102,11 @@ TEST_CASE("plugin command envelopes and error paths") {
     CHECK_THAT(p->invoke("normalpdf", {"0"}), ContainsSubstring("\"type\":\"series\""));
     CHECK_THAT(p->invoke("binompdf", {"10", "0.5", "5"}), ContainsSubstring("0.246"));
     CHECK_THAT(p->invoke("poissoncdf", {"3", "2"}), ContainsSubstring("0.423"));
+    CHECK_THAT(p->invoke("tcdf", {"2.228", "10"}),
+               ContainsSubstring("\"ok\":true") && ContainsSubstring("0.9749"));
+    CHECK_THAT(p->invoke("chi2cdf", {"7.815", "3"}), ContainsSubstring("0.95"));
+    CHECK_THAT(p->invoke("expcdf", {"2", "0.5"}), ContainsSubstring("0.632"));
+    CHECK_THAT(p->invoke("unifcdf", {"3", "0", "10"}), ContainsSubstring("0.3"));
 
     // Errors: bad domain, non-integer count, unknown command — never throw.
     CHECK_THAT(p->invoke("normalcdf", {"1", "0", "-2"}),
