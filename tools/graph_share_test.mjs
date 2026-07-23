@@ -51,6 +51,32 @@ check("oversized text field is truncated", (() => {
   return decodeState(big).rows[0].text.length === 2048;
 })());
 
+// Data-table rows round-trip (kind / points / fit)
+const tableState = {
+  v: 1,
+  rows: [
+    { kind: "table", text: "", color: "#2563eb", visible: true, points: [{ x: "0", y: "1" }, { x: "1", y: "2" }], fit: "quadratic" },
+  ],
+  view: { cx: 0, cy: 0, scale: 40 },
+  vars: [],
+};
+const decTable = decodeState(encodeState(tableState));
+check("table row round-trips kind", decTable.rows[0].kind === "table");
+check("table row round-trips points", JSON.stringify(decTable.rows[0].points) === JSON.stringify([{ x: "0", y: "1" }, { x: "1", y: "2" }]));
+check("table row round-trips fit model", decTable.rows[0].fit === "quadratic");
+check("invalid fit model falls back to \"\"", (() => {
+  const bad = btoaJson({ v: 1, rows: [{ kind: "table", color: "#2563eb", visible: true, points: [], fit: "evil" }], vars: [], view: { cx: 0, cy: 0, scale: 40 } });
+  return decodeState(bad).rows[0].fit === "";
+})());
+check("table points capped at 200", (() => {
+  const many = { v: 1, rows: [{ kind: "table", color: "#2563eb", visible: true, points: Array.from({ length: 500 }, (_, i) => ({ x: String(i), y: String(i) })), fit: "" }], vars: [], view: { cx: 0, cy: 0, scale: 40 } };
+  return decodeState(btoaJson(many)).rows[0].points.length === 200;
+})());
+check("non-string point coord coerced to \"\"", (() => {
+  const bad = btoaJson({ v: 1, rows: [{ kind: "table", color: "#2563eb", visible: true, points: [{ x: 5, y: "2" }], fit: "" }], vars: [], view: { cx: 0, cy: 0, scale: 40 } });
+  return decodeState(bad).rows[0].points[0].x === "";
+})());
+
 function btoaJson(o) {
   const s = JSON.stringify(o);
   const bytes = new TextEncoder().encode(s);

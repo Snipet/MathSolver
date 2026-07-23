@@ -1,13 +1,29 @@
 // Graphing-calculator document: an ordered list of expression rows plus the
-// viewport, persisted to localStorage. Rows hold raw text only; parsing,
-// sampling, and free-variable detection happen reactively in
-// GraphCalculator.svelte (which needs the async engine + $effect).
+// viewport, persisted to localStorage. Most rows hold raw text (parsed and
+// sampled reactively in GraphCalculator.svelte); a "table" row instead holds a
+// list of (x, y) data points and an optional regression model, plotted as
+// points with a fitted curve overlaid.
 import type { View } from "./viewport";
+
+/** One (x, y) data point in a table row; kept as raw strings the user typed. */
+export interface DataPoint {
+  x: string;
+  y: string;
+}
+
+/** Regression model for a table row ("" = plot the points only). */
+export type FitModelName = "" | "linear" | "quadratic" | "cubic" | "exp" | "power" | "log";
 
 export interface ExprRow {
   id: number;
-  /** Raw expression as typed, e.g. "a*sin(x)" or "x^2 = 4 - y^2". */
+  /** "expr" rows plot `text`; "table" rows plot `points` (+ optional `fit`). */
+  kind: "expr" | "table";
+  /** Raw expression as typed, e.g. "a*sin(x)" or "x^2 = 4 - y^2" (expr rows). */
   text: string;
+  /** Data points (table rows); always ends with a blank row for entry. */
+  points: DataPoint[];
+  /** Regression model overlaid on the points (table rows). */
+  fit: FitModelName;
   /** Series color. */
   color: string;
   visible: boolean;
@@ -27,13 +43,60 @@ export const GRAPH_COLORS = [
 
 const KEY = "mathsolver.graph";
 const CAP = 40;
+const POINT_CAP = 200; // max data points in one table
 const DEFAULT_VIEW: View = { cx: 0, cy: 0, scale: 40 };
 
 let nextId = 1;
 
+interface PersistedRow {
+  text: string;
+  color: string;
+  visible: boolean;
+  kind?: "expr" | "table";
+  points?: DataPoint[];
+  /** Loose `string` (not FitModelName) so decoded share data is assignable;
+   *  normalizeRow validates it against FIT_MODELS. */
+  fit?: string;
+}
 interface Persisted {
-  rows: { text: string; color: string; visible: boolean }[];
+  rows: PersistedRow[];
   view: View;
+}
+
+const FIT_MODELS: FitModelName[] = ["", "linear", "quadratic", "cubic", "exp", "power", "log"];
+
+/** Coerce arbitrary persisted/shared data into a clean point list + trailing blank. */
+export function sanitizePoints(raw: unknown): DataPoint[] {
+  const out: DataPoint[] = [];
+  if (Array.isArray(raw)) {
+    for (const p of raw.slice(0, POINT_CAP)) {
+      if (!p || typeof p !== "object") continue;
+      const r = p as Record<string, unknown>;
+      const x = typeof r.x === "string" ? r.x.slice(0, 64) : "";
+      const y = typeof r.y === "string" ? r.y.slice(0, 64) : "";
+      out.push({ x, y });
+    }
+  }
+  return withTrailingBlank(out);
+}
+
+function withTrailingBlank(points: DataPoint[]): DataPoint[] {
+  const last = points[points.length - 1];
+  if (!last || last.x.trim() !== "" || last.y.trim() !== "") points.push({ x: "", y: "" });
+  return points;
+}
+
+function normalizeRow(r: PersistedRow): ExprRow {
+  const kind = r.kind === "table" ? "table" : "expr";
+  return {
+    id: nextId++,
+    kind,
+    text: typeof r.text === "string" ? r.text : "",
+    points: kind === "table" ? sanitizePoints(r.points) : [],
+    fit: kind === "table" && FIT_MODELS.includes(r.fit as FitModelName) ? (r.fit as FitModelName) : "",
+    color: typeof r.color === "string" ? r.color : GRAPH_COLORS[0],
+    visible: r.visible !== false,
+  };
 }
 
 function load(): { rows: ExprRow[]; view: View } {
@@ -43,14 +106,9 @@ function load(): { rows: ExprRow[]; view: View } {
     const p = JSON.parse(raw) as Partial<Persisted>;
     const rows: ExprRow[] = Array.isArray(p.rows)
       ? p.rows
-          .filter((r) => r && typeof r.text === "string")
+          .filter((r): r is PersistedRow => !!r && (typeof r.text === "string" || r.kind === "table"))
           .slice(0, CAP)
-          .map((r) => ({
-            id: nextId++,
-            text: r.text,
-            color: typeof r.color === "string" ? r.color : GRAPH_COLORS[0],
-            visible: r.visible !== false,
-          }))
+          .map(normalizeRow)
       : [];
     const v = p.view;
     const view: View =
@@ -64,7 +122,7 @@ function load(): { rows: ExprRow[]; view: View } {
 }
 
 function seedRow(): ExprRow {
-  return { id: nextId++, text: "", color: GRAPH_COLORS[0], visible: true };
+  return { id: nextId++, kind: "expr", text: "", points: [], fit: "", color: GRAPH_COLORS[0], visible: true };
 }
 
 class GraphStore {
@@ -84,7 +142,28 @@ class GraphStore {
 
   addRow(text = ""): number {
     if (this.rows.length >= CAP) return -1;
-    const row: ExprRow = { id: nextId++, text, color: this.#nextColor(), visible: true };
+    const row: ExprRow = { id: nextId++, kind: "expr", text, points: [], fit: "", color: this.#nextColor(), visible: true };
+    this.rows.push(row);
+    this.persist();
+    return row.id;
+  }
+
+  /** Add an empty data table (three blank point rows to start). */
+  addTable(): number {
+    if (this.rows.length >= CAP) return -1;
+    const row: ExprRow = {
+      id: nextId++,
+      kind: "table",
+      text: "",
+      points: [
+        { x: "", y: "" },
+        { x: "", y: "" },
+        { x: "", y: "" },
+      ],
+      fit: "",
+      color: this.#nextColor(),
+      visible: true,
+    };
     this.rows.push(row);
     this.persist();
     return row.id;
@@ -103,6 +182,41 @@ class GraphStore {
       this.persistSoon(); // coalesce keystrokes into one write
     }
   }
+
+  /** Edit one coordinate of a table point, keeping a trailing blank row. */
+  setPoint(id: number, index: number, patch: { x?: string; y?: string }): void {
+    const r = this.rows.find((x) => x.id === id);
+    if (!r || r.kind !== "table") return;
+    const p = r.points[index];
+    if (!p) return;
+    if (patch.x !== undefined) p.x = patch.x;
+    if (patch.y !== undefined) p.y = patch.y;
+    // Auto-grow: keep exactly one trailing blank row so there is always an
+    // empty slot to type into (capped).
+    const last = r.points[r.points.length - 1];
+    if ((last.x.trim() !== "" || last.y.trim() !== "") && r.points.length < POINT_CAP) {
+      r.points.push({ x: "", y: "" });
+    }
+    this.persistSoon();
+  }
+
+  /** Delete a table point (never leaves the table without a blank entry row). */
+  removePoint(id: number, index: number): void {
+    const r = this.rows.find((x) => x.id === id);
+    if (!r || r.kind !== "table") return;
+    r.points.splice(index, 1);
+    if (r.points.length === 0) r.points.push({ x: "", y: "" });
+    this.persist();
+  }
+
+  setFit(id: number, fit: FitModelName): void {
+    const r = this.rows.find((x) => x.id === id);
+    if (r && r.kind === "table") {
+      r.fit = fit;
+      this.persist();
+    }
+  }
+
   setColor(id: number, color: string): void {
     const r = this.rows.find((x) => x.id === id);
     if (r) {
@@ -118,18 +232,19 @@ class GraphStore {
     }
   }
 
+  #rowSnapshot(r: ExprRow): PersistedRow {
+    return r.kind === "table"
+      ? { kind: "table", text: "", color: r.color, visible: r.visible, points: r.points.map((p) => ({ x: p.x, y: p.y })), fit: r.fit }
+      : { text: r.text, color: r.color, visible: r.visible };
+  }
+
   /** The rows + viewport as a plain snapshot (for a share link). */
-  snapshot(): { rows: { text: string; color: string; visible: boolean }[]; view: View } {
-    return {
-      rows: this.rows.map((r) => ({ text: r.text, color: r.color, visible: r.visible })),
-      view: { ...this.view },
-    };
+  snapshot(): { rows: PersistedRow[]; view: View } {
+    return { rows: this.rows.map((r) => this.#rowSnapshot(r)), view: { ...this.view } };
   }
   /** Replace the whole document (from a shared link). */
-  replaceAll(rows: { text: string; color: string; visible: boolean }[], view: View): void {
-    this.rows = rows.length
-      ? rows.slice(0, CAP).map((r) => ({ id: nextId++, text: r.text, color: r.color, visible: r.visible }))
-      : [seedRow()];
+  replaceAll(rows: PersistedRow[], view: View): void {
+    this.rows = rows.length ? rows.slice(0, CAP).map(normalizeRow) : [seedRow()];
     this.view = {
       cx: Number.isFinite(view.cx) ? view.cx : DEFAULT_VIEW.cx,
       cy: Number.isFinite(view.cy) ? view.cy : DEFAULT_VIEW.cy,
@@ -154,10 +269,7 @@ class GraphStore {
       this.#persistTimer = null;
     }
     try {
-      const data: Persisted = {
-        rows: this.rows.map((r) => ({ text: r.text, color: r.color, visible: r.visible })),
-        view: this.view,
-      };
+      const data: Persisted = { rows: this.rows.map((r) => this.#rowSnapshot(r)), view: this.view };
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch {
       /* storage unavailable */
