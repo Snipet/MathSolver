@@ -14,6 +14,9 @@ export interface DataPoint {
 /** Regression model for a table row ("" = plot the points only). */
 export type FitModelName = "" | "linear" | "quadratic" | "cubic" | "exp" | "power" | "log";
 
+import { LINE_STYLES, LINE_WEIGHTS, type LineStyle, type LineWeight } from "./style";
+export { LINE_STYLES, LINE_WEIGHTS, type LineStyle, type LineWeight };
+
 export interface ExprRow {
   id: number;
   /** "expr" rows plot `text`; "table" rows plot `points` (+ optional `fit`). */
@@ -26,6 +29,9 @@ export interface ExprRow {
   fit: FitModelName;
   /** Series color. */
   color: string;
+  /** Line dash style and stroke/point weight (per-row, Desmos-like). */
+  lineStyle: LineStyle;
+  weight: LineWeight;
   visible: boolean;
 }
 
@@ -52,6 +58,8 @@ interface PersistedRow {
   text: string;
   color: string;
   visible: boolean;
+  lineStyle?: string;
+  weight?: string;
   kind?: "expr" | "table";
   points?: DataPoint[];
   /** Loose `string` (not FitModelName) so decoded share data is assignable;
@@ -95,6 +103,8 @@ function normalizeRow(r: PersistedRow): ExprRow {
     points: kind === "table" ? sanitizePoints(r.points) : [],
     fit: kind === "table" && FIT_MODELS.includes(r.fit as FitModelName) ? (r.fit as FitModelName) : "",
     color: typeof r.color === "string" ? r.color : GRAPH_COLORS[0],
+    lineStyle: LINE_STYLES.includes(r.lineStyle as LineStyle) ? (r.lineStyle as LineStyle) : "solid",
+    weight: LINE_WEIGHTS.includes(r.weight as LineWeight) ? (r.weight as LineWeight) : "normal",
     visible: r.visible !== false,
   };
 }
@@ -122,7 +132,7 @@ function load(): { rows: ExprRow[]; view: View } {
 }
 
 function seedRow(): ExprRow {
-  return { id: nextId++, kind: "expr", text: "", points: [], fit: "", color: GRAPH_COLORS[0], visible: true };
+  return { id: nextId++, kind: "expr", text: "", points: [], fit: "", color: GRAPH_COLORS[0], lineStyle: "solid", weight: "normal", visible: true };
 }
 
 class GraphStore {
@@ -142,7 +152,7 @@ class GraphStore {
 
   addRow(text = ""): number {
     if (this.rows.length >= CAP) return -1;
-    const row: ExprRow = { id: nextId++, kind: "expr", text, points: [], fit: "", color: this.#nextColor(), visible: true };
+    const row: ExprRow = { id: nextId++, kind: "expr", text, points: [], fit: "", color: this.#nextColor(), lineStyle: "solid", weight: "normal", visible: true };
     this.rows.push(row);
     this.persist();
     return row.id;
@@ -162,6 +172,8 @@ class GraphStore {
       ],
       fit: "",
       color: this.#nextColor(),
+      lineStyle: "solid",
+      weight: "normal",
       visible: true,
     };
     this.rows.push(row);
@@ -224,6 +236,14 @@ class GraphStore {
       this.persist();
     }
   }
+  /** Update a row's line dash style and/or stroke weight. */
+  setStyle(id: number, patch: { lineStyle?: LineStyle; weight?: LineWeight }): void {
+    const r = this.rows.find((x) => x.id === id);
+    if (!r) return;
+    if (patch.lineStyle) r.lineStyle = patch.lineStyle;
+    if (patch.weight) r.weight = patch.weight;
+    this.persist();
+  }
   toggleVisible(id: number): void {
     const r = this.rows.find((x) => x.id === id);
     if (r) {
@@ -233,9 +253,10 @@ class GraphStore {
   }
 
   #rowSnapshot(r: ExprRow): PersistedRow {
+    const style = { lineStyle: r.lineStyle, weight: r.weight };
     return r.kind === "table"
-      ? { kind: "table", text: "", color: r.color, visible: r.visible, points: r.points.map((p) => ({ x: p.x, y: p.y })), fit: r.fit }
-      : { text: r.text, color: r.color, visible: r.visible };
+      ? { kind: "table", text: "", color: r.color, visible: r.visible, ...style, points: r.points.map((p) => ({ x: p.x, y: p.y })), fit: r.fit }
+      : { text: r.text, color: r.color, visible: r.visible, ...style };
   }
 
   /** The rows + viewport as a plain snapshot (for a share link). */

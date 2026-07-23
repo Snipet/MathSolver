@@ -228,11 +228,14 @@
       ctx.globalAlpha = 1;
     }
 
-    ctx.lineWidth = 2.2;
     for (const s of series) {
       if (!s.visible || s.kind !== "line" || s.xs.length === 0) continue;
       ctx.strokeStyle = s.color;
-      ctx.setLineDash(s.dash ? [6, 5] : []);
+      ctx.lineWidth = s.width ?? 2.2;
+      // An explicit dash pattern (per-row style) wins; else the legacy `dash`
+      // flag (asymptotes) draws a fixed dash; else solid.
+      ctx.setLineDash(s.dashArr ?? (s.dash ? [6, 5] : []));
+      ctx.lineCap = s.dashArr && s.dashArr[0] <= 2 ? "round" : "butt"; // dotted → round caps
       ctx.beginPath();
       let pen = false;
       for (let i = 0; i < s.xs.length; i++) {
@@ -255,11 +258,13 @@
       ctx.stroke();
     }
     ctx.setLineDash([]); // don't let an asymptote's dash leak into later strokes
+    ctx.lineCap = "butt";
 
     let ghostDrawn = false;
     for (const s of series) {
       if (!s.visible || s.kind !== "points") continue;
       ctx.fillStyle = s.color;
+      const r = s.width ? 4 * (s.width / 2.2) : 4; // scale marker radius with weight
       for (let i = 0; i < s.xs.length; i++) {
         const isGhost = !!ghost && ghost.sid === s.id && handles[s.id]?.[i]?.coordIndex === ghost.ci;
         let x = s.xs[i];
@@ -270,7 +275,7 @@
           ghostDrawn = true;
         }
         if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
-        drawPointDot(ctx, xToPx(x, v, w), yToPx(y, v, h), s.color, isGhost);
+        drawPointDot(ctx, xToPx(x, v, w), yToPx(y, v, h), s.color, isGhost, r);
       }
     }
     // The ghost's source point may not be in `series` yet (e.g. just committed);
@@ -310,10 +315,11 @@
     py: number,
     color: string,
     emphasized: boolean,
+    radius = 4,
   ): void {
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(px, py, emphasized ? 6 : 4, 0, 2 * Math.PI);
+    ctx.arc(px, py, emphasized ? radius + 2 : radius, 0, 2 * Math.PI);
     ctx.fill();
     if (emphasized) {
       ctx.beginPath();
