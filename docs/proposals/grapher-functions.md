@@ -457,9 +457,11 @@ Prioritized from a full inventory. `S/M/L` = effort.
 - **Lists `[1,2,3]` + comprehensions + list ops** — *med, L.* Foundational for
   Desmos-style data/statistics but a large new value type across parse/eval.
   *Phase 1 shipped:* `L = [1,2,3]` / ranges `[a...b]`, element-wise broadcast,
-  and list-of-points plotting `(L, L^2)` (web layer, `graph/lists.ts`). Still
-  open: comprehensions (`[k^2 for k=[1...5]]`), list ops (sort/length/indexing),
-  `y = [ … ]` horizontal lines, and statistics on lists.
+  and list-of-points plotting `(L, L^2)` (web layer, `graph/lists.ts`).
+  *Phase 2 shipped:* comprehensions `[k^2 for k=L]`, scalar aggregates
+  (`total`/`mean`/`min`/`max`/`median`/`stdev`/`length`), and 1-based indexing
+  `L[i]`. Still open: list-returning ops (`sort`/`unique`/slices `L[a...b]`),
+  `y = [ … ]` horizontal lines, and distribution/statistics plots.
 - **Statistics on lists / distribution plots** — *low–med, M–L.* Builds on lists
   and the existing `stats`/`prob` verbs.
 - **Point & curve labels (`showLabel`)** — *low, M.* Per-row label text rendered

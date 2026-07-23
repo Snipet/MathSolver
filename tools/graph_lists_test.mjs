@@ -10,7 +10,7 @@ const entry = join(dir, "entry.ts");
 writeFileSync(
   entry,
   `export { classifyRow } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/classify.ts")};
-   export { isBracketList, listInside, parseListBody, matchListDef, rangeValues, referencedLists, substIdent } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/lists.ts")};`,
+   export { isBracketList, listInside, parseListBody, matchListDef, rangeValues, referencedLists, substIdent, AGGREGATES, AGG_NAMES, findAggCall, findIndex, isListArg, listSurrogate, hasListOps } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/lists.ts")};`,
 );
 const out = join(dir, "bundle.mjs");
 execFileSync("npx", ["esbuild", entry, "--bundle", "--format=esm", `--outfile=${out}`], {
@@ -59,6 +59,32 @@ check("referencedLists ignores substrings", eqArr(L.referencedLists("Lab + xL", 
 check("substIdent wraps replacement in parens", L.substIdent("L^2", "L", "-3") === "(-3)^2");
 check("substIdent replaces every occurrence, whole-word only", L.substIdent("L + Lab + L", "L", "2") === "(2) + Lab + (2)");
 check("substIdent inside a call", L.substIdent("f(L)", "L", "4") === "f((4))");
+
+// --- comprehensions (Phase 2) ----------------------------------------------
+check("comprehension body/var/source", (() => { const s = L.parseListBody("k^2 for k = [1...5]"); return s.kind === "comprehension" && s.body === "k^2" && s.varName === "k" && s.source === "[1...5]"; })());
+check("comprehension over a named list", (() => { const s = L.parseListBody("2*n for n = L"); return s.kind === "comprehension" && s.source === "L"; })());
+check("'for' inside a call is not a comprehension keyword", (() => { const s = L.parseListBody("format(x)"); return s.kind === "literal"; })());
+check("comprehension classifies as listdef", (() => { const r = L.classifyRow("B = [k^2 for k=[1...4]]"); return r.t === "listdef" && r.inside === "k^2 for k=[1...4]"; })());
+
+// --- aggregates + indexing scanners ----------------------------------------
+check("AGG_NAMES include the core reducers", ["total", "mean", "min", "max", "length", "median", "stdev"].every((n) => L.AGG_NAMES.includes(n)));
+check("aggregate arithmetic", L.AGGREGATES.total([1, 2, 3, 4]) === 10 && L.AGGREGATES.mean([1, 2, 3, 4]) === 2.5 && L.AGGREGATES.max([3, 9, 1]) === 9 && L.AGGREGATES.length([1, 2, 3]) === 3);
+check("median even/odd", L.AGGREGATES.median([1, 2, 3]) === 2 && L.AGGREGATES.median([1, 2, 3, 4]) === 2.5);
+check("isListArg: name and bracket yes, scalar no", L.isListArg("L", ["L"]) && L.isListArg("[1,2]", ["L"]) && !L.isListArg("x", ["L"]) && !L.isListArg("x, 2", ["L"]));
+check("findAggCall matches mean(L)", (() => { const c = L.findAggCall("mean(L) + 1", ["mean"], ["L"]); return c && c.name === "mean" && c.inner === "L"; })());
+check("findAggCall skips scalar max(x,2), still finds mean(L)", (() => { const c = L.findAggCall("max(x, 2) + mean(L)", ["max", "mean"], ["L"]); return c && c.name === "mean"; })());
+check("findAggCall ignores max(x,2) entirely", L.findAggCall("max(x, 2)", ["max", "mean"], ["L"]) === null);
+check("findIndex matches L[3]", (() => { const c = L.findIndex("L[3] + 1", ["L"]); return c && c.name === "L" && c.idx === "3"; })());
+check("findIndex ignores non-list names", L.findIndex("a[3]", ["L"]) === null);
+
+// --- listSurrogate (free-variable exposure) --------------------------------
+check("surrogate drops a bare list name", L.listSurrogate("L", ["L"]) === "(0)");
+check("surrogate exposes a range bound slider", (() => { const s = L.listSurrogate("[1...n]", ["L"]); return /n/.test(s) && !/\[/.test(s); })());
+check("surrogate of mean(L) has no symbols", (() => { const s = L.listSurrogate("mean(L)", ["L"]); return !/[A-Za-z]/.test(s.replace(/[eE]/g, "")); })());
+check("surrogate of mean([1...n]) exposes n only", (() => { const s = L.listSurrogate("mean([1...n])", ["L"]); return /n/.test(s) && !/mean|\[/.test(s); })());
+check("surrogate keeps real sliders, drops bound var", (() => { const s = L.listSurrogate("[a*k for k=[1...4]]", ["L"]); return /a/.test(s) && !/\bk\b/.test(s) && !/for|\[/.test(s); })());
+check("surrogate leaves a plain expression untouched", L.listSurrogate("x^2 + a", []) === "x^2 + a");
+check("hasListOps detects brackets/aggregates/refs", L.hasListOps("[1,2]", []) && L.hasListOps("mean(L)", ["L"]) && L.hasListOps("L^2", ["L"]) && !L.hasListOps("x^2 + a", ["L"]));
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

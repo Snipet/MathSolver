@@ -11,6 +11,17 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — list operations (comprehensions, aggregates, indexing).** Building
+  on lists: **comprehensions** `[k^2 for k = [1...5]]` (or over a named list,
+  `[2*n for n = L]`) build a list by evaluating a body per element;
+  **aggregates** reduce a list to a scalar — `total`, `mean`, `min`, `max`,
+  `median`, `stdev`, `length` — so `y = mean(L)` draws a horizontal line and
+  `(L, total(L))` is usable anywhere a number is; and **1-based indexing**
+  `L[3]` reads an element (`L[2] + L[3]`, or `(L[1], L[5])`). Aggregates
+  broadcast over expressions too (`mean(L^2)`). Bound comprehension variables
+  and list names never leak out as sliders, while a real range-bound slider
+  (`[1...n]`) still does.
+
 - **Grapher — lists + list-of-points plotting.** Define a list with
   `L = [1, 2, 3]` or a range `[1...10]` / stepped range `[0, 2...10]`, then plot
   it: a point row whose coordinates are list-valued becomes a scatter. Any

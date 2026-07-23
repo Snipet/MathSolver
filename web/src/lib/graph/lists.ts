@@ -29,7 +29,8 @@ export function listInside(text: string): string {
 
 export type ListSpec =
   | { kind: "literal"; items: string[] }
-  | { kind: "range"; from: string; step: string | null; to: string };
+  | { kind: "range"; from: string; step: string | null; to: string }
+  | { kind: "comprehension"; body: string; varName: string; source: string };
 
 /** Find a top-level `...` (ellipsis) in `inside`, returning the split or null. */
 function splitEllipsis(inside: string): { before: string; after: string } | null {
@@ -45,8 +46,36 @@ function splitEllipsis(inside: string): { before: string; after: string } | null
   return null;
 }
 
-/** Parse the inside of `[ … ]` into a literal element list or a numeric range. */
+/** Find a top-level ` for ` keyword in a comprehension body, or -1. */
+function forKeywordAt(inside: string): number {
+  let depth = 0;
+  for (let i = 0; i < inside.length; i++) {
+    const c = inside[i];
+    if (c === "(" || c === "[" || c === "{") depth++;
+    else if (c === ")" || c === "]" || c === "}") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && /\s/.test(c) && inside.slice(i + 1, i + 4) === "for" && /\s/.test(inside[i + 4] ?? " ")) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/** Parse the inside of `[ … ]` into a literal list, a range, or a comprehension. */
 export function parseListBody(inside: string): ListSpec {
+  // Comprehension: `body for var = source` (source is itself a list expr).
+  const fi = forKeywordAt(inside);
+  if (fi >= 0) {
+    const body = inside.slice(0, fi).trim();
+    const rest = inside.slice(fi + 4).trim();
+    const eq = rest.indexOf("=");
+    if (body && eq > 0) {
+      const varName = rest.slice(0, eq).trim();
+      const source = rest.slice(eq + 1).trim();
+      if (/^[A-Za-z][A-Za-z0-9_]*$/.test(varName) && source) {
+        return { kind: "comprehension", body, varName, source };
+      }
+    }
+  }
   const dots = splitEllipsis(inside);
   if (dots) {
     const head = splitTopLevelCommas(dots.before).map((s) => s.trim()).filter(Boolean);
@@ -101,4 +130,197 @@ export function substIdent(expr: string, name: string, replacement: string): str
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// --- list operations (Phase 2) ---------------------------------------------
+
+/** Scalar reductions of a list. Names chosen to match Desmos where possible. */
+export const AGGREGATES: Record<string, (xs: number[]) => number> = {
+  total: (xs) => xs.reduce((a, b) => a + b, 0),
+  mean: (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : NaN),
+  min: (xs) => (xs.length ? Math.min(...xs) : NaN),
+  max: (xs) => (xs.length ? Math.max(...xs) : NaN),
+  length: (xs) => xs.length,
+  count: (xs) => xs.length,
+  median: (xs) => {
+    if (!xs.length) return NaN;
+    const s = [...xs].sort((a, b) => a - b);
+    const m = s.length >> 1;
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+  },
+  stdev: (xs) => {
+    const n = xs.length;
+    if (n < 2) return NaN;
+    const m = xs.reduce((a, b) => a + b, 0) / n;
+    return Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / (n - 1)); // sample sd
+  },
+  stdevp: (xs) => {
+    const n = xs.length;
+    if (!n) return NaN;
+    const m = xs.reduce((a, b) => a + b, 0) / n;
+    return Math.sqrt(xs.reduce((a, b) => a + (b - m) ** 2, 0) / n); // population sd
+  },
+};
+export const AGG_NAMES: readonly string[] = Object.keys(AGGREGATES);
+
+export interface FnCall {
+  name: string;
+  inner: string;
+  start: number;
+  end: number;
+}
+
+function matchClose(text: string, open: number, oc: string, cc: string): number {
+  let depth = 0;
+  for (let k = open; k < text.length; k++) {
+    if (text[k] === oc) depth++;
+    else if (text[k] === cc) {
+      depth--;
+      if (depth === 0) return k;
+    }
+  }
+  return -1;
+}
+
+function wordStart(text: string, i: number, name: string): number {
+  // The `(` after `name` (skipping spaces), or -1. Requires a left boundary.
+  if (text.slice(i, i + name.length) !== name) return -1;
+  const prev = text[i - 1];
+  if (prev && /[A-Za-z0-9_]/.test(prev)) return -1;
+  let j = i + name.length;
+  while (j < text.length && /\s/.test(text[j])) j++;
+  return text[j] === "(" ? j : -1;
+}
+
+/** Is `arg` a list-valued expression: a `[ … ]` list or a reference to a
+ *  known list name? (Used to tell an aggregate `mean(L)` apart from a scalar
+ *  builtin like `max(x, 2)`.) */
+export function isListArg(arg: string, listNames: readonly string[]): boolean {
+  const a = arg.trim();
+  return isBracketList(a) || referencedLists(a, listNames).length > 0;
+}
+
+/** True if any aggregate call over a list appears in `text`. */
+function containsListAgg(text: string, names: readonly string[], listNames: readonly string[]): boolean {
+  return findAggCall(text, names, listNames) !== null;
+}
+
+/**
+ * The innermost aggregate-over-a-list call `AGG([list])` — its single argument
+ * is a list and holds no further list-aggregate — scanning left to right. A
+ * scalar call like `max(x, 2)` (arg not a list, or multiple args) is skipped, so
+ * `max(x, 2) + mean(L)` still finds `mean(L)`. Null when there are none.
+ */
+export function findAggCall(
+  text: string,
+  names: readonly string[],
+  listNames: readonly string[],
+): FnCall | null {
+  for (let i = 0; i < text.length; i++) {
+    for (const n of names) {
+      const paren = wordStart(text, i, n);
+      if (paren < 0) continue;
+      const close = matchClose(text, paren, "(", ")");
+      if (close < 0) continue;
+      const inner = text.slice(paren + 1, close);
+      const args = splitTopLevelCommas(inner);
+      if (args.length !== 1 || !isListArg(args[0], listNames)) continue; // scalar call — skip
+      if (!containsListAgg(inner, names, listNames)) return { name: n, inner, start: i, end: close + 1 };
+    }
+  }
+  return null;
+}
+
+export interface IndexRef {
+  name: string;
+  idx: string;
+  start: number;
+  end: number;
+}
+
+/** A list index `NAME[ … ]` for one of `names` (innermost bracket), or null. */
+export function findIndex(text: string, names: readonly string[]): IndexRef | null {
+  for (let i = 0; i < text.length; i++) {
+    for (const n of names) {
+      if (text.slice(i, i + n.length) !== n) continue;
+      const prev = text[i - 1];
+      if (prev && /[A-Za-z0-9_]/.test(prev)) continue;
+      let j = i + n.length;
+      while (j < text.length && /\s/.test(text[j])) j++;
+      if (text[j] !== "[") continue;
+      const close = matchClose(text, j, "[", "]");
+      if (close < 0) continue;
+      const idx = text.slice(j + 1, close);
+      if (!idx.includes("[")) return { name: n, idx, start: i, end: close + 1 };
+    }
+  }
+  return null;
+}
+
+/** Does `text` use any list operation (bracket, aggregate, or list reference)? */
+export function hasListOps(text: string, listNames: readonly string[]): boolean {
+  if (text.includes("[")) return true;
+  if (findAggCall(text, AGG_NAMES, listNames) !== null) return true;
+  return referencedLists(text, listNames).length > 0;
+}
+
+/** Replace each top-level `[ … ]` in `text` via `map(inside)`, innermost first. */
+function mapBrackets(text: string, map: (inside: string) => string): string {
+  let s = text;
+  for (let g = 0; g < 200; g++) {
+    // find an innermost bracket (no nested `[` in its body)
+    let open = -1;
+    for (let i = 0; i < s.length; i++) {
+      if (s[i] === "[") open = i;
+      else if (s[i] === "]" && open >= 0) {
+        s = s.slice(0, open) + `(${map(s.slice(open + 1, i))})` + s.slice(i + 1);
+        open = -2;
+        break;
+      }
+    }
+    if (open !== -2) break; // no bracket replaced this pass
+  }
+  return s;
+}
+
+/**
+ * A scalar-valued surrogate of `text` for free-variable analysis: every list
+ * operation is collapsed to the scalar sub-expressions whose symbols matter
+ * (range bounds, comprehension coefficients), while list names, aggregate
+ * names, indices, and bound comprehension variables are removed. So
+ * `mean([1...n])` → an expression whose only symbol is `n`, and `a*L + b` keeps
+ * `a`/`b` while dropping the list `L`. Pure and unit-tested.
+ */
+export function listSurrogate(text: string, listNames: readonly string[]): string {
+  let s = text;
+  // Aggregates first (their arg is a list), then indices (name[idx] → idx).
+  for (let g = 0; g < 64; g++) {
+    const ag = findAggCall(s, AGG_NAMES, listNames);
+    if (!ag) break;
+    s = s.slice(0, ag.start) + `(${listSurrogate(ag.inner, listNames)})` + s.slice(ag.end);
+  }
+  for (let g = 0; g < 64; g++) {
+    const ix = findIndex(s, listNames);
+    if (!ix) break;
+    s = s.slice(0, ix.start) + `(${listSurrogate(ix.idx, listNames)})` + s.slice(ix.end);
+  }
+  // Brackets → the scalar parts of the list body.
+  s = mapBrackets(s, (inside) => bracketSurrogate(inside, listNames));
+  // Bare list-name references contribute no scalar symbol.
+  for (const n of listNames) s = substIdent(s, n, "0");
+  return s;
+}
+
+function bracketSurrogate(inside: string, listNames: readonly string[]): string {
+  const ls = parseListBody(inside);
+  if (ls.kind === "range") {
+    return [ls.from, ls.to, ...(ls.step ? [ls.step] : [])]
+      .map((e) => `(${listSurrogate(e, listNames)})`)
+      .join("+");
+  }
+  if (ls.kind === "comprehension") {
+    const body = substIdent(ls.body, ls.varName, "0"); // bound var is not a slider
+    return `(${listSurrogate(body, listNames)})+(${listSurrogate(ls.source, listNames)})`;
+  }
+  return ls.items.length ? ls.items.map((e) => `(${listSurrogate(e, listNames)})`).join("+") : "0";
 }
