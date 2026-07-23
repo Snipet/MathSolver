@@ -64,6 +64,7 @@ add_library(mathsolver_core STATIC
     src/inequality.cpp
     src/discriminant.cpp
     src/trig.cpp
+    src/polydiv.cpp
     src/ode.cpp
     src/series.cpp
     src/vector_calculus.cpp

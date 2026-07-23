@@ -19,6 +19,7 @@
 #include "mathsolver/numtheory.hpp"
 #include "mathsolver/ode.hpp"
 #include "mathsolver/parser.hpp"
+#include "mathsolver/polydiv.hpp"
 #include "mathsolver/printer.hpp"
 #include "mathsolver/rational.hpp"
 #include "mathsolver/series.hpp"

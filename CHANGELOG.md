@@ -11,6 +11,11 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Polynomial long division (`polydiv`).** A new verb divides one polynomial
+  by another, reporting the **quotient** and **remainder** exactly (symbolic
+  coefficients kept symbolic): `polydiv x^3 - 1, x - 1` → quotient `x² + x + 1`,
+  remainder `0`; `polydiv x^3 + 2x + 1, x^2 + 1` → quotient `x`, remainder
+  `x + 1`. In the CLI, REPL, and web console.
 - **Trigonometric reduction (`trigreduce`).** The inverse of `trigexpand`:
   rewrite products and powers of sines and cosines into a linear combination of
   sines and cosines of multiple angles. `sin(x)²` → `1/2 - cos(2x)/2`,

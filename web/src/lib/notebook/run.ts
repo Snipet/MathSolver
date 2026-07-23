@@ -69,6 +69,7 @@ export const MATH_VERBS = new Set([
   "stirling",
   "seq",
   "discriminant",
+  "polydiv",
   "sum",
   "product",
   "rsolve",
@@ -483,6 +484,17 @@ async function runVerb(
       const r = await call("discriminant", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "polydiv": {
+      if (args.length < 2 || args.length > 3)
+        return usage("usage: polydiv <dividend>, <divisor>[, <var>]");
+      const v = args[2] ?? "";
+      const keep = v ? [v] : [];
+      const ed = await applyEnv(expr, keep, "expr", ov, scope);
+      const es = await applyEnv(args[1], keep, "expr", ov, scope);
+      const r = await call("polydiv", [ed.text, es.text, v]);
+      if (!r.ok) return err(ed.text, r);
+      return { kind: "transform", result: r, computedFrom: ed.computedFrom };
     }
     case "series": {
       if (args.length > 4)

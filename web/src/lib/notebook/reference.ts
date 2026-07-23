@@ -211,6 +211,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "discriminant a*x^2 + b*x + c, x",
       },
       {
+        insert: "polydiv",
+        usage: "polydiv <dividend>, <divisor>[, <var>]",
+        hint: "Polynomial long division → quotient and remainder",
+        example: "polydiv x^3 - 1, x - 1",
+      },
+      {
         insert: "limit",
         usage: "limit <expr>, <var>, <point>[, left|right]",
         hint: "Limit at a point or ±inf (exact where possible)",
