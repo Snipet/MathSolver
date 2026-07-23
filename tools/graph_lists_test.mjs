@@ -10,7 +10,7 @@ const entry = join(dir, "entry.ts");
 writeFileSync(
   entry,
   `export { classifyRow } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/classify.ts")};
-   export { isBracketList, listInside, parseListBody, matchListDef, rangeValues, referencedLists, substIdent, AGGREGATES, AGG_NAMES, findAggCall, findIndex, isListArg, listSurrogate, hasListOps } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/lists.ts")};`,
+   export { isBracketList, listInside, parseListBody, matchListDef, rangeValues, referencedLists, substIdent, AGGREGATES, AGG_NAMES, findAggCall, findIndex, isListArg, listSurrogate, hasListOps, LIST_FNS, LIST_XFORM, findListFnCall, parseWholeListFn, parseWholeSlice } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/lists.ts")};`,
 );
 const out = join(dir, "bundle.mjs");
 execFileSync("npx", ["esbuild", entry, "--bundle", "--format=esm", `--outfile=${out}`], {
@@ -33,8 +33,12 @@ check("not a list: split brackets", !L.isBracketList("[1][2]"));
 check("not a list: trailing op", !L.isBracketList("[1,2] + 3"));
 
 // --- classifyRow: list definitions -----------------------------------------
-check("L = [1,2,3] → listdef", (() => { const r = L.classifyRow("L = [1, 2, 3]"); return r.t === "listdef" && r.name === "L" && r.inside === "1, 2, 3"; })());
-check("range → listdef", (() => { const r = L.classifyRow("A = [1...5]"); return r.t === "listdef" && r.inside === "1...5"; })());
+check("L = [1,2,3] → listdef (full RHS in expr)", (() => { const r = L.classifyRow("L = [1, 2, 3]"); return r.t === "listdef" && r.name === "L" && r.expr === "[1, 2, 3]"; })());
+check("range → listdef", (() => { const r = L.classifyRow("A = [1...5]"); return r.t === "listdef" && r.expr === "[1...5]"; })());
+check("M = sort(L) → listdef", (() => { const r = L.classifyRow("M = sort(L)"); return r.t === "listdef" && r.expr === "sort(L)"; })());
+check("M = L[2...4] slice → listdef", (() => { const r = L.classifyRow("M = L[2...4]"); return r.t === "listdef" && r.expr === "L[2...4]"; })());
+check("k = L[3] scalar element is NOT a listdef", L.classifyRow("k = L[3]").t !== "listdef");
+check("j = join(A, B) → listdef", (() => { const r = L.classifyRow("j = join(A, B)"); return r.t === "listdef" && r.expr === "join(A, B)"; })());
 check("f(x) = x^2 is still a function, not a list", L.classifyRow("f(x) = x^2").t === "define");
 check("scalar define unaffected", L.classifyRow("k = 3").t === "define");
 check("y = [1,2,3] is NOT a listdef (reserved name)", L.classifyRow("y = [1,2,3]").t !== "listdef");
@@ -64,7 +68,7 @@ check("substIdent inside a call", L.substIdent("f(L)", "L", "4") === "f((4))");
 check("comprehension body/var/source", (() => { const s = L.parseListBody("k^2 for k = [1...5]"); return s.kind === "comprehension" && s.body === "k^2" && s.varName === "k" && s.source === "[1...5]"; })());
 check("comprehension over a named list", (() => { const s = L.parseListBody("2*n for n = L"); return s.kind === "comprehension" && s.source === "L"; })());
 check("'for' inside a call is not a comprehension keyword", (() => { const s = L.parseListBody("format(x)"); return s.kind === "literal"; })());
-check("comprehension classifies as listdef", (() => { const r = L.classifyRow("B = [k^2 for k=[1...4]]"); return r.t === "listdef" && r.inside === "k^2 for k=[1...4]"; })());
+check("comprehension classifies as listdef", (() => { const r = L.classifyRow("B = [k^2 for k=[1...4]]"); return r.t === "listdef" && r.expr === "[k^2 for k=[1...4]]"; })());
 
 // --- aggregates + indexing scanners ----------------------------------------
 check("AGG_NAMES include the core reducers", ["total", "mean", "min", "max", "length", "median", "stdev"].every((n) => L.AGG_NAMES.includes(n)));
@@ -85,6 +89,21 @@ check("surrogate of mean([1...n]) exposes n only", (() => { const s = L.listSurr
 check("surrogate keeps real sliders, drops bound var", (() => { const s = L.listSurrogate("[a*k for k=[1...4]]", ["L"]); return /a/.test(s) && !/\bk\b/.test(s) && !/for|\[/.test(s); })());
 check("surrogate leaves a plain expression untouched", L.listSurrogate("x^2 + a", []) === "x^2 + a");
 check("hasListOps detects brackets/aggregates/refs", L.hasListOps("[1,2]", []) && L.hasListOps("mean(L)", ["L"]) && L.hasListOps("L^2", ["L"]) && !L.hasListOps("x^2 + a", ["L"]));
+
+// --- list-returning ops (Phase 4) ------------------------------------------
+check("sort transform", JSON.stringify(L.LIST_XFORM.sort([3, 1, 2])) === "[1,2,3]");
+check("unique keeps first-seen order", JSON.stringify(L.LIST_XFORM.unique([2, 1, 2, 3, 1])) === "[2,1,3]");
+check("reverse transform", JSON.stringify(L.LIST_XFORM.reverse([1, 2, 3])) === "[3,2,1]");
+check("findListFnCall matches sort(L), skips scalar", (() => { const c = L.findListFnCall("sort(L) + 1", ["L"]); return c && c.name === "sort" && c.inner === "L"; })());
+check("findListFnCall skips a scalar-arg call", L.findListFnCall("sort(x)", ["L"]) === null);
+check("parseWholeListFn: join(A, B)", (() => { const c = L.parseWholeListFn("join(A, B)"); return c && c.name === "join" && JSON.stringify(c.args) === '["A","B"]'; })());
+check("parseWholeListFn: not whole expr → null", L.parseWholeListFn("sort(L) + 1") === null);
+check("parseWholeSlice: L[2...4]", (() => { const c = L.parseWholeSlice("L[2...4]"); return c && c.name === "L" && c.from === "2" && c.to === "4"; })());
+check("parseWholeSlice: scalar index is not a slice", L.parseWholeSlice("L[3]") === null);
+check("findIndex skips a slice", L.findIndex("L[2...4]", ["L"]) === null);
+check("findIndex still matches a scalar index", (() => { const c = L.findIndex("L[3]", ["L"]); return c && c.idx === "3"; })());
+check("surrogate drops sort() and its list", (() => { const s = L.listSurrogate("sort(L)", ["L"]); return !/sort/.test(s) && !/L/.test(s.replace(/[a-z]/g, (c) => c)); })());
+check("surrogate of a slice exposes bound n, drops L", (() => { const s = L.listSurrogate("L[2...n]", ["L"]); return /n/.test(s) && !/sort/.test(s); })());
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

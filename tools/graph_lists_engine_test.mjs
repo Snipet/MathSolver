@@ -14,7 +14,7 @@ const entry = join(dir, "entry.ts");
 writeFileSync(
   entry,
   `export { classifyRow } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/classify.ts")};
-   export { isBracketList, listInside, parseListBody, rangeValues, referencedLists, substIdent, AGGREGATES, AGG_NAMES, findAggCall, findIndex } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/lists.ts")};`,
+   export { isBracketList, listInside, parseListBody, rangeValues, referencedLists, substIdent, AGGREGATES, AGG_NAMES, findAggCall, findIndex, LIST_XFORM, parseWholeListFn, parseWholeSlice } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/lists.ts")};`,
 );
 const out = join(dir, "bundle.mjs");
 execFileSync("npx", ["esbuild", entry, "--bundle", "--format=esm", `--outfile=${out}`], {
@@ -53,6 +53,22 @@ function evalListLiteral(inside) {
 function evalListArray(expr) {
   const e = expr.trim();
   if (G.isBracketList(e)) return evalListLiteral(G.listInside(e));
+  const fn = G.parseWholeListFn(e);
+  if (fn) {
+    const arrs = [];
+    for (const a of fn.args) { const arr = evalListArray(a); if (!arr) return null; arrs.push(arr); }
+    if (fn.name === "join") return arrs.flat().slice(0, CAP);
+    const x = arrs[0] ?? [];
+    return G.LIST_XFORM[fn.name] ? G.LIST_XFORM[fn.name](x).slice(0, CAP) : x;
+  }
+  const sl = G.parseWholeSlice(e);
+  if (sl && sl.name in LISTS) {
+    const arr = LISTS[sl.name]; if (!arr) return null;
+    const a = evalNum(sl.from), b = evalNum(sl.to);
+    if (a === null || b === null) return null;
+    const lo = Math.max(1, Math.round(a)), hi = Math.min(arr.length, Math.round(b));
+    const o = []; for (let k = lo; k <= hi; k++) o.push(arr[k - 1]); return o;
+  }
   if (e in LISTS) return LISTS[e];
   const refs = G.referencedLists(e, Object.keys(LISTS));
   if (refs.length === 0) return null;
@@ -123,9 +139,9 @@ const check = (n, got, want) => {
 // Build a list registry the way recompute does (order matters: C uses L).
 const lists = {};
 LISTS = lists;
-for (const row of ["L = [1, 2, 3, 4]", "A = [0...3]", "C = [k^2 for k=[1...4]]", "D = [2*n for n=L]"]) {
+for (const row of ["L = [1, 2, 3, 4]", "A = [0...3]", "C = [k^2 for k=[1...4]]", "D = [2*n for n=L]", "U = [3, 1, 4, 1, 5]"]) {
   const s = G.classifyRow(row);
-  lists[s.name] = evalListLiteral(s.inside);
+  lists[s.name] = evalListArray(s.expr);
 }
 check("L literal materializes", lists.L, [1, 2, 3, 4]);
 check("A range materializes", lists.A, [0, 1, 2, 3]);
@@ -169,6 +185,20 @@ check("y = L^2 → line per squared element", lineVals("L^2"), [1, 4, 9, 16]);
 check("y = L → line per element", lineVals("L"), [1, 2, 3, 4]);
 check("y = mean(L) is scalar (single line, not a list)", (() => { const s = evalCoordSeq("mean(L)", lists); return s && !s.isList && s.values[0] === 2.5; })(), true);
 check("y = [mean(L), max(L)] → aggregated line positions", lineVals("[mean(L), max(L)]"), [2.5, 4]);
+
+// List-returning ops (Phase 4): sort / unique / reverse / join / slices.
+const asList = (expr) => evalListArray(expr);
+check("sort(U)", asList("sort(U)"), [1, 1, 3, 4, 5]);
+check("unique(U) keeps first-seen order", asList("unique(U)"), [3, 1, 4, 5]);
+check("reverse(L)", asList("reverse(L)"), [4, 3, 2, 1]);
+check("join(L, A)", asList("join(L, A)"), [1, 2, 3, 4, 0, 1, 2, 3]);
+check("slice L[2...4] (1-based inclusive)", asList("L[2...4]"), [2, 3, 4]);
+check("slice clamps out-of-range bounds", asList("L[0...99]"), [1, 2, 3, 4]);
+check("nested sort(unique(U))", asList("sort(unique(U))"), [1, 3, 4, 5]);
+check("aggregate over a sorted list: median(sort(U))", evalScalarOps("median(sort(U))", lists), 3);
+check("aggregate over a slice: total(L[2...4])", evalScalarOps("total(L[2...4])", lists), 9);
+// A points row over a transform: (sort(U), [1...length(U)]).
+check("(sort(U), [1...length(U)]) → ranked scatter", pointsOf("(sort(U), [1...length(U)])", lists), [[1, 1], [1, 2], [3, 3], [4, 4], [5, 5]]);
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

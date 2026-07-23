@@ -238,7 +238,8 @@ export interface IndexRef {
   end: number;
 }
 
-/** A list index `NAME[ … ]` for one of `names` (innermost bracket), or null. */
+/** A scalar list index `NAME[i]` for one of `names` (innermost, NOT a `a...b`
+ *  slice — those are list-valued and handled by evalListArray), or null. */
 export function findIndex(text: string, names: readonly string[]): IndexRef | null {
   for (let i = 0; i < text.length; i++) {
     for (const n of names) {
@@ -251,10 +252,72 @@ export function findIndex(text: string, names: readonly string[]): IndexRef | nu
       const close = matchClose(text, j, "[", "]");
       if (close < 0) continue;
       const idx = text.slice(j + 1, close);
-      if (!idx.includes("[")) return { name: n, idx, start: i, end: close + 1 };
+      if (!idx.includes("[") && !idx.includes("...")) return { name: n, idx, start: i, end: close + 1 };
     }
   }
   return null;
+}
+
+// --- list-returning operations (sort / unique / reverse / join, slices) -----
+
+/** Pure list→list transforms (single-list). `join` is variadic → handled in
+ *  the evaluator by concatenating its argument lists. */
+export const LIST_XFORM: Record<string, (xs: number[]) => number[]> = {
+  sort: (xs) => [...xs].sort((a, b) => a - b),
+  reverse: (xs) => [...xs].reverse(),
+  unique: (xs) => {
+    const seen = new Set<number>();
+    const out: number[] = [];
+    for (const v of xs) if (!seen.has(v)) (seen.add(v), out.push(v));
+    return out;
+  },
+};
+export const LIST_FNS: readonly string[] = ["sort", "unique", "reverse", "join"];
+
+/** The innermost list-returning call `sort(L)` / `join(A, B)` whose arguments
+ *  hold no further list-fn call — every argument must be list-valued (so a
+ *  scalar call is skipped). Used by listSurrogate & hasListOps. */
+export function findListFnCall(text: string, listNames: readonly string[]): FnCall | null {
+  for (let i = 0; i < text.length; i++) {
+    for (const n of LIST_FNS) {
+      const paren = wordStart(text, i, n);
+      if (paren < 0) continue;
+      const close = matchClose(text, paren, "(", ")");
+      if (close < 0) continue;
+      const inner = text.slice(paren + 1, close);
+      const args = splitTopLevelCommas(inner);
+      if (!args.length || !args.every((a) => isListArg(a, listNames))) continue;
+      if (!findListFnCall(inner, listNames)) return { name: n, inner, start: i, end: close + 1 };
+    }
+  }
+  return null;
+}
+
+/** If the WHOLE trimmed `text` is a single list-fn call `name( … )`, its name
+ *  and argument list; else null. (Nesting resolves via recursion in the
+ *  evaluator, so this needn't check the args are lists.) */
+export function parseWholeListFn(text: string): { name: string; args: string[] } | null {
+  const t = text.trim();
+  for (const n of LIST_FNS) {
+    const paren = wordStart(t, 0, n);
+    if (paren < 0) continue;
+    const close = matchClose(t, paren, "(", ")");
+    if (close !== t.length - 1) continue; // the call must span the whole string
+    return { name: n, args: splitTopLevelCommas(t.slice(paren + 1, close)).map((a) => a.trim()) };
+  }
+  return null;
+}
+
+/** If the WHOLE trimmed `text` is a slice `name[a...b]`, its parts; else null. */
+export function parseWholeSlice(text: string): { name: string; from: string; to: string } | null {
+  const t = text.trim();
+  const m = /^([A-Za-z][A-Za-z0-9_]*)\s*\[(.*)\]$/.exec(t);
+  if (!m) return null;
+  const inner = m[2];
+  if (inner.includes("[")) return null;
+  const dots = inner.indexOf("...");
+  if (dots < 0) return null;
+  return { name: m[1], from: inner.slice(0, dots).trim(), to: inner.slice(dots + 3).trim() };
 }
 
 /** Does `text` use any list operation (bracket, aggregate, or list reference)? */
@@ -304,7 +367,16 @@ export function listSurrogate(text: string, listNames: readonly string[]): strin
     if (!ix) break;
     s = s.slice(0, ix.start) + `(${listSurrogate(ix.idx, listNames)})` + s.slice(ix.end);
   }
-  // Brackets → the scalar parts of the list body.
+  // List-returning calls sort/unique/reverse/join → the scalar parts of args.
+  for (let g = 0; g < 64; g++) {
+    const lf = findListFnCall(s, listNames);
+    if (!lf) break;
+    const parts = splitTopLevelCommas(lf.inner)
+      .map((a) => `(${listSurrogate(a, listNames)})`)
+      .join("+");
+    s = s.slice(0, lf.start) + `(${parts || "0"})` + s.slice(lf.end);
+  }
+  // Brackets → the scalar parts of the list body (slices `[a...b]` too).
   s = mapBrackets(s, (inside) => bracketSurrogate(inside, listNames));
   // Bare list-name references contribute no scalar symbol.
   for (const n of listNames) s = substIdent(s, n, "0");

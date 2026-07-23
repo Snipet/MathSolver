@@ -11,6 +11,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — list transforms (sort / unique / reverse / join, slices).**
+  List-returning operations complete the list algebra: `sort(L)`, `unique(L)`
+  (first-seen order), `reverse(L)`, `join(A, B, …)` (concatenate), and slices
+  `L[a...b]` (1-based, inclusive). Assign them (`S = sort(L)`), plot them
+  (`(sort(U), [1...length(U)])` ranks a scatter), feed them to aggregates
+  (`median(sort(L))`, `total(L[2...4])`), and nest them (`sort(unique(L))`).
+
 - **Grapher — plot a list as constant lines.** A list-valued function row draws
   one line per value: `y = [1, 2, 3]` draws three horizontal lines, `x = [-2, 0,
   2]` three vertical lines, and `y = L` / `y = L^2` a line at each element of the

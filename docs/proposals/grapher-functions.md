@@ -461,8 +461,10 @@ Prioritized from a full inventory. `S/M/L` = effort.
   *Phase 2 shipped:* comprehensions `[k^2 for k=L]`, scalar aggregates
   (`total`/`mean`/`min`/`max`/`median`/`stdev`/`length`), and 1-based indexing
   `L[i]`. *Phase 3 shipped:* list-as-lines — `y = [ … ]` / `y = L` horizontal
-  lines and `x = [ … ]` vertical lines. Still open: list-returning ops
-  (`sort`/`unique`/slices `L[a...b]`) and distribution/statistics plots.
+  lines and `x = [ … ]` vertical lines. *Phase 4 shipped:* list-returning ops —
+  `sort`/`unique`/`reverse`/`join` and slices `L[a...b]`. Still open:
+  distribution/statistics plots, indexing a computed list (`sort(L)[i]`), and
+  scalar-from-list defines (`k = mean(L)` as a session variable).
 - **Statistics on lists / distribution plots** — *low–med, M–L.* Builds on lists
   and the existing `stats`/`prob` verbs.
 - **Point & curve labels (`showLabel`)** — *low, M.* Per-row label text rendered
