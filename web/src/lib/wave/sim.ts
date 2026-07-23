@@ -19,6 +19,21 @@ export type Boundary = "fixed" | "free" | "absorbing" | "robin" | "filtered";
 /** 1st-order filter shaping a frequency-dependent boundary reflection. */
 export type FilterType = "lowpass" | "highpass";
 
+/**
+ * Which wave PDE the field obeys (Phase 3 physics packs):
+ * - `linear`        — the plain scalar wave `u_tt = c²∇²u − γu_t`.
+ * - `klein-gordon`  — adds a mass term `− m²u`, giving a dispersive medium
+ *                     (a rest frequency `√m` and phase speed that varies with
+ *                     wavelength: short waves outrun long ones, so pulses spread).
+ * - `sine-gordon`   — adds the nonlinear `− m²·sin(u)`, whose 2π twists are
+ *                     topological **kink solitons** that keep their shape.
+ */
+export type FieldModel = "linear" | "klein-gordon" | "sine-gordon";
+
+/** Spatial Laplacian stencil: the 5-point star, or a reduced-anisotropy
+ *  9-point isotropic stencil (orthogonal + diagonal neighbors). */
+export type Stencil = "five" | "nine";
+
 export interface WaveSimOptions {
   /** 0..1, mapped to the Courant number κ ∈ (0, MAX_COURANT]. */
   speed?: number;
@@ -29,8 +44,60 @@ export interface WaveSimOptions {
   robin?: number;
 }
 
-/** Below the 2-D CFL limit 1/√2 with headroom, so every speed is stable. */
+/** Below the 2-D CFL limit 1/√2 with headroom, so every speed is stable. This
+ *  is the reference (5-point, massless) cap; `maxCourant()` scales it for the
+ *  9-point stencil and for the mass term (see the CFL note there). */
 export const MAX_COURANT = 0.7;
+
+/** Slowest medium exposed: cScale below this freezes the field uninterestingly. */
+export const MIN_SCALE = 0.2;
+
+/** Reaction-term ceiling (m² per step²), by model. Klein–Gordon is a linear
+ *  restoring term and stays unconditionally stable up to the CFL cap. The
+ *  sine-Gordon coupling is held lower: its `−m²sin(u)` is *anti*-restoring near
+ *  u = π (a physical hilltop), so — like any explicit nonlinear integrator — a
+ *  large enough excitation can drive it unstable no matter how small the step.
+ *  This ceiling keeps ordinary interaction (seeded kinks, single pokes) stable
+ *  while staying honest that extreme forcing can still blow the nonlinear field
+ *  up (see docs/proposals/wave-system.md, design notes). */
+export const MAX_MASS = 2;
+export const MAX_COUPLING_SINE = 0.5;
+
+/**
+ * Bessel function J_m(x) via its power series — accurate for the arguments a
+ * drumhead eigenmode needs (|x| ≲ 12). Used to seed circular-membrane modes.
+ */
+export function besselJ(m: number, x: number): number {
+  let term = Math.pow(x / 2, m);
+  for (let k = 1; k <= m; k++) term /= k; // (x/2)^m / m!
+  let sum = 0;
+  for (let k = 0; k < 40; k++) {
+    sum += term;
+    term *= -((x * x) / 4) / ((k + 1) * (k + 1 + m));
+  }
+  return sum;
+}
+
+/** First positive zeros α_{m,n} of J_m (m = 0..2, n = 1..3) — a drumhead's
+ *  eigenfrequencies are ω_{m,n} = c·α_{m,n}/R. */
+export const BESSEL_ZEROS: Record<number, number[]> = {
+  0: [2.404825558, 5.520078110, 8.653727913],
+  1: [3.831705970, 7.015586670, 10.17346814],
+  2: [5.135622302, 8.417244140, 11.61984117],
+};
+
+/** Inscribed circular-cavity geometry for a drumhead on an nx×ny grid. */
+export function drumGeom(nx: number, ny: number): { cx: number; cy: number; R: number } {
+  return {
+    cx: (nx - 1) / 2,
+    cy: (ny - 1) / 2,
+    R: Math.max(6, Math.floor(Math.min(nx, ny) / 2) - 3),
+  };
+}
+
+/** −h²∇² symbol maxima: 8 (5-point), 16/3 (9-point isotropic). Set the CFL. */
+const LAPLACE_MAX_5 = 8;
+const LAPLACE_MAX_9 = 16 / 3;
 
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
@@ -51,6 +118,14 @@ export class WaveSim {
   private _robin = 0.5;
   boundary: Boundary;
 
+  // Physics pack (Phase 3): the field model adds a reaction term to the wave
+  // equation and the stencil selects the Laplacian. Both shift the CFL, which
+  // `maxCourant()` folds back into the speed→Courant mapping so any slider (and
+  // any mass) stays unconditionally stable.
+  private _model: FieldModel = "linear";
+  private _mass = 0; // reaction coefficient m² (per step²); 0 ⇒ plain wave
+  private _stencil: Stencil = "five";
+
   // Frequency-dependent ("filtered") boundary: the reflected wave is the
   // incident wave passed through a 1st-order filter (see #applyBoundary).
   private _filterType: FilterType = "lowpass";
@@ -58,8 +133,32 @@ export class WaveSim {
   private _filterReflect = 0.85; // overall reflectivity g ∈ [0,1]
   private fOut: Float32Array; // per-boundary-cell filter memory
 
+  // Heterogeneous medium: per-cell (cScale)² where cScale ∈ [MIN_SCALE, 1] is a
+  // slowness (1 = reference/fastest, < 1 = slower/denser → higher index). Since
+  // the local Courant κ·cScale never exceeds the uniform κ ≤ CFL, every scene
+  // stays unconditionally stable. `solid` marks reflecting obstacle cells (held
+  // at 0, i.e. interior Dirichlet). Both default to "off" with a fast path.
+  private scale2: Float32Array;
+  private solid: Uint8Array;
+  private hasMedium = false;
+  private hasSolid = false;
+
   // Continuous driven point source (the "drive"/oscillator gesture).
   private src = { active: false, x: 0, y: 0, r: 3, amp: 0, freq: 0.03, phase: 0 };
+
+  // Instrumentation (Phase 2). Probes record u(t) at a cell into a ring buffer
+  // (newest samples kept), for spectral analysis. The intensity field is a
+  // per-cell running mean of u² — the time-averaged energy that makes standing
+  // interference / diffraction patterns quantitative and static. Both are
+  // gathered only while `measuring` is on, so the uniform fast path pays nothing
+  // when instrumentation is idle.
+  private probes: { i: number; j: number; buf: Float32Array; head: number; count: number }[] = [];
+  private intensity: Float32Array;
+  private intensityN = 0;
+  private measuring = false;
+
+  /** Ring-buffer length per probe (samples retained for the spectrum). */
+  static readonly PROBE_CAP = 1024;
 
   constructor(nx: number, ny: number, opts: WaveSimOptions = {}) {
     this.nx = Math.max(3, Math.floor(nx));
@@ -69,6 +168,9 @@ export class WaveSim {
     this.prev = new Float32Array(n);
     this.nextBuf = new Float32Array(n);
     this.fOut = new Float32Array(n);
+    this.scale2 = new Float32Array(n).fill(1);
+    this.solid = new Uint8Array(n);
+    this.intensity = new Float32Array(n);
     this._speed = clamp(opts.speed ?? 0.5, 0, 1);
     this._damping = clamp(opts.damping ?? 0, 0, 1);
     this._robin = Math.max(0, opts.robin ?? 0.5);
@@ -77,7 +179,53 @@ export class WaveSim {
 
   /** Courant number κ = c·dt/h actually used by the integrator. */
   get courant(): number {
-    return MAX_COURANT * this._speed;
+    return this.maxCourant() * this._speed;
+  }
+
+  /**
+   * The largest stable Courant number for the current stencil and mass. The
+   * lossless leapfrog is stable iff `κ²·λmax + R ≤ 4`, where λmax is the −∇²
+   * stencil symbol maximum (8 for the 5-point star, 16/3 for the 9-point) and
+   * `R` is the reaction bound (the mass term; |d/du sin(u)| ≤ 1 makes the
+   * sine-Gordon coupling behave like a mass for stability). So
+   * `κmax = √((4 − R)/λmax)`, times the same headroom factor that makes the
+   * reference 5-point/massless cap MAX_COURANT rather than the bare 1/√2.
+   */
+  maxCourant(): number {
+    const lambda = this._stencil === "nine" ? LAPLACE_MAX_9 : LAPLACE_MAX_5;
+    const headroom = MAX_COURANT / Math.sqrt(4 / LAPLACE_MAX_5); // ≈ 0.99
+    return headroom * Math.sqrt(Math.max(0, 4 - this.#reactionBound()) / lambda);
+  }
+
+  /** The reaction-term stability bound R (0 for the plain linear wave). */
+  #reactionBound(): number {
+    return this._model === "linear" ? 0 : this._mass;
+  }
+
+  get model(): FieldModel {
+    return this._model;
+  }
+  set model(m: FieldModel) {
+    this._model = m;
+    // Re-clamp the coupling into the new model's stable range.
+    this._mass = clamp(this._mass, 0, this.maxMass());
+  }
+  /** The stable ceiling for the reaction coefficient in the current model. */
+  maxMass(): number {
+    return this._model === "sine-gordon" ? MAX_COUPLING_SINE : MAX_MASS;
+  }
+  /** Reaction coefficient m² (Klein–Gordon mass² / sine-Gordon coupling). */
+  get mass(): number {
+    return this._mass;
+  }
+  set mass(v: number) {
+    this._mass = clamp(v, 0, this.maxMass());
+  }
+  get stencil(): Stencil {
+    return this._stencil;
+  }
+  set stencil(s: Stencil) {
+    this._stencil = s;
   }
   get speed(): number {
     return this._speed;
@@ -127,6 +275,166 @@ export class WaveSim {
     this.src.active = false;
   }
 
+  // --- heterogeneous medium & obstacles (scenes) -----------------------------
+
+  /**
+   * Set the medium: `cScale(i,j)` is a slowness in [MIN_SCALE, 1] (1 = the
+   * reference speed, smaller = slower/denser → refraction toward the normal,
+   * shorter wavelength). Pass a function, a Float32Array of length nx·ny, or
+   * null to clear back to a uniform medium.
+   */
+  setMedium(field: ((i: number, j: number) => number) | Float32Array | null): void {
+    const { nx, ny } = this;
+    if (field === null) {
+      this.scale2.fill(1);
+      this.hasMedium = false;
+      return;
+    }
+    let any = false;
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const k = j * nx + i;
+        const raw = typeof field === "function" ? field(i, j) : field[k];
+        const s = clamp(Number.isFinite(raw) ? raw : 1, MIN_SCALE, 1);
+        this.scale2[k] = s * s;
+        if (s !== 1) any = true;
+      }
+    }
+    this.hasMedium = any;
+  }
+
+  /**
+   * Mark reflecting obstacle cells (held at 0 — an interior Dirichlet wall).
+   * Pass a predicate, a Uint8Array mask, or null to clear.
+   */
+  setSolid(mask: ((i: number, j: number) => boolean) | Uint8Array | null): void {
+    const { nx, ny } = this;
+    if (mask === null) {
+      this.solid.fill(0);
+      this.hasSolid = false;
+      return;
+    }
+    let any = false;
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const k = j * nx + i;
+        const on = typeof mask === "function" ? mask(i, j) : mask[k] !== 0;
+        this.solid[k] = on ? 1 : 0;
+        if (on) {
+          any = true;
+          this.cur[k] = 0;
+          this.prev[k] = 0;
+          this.nextBuf[k] = 0;
+        }
+      }
+    }
+    this.hasSolid = any;
+  }
+
+  /** Restore a uniform, obstacle-free medium. */
+  clearScene(): void {
+    this.scale2.fill(1);
+    this.solid.fill(0);
+    this.hasMedium = false;
+    this.hasSolid = false;
+  }
+
+  get hasScene(): boolean {
+    return this.hasMedium || this.hasSolid;
+  }
+
+  /** Obstacle mask (1 = wall), read-only — for painting. Do not mutate. */
+  get obstacles(): Uint8Array {
+    return this.solid;
+  }
+  /** Per-cell (cScale)², read-only — for shading the medium. Do not mutate. */
+  get medium(): Float32Array {
+    return this.scale2;
+  }
+
+  /** True if cell (i,j) is a solid obstacle — for painting the walls. */
+  isSolid(i: number, j: number): boolean {
+    return this.solid[j * this.nx + i] !== 0;
+  }
+
+  /** Slowness cScale ∈ [MIN_SCALE, 1] at (i,j) — for shading the medium. */
+  scaleAt(i: number, j: number): number {
+    return Math.sqrt(this.scale2[j * this.nx + i]);
+  }
+
+  // --- instrumentation: probes & intensity (Phase 2) -------------------------
+
+  /** Enable/disable measurement gathering (probes + intensity). Off = no cost. */
+  setMeasuring(on: boolean): void {
+    this.measuring = on;
+  }
+  get isMeasuring(): boolean {
+    return this.measuring;
+  }
+
+  /** Place a probe at the (clamped, interior) cell; returns its index. */
+  addProbe(i: number, j: number): number {
+    const pi = clamp(Math.round(i), 0, this.nx - 1);
+    const pj = clamp(Math.round(j), 0, this.ny - 1);
+    this.probes.push({
+      i: pi,
+      j: pj,
+      buf: new Float32Array(WaveSim.PROBE_CAP),
+      head: 0,
+      count: 0,
+    });
+    return this.probes.length - 1;
+  }
+
+  removeProbe(id: number): void {
+    if (id >= 0 && id < this.probes.length) this.probes.splice(id, 1);
+  }
+
+  clearProbes(): void {
+    this.probes.length = 0;
+  }
+
+  get probeCount(): number {
+    return this.probes.length;
+  }
+
+  /** Grid position of probe `id` (or null). */
+  probeAt(id: number): { i: number; j: number } | null {
+    const p = this.probes[id];
+    return p ? { i: p.i, j: p.j } : null;
+  }
+
+  /**
+   * The probe's recorded samples in chronological order (oldest → newest), up
+   * to PROBE_CAP. Empty until it has collected samples. Returns a fresh copy.
+   */
+  probeSeries(id: number): Float32Array {
+    const p = this.probes[id];
+    if (!p || p.count === 0) return new Float32Array(0);
+    const out = new Float32Array(p.count);
+    const cap = p.buf.length;
+    // Oldest sample sits just after head once the ring has wrapped.
+    const start = p.count < cap ? 0 : p.head;
+    for (let k = 0; k < p.count; k++) out[k] = p.buf[(start + k) % cap];
+    return out;
+  }
+
+  /** Reset the accumulated intensity average (e.g. after changing the scene). */
+  resetIntensity(): void {
+    this.intensity.fill(0);
+    this.intensityN = 0;
+  }
+
+  /** Number of steps folded into the current intensity average. */
+  get intensitySamples(): number {
+    return this.intensityN;
+  }
+
+  /** The per-cell time-averaged intensity ⟨u²⟩, read-only. Do not mutate. */
+  intensityField(): Float32Array {
+    return this.intensity;
+  }
+
   idx(i: number, j: number): number {
     return j * this.nx + i;
   }
@@ -151,16 +459,60 @@ export class WaveSim {
     const prev = this.prev;
     const next = this.nextBuf;
 
-    for (let j = 1; j < ny - 1; j++) {
-      const row = j * nx;
-      for (let i = 1; i < nx - 1; i++) {
-        const k = row + i;
-        const lap = cur[k - 1] + cur[k + 1] + cur[k - nx] + cur[k + nx] - 4 * cur[k];
-        next[k] = (2 * cur[k] - (1 - a) * prev[k] + C * lap) * inv;
+    const linear = this._model === "linear";
+    const five = this._stencil === "five";
+    if (linear && five && !this.hasMedium && !this.hasSolid) {
+      // Uniform linear 5-point fast path (the common case; unchanged).
+      for (let j = 1; j < ny - 1; j++) {
+        const row = j * nx;
+        for (let i = 1; i < nx - 1; i++) {
+          const k = row + i;
+          const lap = cur[k - 1] + cur[k + 1] + cur[k - nx] + cur[k + nx] - 4 * cur[k];
+          next[k] = (2 * cur[k] - (1 - a) * prev[k] + C * lap) * inv;
+        }
+      }
+    } else {
+      // General path: any 9-point stencil, Klein–Gordon / sine-Gordon reaction,
+      // and/or a heterogeneous medium + obstacles. Per-cell C·scale²; solid
+      // cells are held at 0, and solid neighbors read as 0 (interior Dirichlet),
+      // so obstacles are hard reflecting walls with no special casing.
+      const scene = this.hasMedium || this.hasSolid;
+      const scale2 = this.scale2;
+      const solid = this.solid;
+      const nine = !five;
+      const mass = this._mass;
+      const react = this.#reactionBound(); // 0, or the mass coupling
+      const sine = this._model === "sine-gordon";
+      for (let j = 1; j < ny - 1; j++) {
+        const row = j * nx;
+        for (let i = 1; i < nx - 1; i++) {
+          const k = row + i;
+          if (scene && solid[k]) {
+            next[k] = 0;
+            continue;
+          }
+          // Laplacian: 5-point star, or the isotropic 9-point stencil
+          //   ∇²u ≈ (1/6)[4·(orthogonal) + (diagonal) − 20·u].
+          const lap = nine
+            ? (4 * (cur[k - 1] + cur[k + 1] + cur[k - nx] + cur[k + nx]) +
+                (cur[k - nx - 1] + cur[k - nx + 1] + cur[k + nx - 1] + cur[k + nx + 1]) -
+                20 * cur[k]) / 6
+            : cur[k - 1] + cur[k + 1] + cur[k - nx] + cur[k + nx] - 4 * cur[k];
+          // Reaction term (Klein–Gordon: m²u; sine-Gordon: m²·sin u; else 0).
+          const r = react === 0 ? 0 : sine ? mass * Math.sin(cur[k]) : mass * cur[k];
+          const sc = scene ? scale2[k] : 1;
+          next[k] = (2 * cur[k] - (1 - a) * prev[k] + C * sc * lap - r) * inv;
+        }
       }
     }
 
     this.#applyBoundary(next, cur, kappa);
+
+    // Walls win over the edge BC, so a barrier touching the frame stays a wall.
+    if (this.hasSolid) {
+      const solid = this.solid;
+      for (let k = 0; k < solid.length; k++) if (solid[k]) next[k] = 0;
+    }
 
     // Rotate buffers: prev ← cur, cur ← next, scratch ← old prev.
     this.prev = cur;
@@ -176,6 +528,29 @@ export class WaveSim {
         this.cur[k] += val * w;
       });
       s.phase += 2 * Math.PI * s.freq;
+    }
+
+    // Instrumentation: record probe samples and accumulate the intensity field
+    // from the freshly-updated `cur`. Off by default (no cost).
+    if (this.measuring) this.#measure();
+  }
+
+  /** Record u(t) into each probe's ring and fold u² into the intensity mean. */
+  #measure(): void {
+    const cur = this.cur;
+    for (const p of this.probes) {
+      p.buf[p.head] = cur[p.j * this.nx + p.i];
+      p.head = (p.head + 1) % p.buf.length;
+      if (p.count < p.buf.length) p.count++;
+    }
+    // Incremental per-cell running mean: I ← I + (u² − I)/n. Keeps the stored
+    // value bounded (unlike a raw sum) and converges to the true time-average.
+    const n = ++this.intensityN;
+    const inv = 1 / n;
+    const I = this.intensity;
+    for (let k = 0; k < cur.length; k++) {
+      const v = cur[k];
+      I[k] += (v * v - I[k]) * inv;
     }
   }
 
@@ -294,6 +669,75 @@ export class WaveSim {
   // --- energy injection ------------------------------------------------------
 
   /**
+   * Seed a sine-Gordon **kink soliton**: a 2π twist `u = 4·arctan(e^{m·γ·ξ})`
+   * (with `ξ` measured along x from the centre) — the exact static soliton of
+   * `u_tt = c²u_xx − m²·sin u`, so it holds its shape as it evolves. Switches
+   * the model to `sine-gordon` (and gives the coupling a sensible default if it
+   * is zero, since a soliton needs `m > 0`). A non-zero `velocity` (cells/step)
+   * launches a Lorentz-contracted moving kink that glides without spreading —
+   * the headline demonstration that a soliton is not an ordinary wave packet.
+   */
+  seedKink(velocity = 0): void {
+    this._model = "sine-gordon";
+    if (this._mass <= 0) this._mass = 0.06;
+    this.reset();
+    const C = Math.max(1e-6, this.courant * this.courant); // wave speed² (= c²)
+    const m = Math.sqrt(this._mass / C); // inverse kink width (cells⁻¹)
+    const beta = clamp(velocity / Math.sqrt(C), -0.9, 0.9); // v / c
+    const gamma = 1 / Math.sqrt(1 - beta * beta);
+    const x0 = this.nx * 0.5;
+    const v = velocity;
+    const { nx, ny } = this;
+    for (let i = 0; i < nx; i++) {
+      // Current field at t = 0 and the past field at t = −1 (moving profile).
+      const now = 4 * Math.atan(Math.exp(m * gamma * (i - x0)));
+      const past = 4 * Math.atan(Math.exp(m * gamma * (i - x0 + v)));
+      for (let j = 0; j < ny; j++) {
+        const k = j * nx + i;
+        this.cur[k] = now;
+        this.prev[k] = past;
+      }
+    }
+  }
+
+  /**
+   * Seed a circular-membrane **drumhead eigenmode**: mask an inscribed disk as
+   * a fixed cavity and set `u = J_m(α_{m,n}·r/R)·cos(mθ)` at rest — the exact
+   * analytic mode of a clamped circular membrane, which rings at the Bessel
+   * eigenfrequency `ω = c·α_{m,n}/R`. The FDTD then reproduces that frequency
+   * (the analytic ⇄ numeric verification bridge, tools/wave_sim_test.mjs).
+   * Resets to the linear model (a membrane obeys the plain wave equation).
+   */
+  seedDrumheadMode(m = 1, n = 1): void {
+    this._model = "linear";
+    const zeros = BESSEL_ZEROS[m] ?? BESSEL_ZEROS[0];
+    const alpha = zeros[Math.max(0, Math.min(zeros.length - 1, n - 1))];
+    const { cx, cy, R } = drumGeom(this.nx, this.ny);
+    this.reset();
+    this.setSolid((i, j) => Math.hypot(i - cx, j - cy) > R);
+    const { nx, ny } = this;
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        const r = Math.hypot(i - cx, j - cy);
+        if (r > R) continue; // outside the cavity: held at 0 by setSolid
+        const th = Math.atan2(j - cy, i - cx);
+        const v = besselJ(m, (alpha * r) / R) * Math.cos(m * th);
+        const k = j * nx + i;
+        this.cur[k] = v;
+        this.prev[k] = v; // at rest → a standing mode
+      }
+    }
+  }
+
+  /** Analytic angular frequency (rad/step) of drumhead mode (m, n) on this
+   *  grid: ω = κ·α_{m,n}/R. For the verification bridge and overlays. */
+  drumheadOmega(m = 1, n = 1): number {
+    const zeros = BESSEL_ZEROS[m] ?? BESSEL_ZEROS[0];
+    const alpha = zeros[Math.max(0, Math.min(zeros.length - 1, n - 1))];
+    return (this.courant * alpha) / drumGeom(this.nx, this.ny).R;
+  }
+
+  /**
    * A rest "pluck": a Gaussian bump added equally to `cur` and `prev` (starts
    * at rest → radiates a symmetric ring). With a finite `wavelength` the bump
    * carries a radial cosine, so it launches waves of that wavelength — the
@@ -400,7 +844,19 @@ export class WaveSim {
         }
       }
     }
-    return 0.5 * kinetic + 0.5 * C * potential;
+    let reaction = 0;
+    if (this._model !== "linear" && this._mass > 0) {
+      // Reaction potential: Klein–Gordon ½m²⟨uⁿ,uⁿ⁻¹⟩ (the staggered form the
+      // scheme conserves); sine-Gordon m²(1 − cos u).
+      if (this._model === "sine-gordon") {
+        for (let k = 0; k < cur.length; k++) reaction += 1 - Math.cos(cur[k]);
+        reaction *= this._mass;
+      } else {
+        for (let k = 0; k < cur.length; k++) reaction += cur[k] * prev[k];
+        reaction *= 0.5 * this._mass;
+      }
+    }
+    return 0.5 * kinetic + 0.5 * C * potential + reaction;
   }
 
   /** Largest absolute displacement — for color scaling and stability checks. */
@@ -420,5 +876,12 @@ export class WaveSim {
     this.nextBuf.fill(0);
     this.fOut.fill(0);
     this.src.active = false;
+    // Zeroing the field invalidates any accumulated intensity / probe history.
+    this.resetIntensity();
+    for (const p of this.probes) {
+      p.buf.fill(0);
+      p.head = 0;
+      p.count = 0;
+    }
   }
 }

@@ -19,8 +19,10 @@ export type RowKind =
   | { t: "function"; expr: string; restrict?: string[] } // y = f(x)  (bare expr, or "y = …")
   | { t: "functionY"; expr: string; restrict?: string[] } // x = f(y)
   | { t: "polar"; expr: string; restrict?: string[] } // r = f(θ)
+  | { t: "slopefield"; expr: string; restrict?: string[] } // y' = f(x, y) / dy/dx = …
   | { t: "pointish"; coords: [string, string][]; restrict?: string[] } // points or parametric
   | { t: "define"; name: string; expr: string; restrict?: string[] } // name = expr
+  | { t: "area"; expr: string; lo: string; hi: string; restrict?: string[] } // ∫ f dx shaded over [a, b]
   | { t: "relation"; lhs: string; rhs: string; op: RelOp; restrict?: string[] }; // implicit / ineq
 
 /**
@@ -180,6 +182,37 @@ function isVar(side: string, name: string): boolean {
   return side.trim() === name;
 }
 
+/**
+ * Match a whole-row definite-integral area form — `integral(f, a, b)` or
+ * `antiderivative(f, a, b)` — where the call spans the entire (trimmed) row and
+ * splits into exactly three top-level arguments: the integrand and the two
+ * bounds. Returns them, or null. The one- and two-argument forms
+ * (`integral(f)` / `integral(f, t)`) stay ordinary function rows whose
+ * antiderivative GraphCalculator plots as a curve — only the three-argument
+ * form shades the signed area under `y = f(x)` over `[a, b]`.
+ */
+function matchArea(text: string): { expr: string; lo: string; hi: string } | null {
+  const m = /^(?:integral|antiderivative)\s*\(/.exec(text);
+  if (!m) return null;
+  const open = m[0].length - 1; // index of the '('
+  let depth = 0;
+  let close = -1;
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === "(") depth++;
+    else if (text[i] === ")") {
+      depth--;
+      if (depth === 0) {
+        close = i;
+        break;
+      }
+    }
+  }
+  if (close !== text.length - 1) return null; // the call must be the whole row
+  const parts = splitTopLevelCommas(text.slice(open + 1, close)).map((p) => p.trim());
+  if (parts.length !== 3 || parts.some((p) => p === "")) return null;
+  return { expr: parts[0], lo: parts[1], hi: parts[2] };
+}
+
 export function classifyRow(text: string): RowKind {
   const { body, restrict } = splitRestrictions(text);
   const kind = classifyBody(body);
@@ -189,6 +222,10 @@ export function classifyRow(text: string): RowKind {
 function classifyBody(text: string): RowKind {
   const t = text.trim();
   if (!t) return { t: "empty" };
+
+  // A definite-integral area row: `integral(f, a, b)` shades ∫ₐᵇ f dx.
+  const area = matchArea(t);
+  if (area) return { t: "area", ...area };
 
   const pts = parsePointish(t);
   if (pts) return { t: "pointish", coords: pts };
@@ -200,6 +237,9 @@ function classifyBody(text: string): RowKind {
       // A chained `y = x = 2` — the right side still holds a relation. Treat the
       // whole row as a relation rather than folding the second '=' into a body.
       if (splitRelation(rhs)) return { t: "relation", lhs: lhs.trim(), rhs: rhs.trim(), op };
+      // A first-order ODE: y' = f(x, y) or dy/dx = f(x, y) → slope field.
+      const lhsNo = lhs.replace(/\s+/g, "");
+      if (lhsNo === "y'" || lhsNo === "dy/dx") return { t: "slopefield", expr: rhs.trim() };
       if (isVar(lhs, "y")) return { t: "function", expr: rhs.trim() };
       if (isVar(rhs, "y")) return { t: "function", expr: lhs.trim() };
       if (isVar(lhs, "x")) return { t: "functionY", expr: rhs.trim() };

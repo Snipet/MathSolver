@@ -355,6 +355,40 @@ Round-trip invariant (tested): `parse(to_string(e, Plain))` and
 - `factor(expr)`: best-effort — extract common numeric/symbolic factors from
   an Add; factor quadratics with rational roots into linear factors; leave
   anything else unchanged. Never throws just because it can't factor.
+- `cancel(expr)` / `cancel(Equation)` (v0.5): remove the common polynomial
+  factor of a rational expression's numerator and denominator, exactly, over
+  64-bit rationals (`(x^2-1)/(x-1) → x+1`, `(x^2-1)/(x^2-3x+2) →
+  (x+1)/(x-2)`). Splits `simplify(e)` into `N/D` by the sign of integer `Pow`
+  exponents, and — only when both are univariate polynomials in the same
+  single symbol with rational Number coefficients (degree ≤ 32 each) —
+  divides both by their GCD (Euclidean algorithm over `Q[x]` on
+  primitive-part–normalized coefficient vectors, content folded in). Every
+  other case (no denominator, non-polynomial parts, symbolic coefficients,
+  more than one symbol, degree over the cap, or any `OverflowError` in the
+  pipeline) returns `simplify(e)` unchanged — never throws. The quotient is
+  internally verified (both remainders zero, and `N'·g`/`D'·g` reproduce the
+  inputs) before being published, then re-simplified. Formal cancellation:
+  value-preserving wherever the *original* denominator is nonzero, same
+  doctrine as `x/x → 1` (§12). Idempotent. Shipped as an explicit verb, not a
+  `simplify` rule (it changes the domain; see docs/proposals/cancel-poly-gcd.md
+  §7). Implementation: `src/cancel.cpp`.
+- `together(expr)` / `together(Equation)` (v0.5): the companion of `cancel` —
+  combine a sum of fractions into a single `N/D` over the least common
+  denominator (`1/x + 1/y → (x+y)/(x*y)`, `1/(x-1) + 1/(x+1) →
+  2*x/((x-1)*(x+1))`, `a + 1/x → (a*x+1)/x`). Splits each additive term of
+  `simplify(e)` into numerator and denominator factors (same sign-of-exponent
+  rule as `cancel`), assembles the LCD as the product of each distinct
+  denominator base — compared with `structurally_equal` — raised to its
+  maximum multiplicity across terms, scales every numerator by `D/(its
+  denominator)`, and sums them. No GCD, factoring, or expansion, so it is
+  fully **multivariate**; the denominator is kept factored (built via the
+  factories, not top-simplified, so `(x+y)/(x*y)` does not distribute into
+  `y^-1·(x+y)/x`). Returns `simplify(e)` unchanged when nothing has a
+  symbolic denominator (numeric denominators are already folded into rational
+  coefficients) or on any `OverflowError`; never throws. Idempotent; formal
+  cancellation (same doctrine as `x/x → 1`). Explicit verb, not a `simplify`
+  rule (forcing a common denominator is a presentation choice; see
+  docs/proposals/together.md). Implementation: `src/together.cpp`.
 
 **Rule inventory for `simplify`** (all "safe" — value-preserving on the reals
 except formal cancellations, which are standard CAS behavior and documented):
@@ -805,8 +839,8 @@ REPL (`>>> ` prompt, plain `std::getline` — no readline dependency; Ctrl-D or
   use `solve ..., var`).
 - Commands (comma-separated arguments, split at top-level commas only):
   `solve <eq>[, <var>]`, `diff <expr>[, <var>]`, `eval <expr>, x=1[, y=2 …]`,
-  `expand <e>`, `factor <e>`, `latex <e>`, `debug <e>` (s-expr dump),
-  `help`, `quit`/`exit`.
+  `expand <e>`, `factor <e>`, `cancel <e>[, <var>]`, `together <e>`,
+  `latex <e>`, `debug <e>` (s-expr dump), `help`, `quit`/`exit`.
 - Parse/math errors print the caret diagnostic and keep the session alive.
 
 ### REPL session environment (variable assignment)
@@ -916,7 +950,10 @@ numeric, diff, eval, a parse-error exit code, and a piped-stdin REPL session).
   report "no real solutions").
 - `e` is always Euler's number; variables are single letters/greek names.
 - Rational arithmetic is 64-bit and overflow-checked (throws, never wraps).
-- Formal cancellations (`x/x → 1`) assume nonzero denominators.
+- Formal cancellations (`x/x → 1`) assume nonzero denominators. The `cancel`
+  verb (§7) extends the same doctrine to algebraic common factors —
+  `(x^2-1)/(x-1) → x+1` is defined at `x=1` where the input was not — so its
+  result is value-preserving only where the original denominator is nonzero.
 - Numeric root search only covers the requested interval.
 - Scientific-notation literals are exact and must fit 64-bit rationals
   (`1e300` is a clean ParseError).

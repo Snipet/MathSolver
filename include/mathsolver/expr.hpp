@@ -25,7 +25,9 @@ enum class ConstantId { Pi, E, I };
 enum class FunctionId {
     Sin, Cos, Tan, Asin, Acos, Atan, Sinh, Cosh, Tanh, Asinh, Acosh, Atanh,
     Gamma, Digamma, Erf, Erfc, Fib, Harmonic,
-    Ln, Abs
+    Ln, Abs,
+    // Complex-domain accessors (docs/proposals/complex-domain.md, Phase 3).
+    Conj, Re, Im, Arg
 };
 
 /// Lowercase canonical name: "sin", "asin", "ln", "abs", ...
@@ -124,6 +126,9 @@ bool structurally_equal(const Expr& a, const Expr& b);
 std::size_t hash_expr(const Expr& e);
 
 bool contains_symbol(const Expr& e, std::string_view name);
+
+/// True if the constant `id` (e.g. ConstantId::I) occurs anywhere in `e`.
+bool contains_constant(const Expr& e, ConstantId id);
 
 std::set<std::string> free_symbols(const Expr& e);
 

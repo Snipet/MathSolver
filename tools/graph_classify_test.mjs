@@ -9,6 +9,10 @@ check("bare expression → function", kind("a*sin(x)") === "function");
 check("y = expr → function", kind("y = x^2 + 1") === "function" && classifyRow("y=x^2").expr === "x^2");
 check("x = expr → functionY", kind("x = y^2") === "functionY" && classifyRow("x = y^2").expr === "y^2");
 check("r = expr → polar", kind("r = 1 + cos(theta)") === "polar");
+check("y' = expr → slopefield", kind("y' = x - y") === "slopefield" && classifyRow("y' = x - y").expr === "x - y");
+check("dy/dx = expr → slopefield", kind("dy/dx = x*y") === "slopefield" && classifyRow("dy/dx = x*y").expr === "x*y");
+check("y' spaced still slopefield", kind("y ' = sin(x)") === "slopefield");
+check("y = expr not slopefield", kind("y = x - 1") === "function");
 check("single point → pointish", (() => { const r = classifyRow("(1, 2)"); return r.t === "pointish" && r.coords.length === 1 && r.coords[0][0] === "1" && r.coords[0][1] === "2"; })());
 check("point list → pointish", (() => { const r = classifyRow("(1,2), (3, 4)"); return r.t === "pointish" && r.coords.length === 2; })());
 check("parametric-looking → pointish", (() => { const r = classifyRow("(cos(t), sin(t))"); return r.t === "pointish" && r.coords[0][0] === "cos(t)"; })());
@@ -22,6 +26,15 @@ check("<= detected before <", splitRelation("y <= 2").op === "<=");
 check("splitTopLevelCommas respects parens", splitTopLevelCommas("cos(t), sin(t)").length === 2 && splitTopLevelCommas("f(a,b)").length === 1);
 check("chained 'y = x = 2' → relation, not folded function", kind("y = x = 2") === "relation");
 check("define 'f = x^2' → define", (() => { const r = classifyRow("f = x^2"); return r.t === "define" && r.name === "f" && r.expr === "x^2"; })());
+
+// Definite-integral area rows: integral(f, a, b) shades the signed area.
+check("integral(f, a, b) → area", (() => { const r = classifyRow("integral(sin(x), 0, pi)"); return r.t === "area" && r.expr === "sin(x)" && r.lo === "0" && r.hi === "pi"; })());
+check("antiderivative(f, a, b) → area", (() => { const r = classifyRow("antiderivative(x^2, 0, b)"); return r.t === "area" && r.expr === "x^2" && r.lo === "0" && r.hi === "b"; })());
+check("area bounds may be expressions", (() => { const r = classifyRow("integral(x, -1, 2*a)"); return r.t === "area" && r.lo === "-1" && r.hi === "2*a"; })());
+check("integral(f) 1-arg stays function (antiderivative curve)", kind("integral(sin(x))") === "function");
+check("integral(f, t) 2-arg stays function", kind("integral(sin(x), t)") === "function");
+check("integral(f, a, b) + 1 is not a whole-row area", kind("integral(x, 0, 1) + 1") !== "area");
+check("area integrand keeps nested commas", (() => { const r = classifyRow("integral(max(x, 0), 0, 3)"); return r.t === "area" && r.expr === "max(x, 0)" && r.lo === "0" && r.hi === "3"; })());
 
 // Domain restrictions
 check("restriction stripped from function", (() => { const r = classifyRow("x^2 {x > 0}"); return r.t === "function" && r.expr === "x^2" && JSON.stringify(r.restrict) === JSON.stringify(["x > 0"]); })());

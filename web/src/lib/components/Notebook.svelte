@@ -7,6 +7,11 @@
     buildConsolePreview,
     type ConsolePreview,
   } from "../notebook/preview";
+  import {
+    suggestVerbs,
+    suggestionCommand,
+    type VerbSuggestion,
+  } from "../notebook/suggest";
   import { splitAssignment } from "../vars/session";
   import { vars } from "../vars.svelte";
   import { untrack } from "svelte";
@@ -19,7 +24,7 @@
     void vars.active;
     untrack(() => notebook.syncFromVars());
   });
-  import CommandReference from "./CommandReference.svelte";
+  import ConsoleReference from "./ConsoleReference.svelte";
   import ConsolePrompt from "./ConsolePrompt.svelte";
   import Katex from "./Katex.svelte";
   import NotebookCell from "./NotebookCell.svelte";
@@ -196,6 +201,31 @@
     return () => clearTimeout(timer);
   });
 
+  // --- verb suggestions for a bare line (debounced) -------------------------
+  // When the input names no command, offer the verbs worth trying on it, shown
+  // as chips beside the "as parsed" preview. Empty while the completion popup
+  // is open (the user is already picking a verb).
+  let verbSuggestions = $state<VerbSuggestion[]>([]);
+  let suggestSeq = 0;
+  $effect(() => {
+    const text = input.trim();
+    const popupOpen = suggestions.length > 0;
+    const my = ++suggestSeq;
+    if (!text || popupOpen || !ready) {
+      verbSuggestions = [];
+      return;
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const s = await suggestVerbs(text);
+        if (my === suggestSeq) verbSuggestions = s;
+      } catch {
+        if (my === suggestSeq) verbSuggestions = [];
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  });
+
   // --- symbol palette (parser-supported unicode, inserted at the caret) -----
   const PALETTE: { label: string; pre: string; post: string; title: string }[] = [
     { label: "π", pre: "π", post: "", title: "pi" },
@@ -296,6 +326,14 @@
         return;
       }
       // Enter falls through: run the line as typed.
+    } else if (verbSuggestions.length > 0 && e.key === "Tab") {
+      // No completion popup, but bare-line verb suggestions are showing: Tab
+      // fills the first (Enter then runs it), mirroring the completion Tab.
+      e.preventDefault();
+      input = suggestionCommand(verbSuggestions[0], input) + " ";
+      recall = null;
+      void tick().then(() => exprInput?.focusEnd());
+      return;
     }
 
     // Shell-style history recall (single-line input only).
@@ -329,7 +367,8 @@
       <span class="head-title">Console</span>
       <span class="head-hint">
         Line-by-line math, Mathematica style. Every command is listed in the
-        <strong>Commands</strong> panel — click one to insert it.
+        <strong>Commands</strong> panel; the <strong>Cookbook</strong> has worked
+        recipes — click any to drop it into the prompt.
       </span>
     </div>
     <button
@@ -343,9 +382,9 @@
   </div>
 
   <details class="ref-inline">
-    <summary>Commands</summary>
+    <summary>Commands &amp; Cookbook</summary>
     <div class="ref-inline-body">
-      <CommandReference />
+      <ConsoleReference />
     </div>
   </details>
 
@@ -375,7 +414,14 @@
       </div>
     {:else}
       {#each notebook.cells as cell, i (cell.id)}
-        <NotebookCell {cell} index={i + 1} onrerun={(t) => void runText(t)} onedit={editText} />
+        <NotebookCell
+          {cell}
+          index={i + 1}
+          islast={i === notebook.cells.length - 1}
+          onrerun={(t) => void runText(t)}
+          onedit={editText}
+          onrun={(t) => void runText(t)}
+        />
       {/each}
     {/if}
   </div>
@@ -423,6 +469,28 @@
       </div>
     {:else if activeUsage}
       <p class="usage-hint"><code>{activeUsage}</code></p>
+    {/if}
+
+    {#if verbSuggestions.length > 0}
+      <div
+        class="verb-suggest"
+        role="group"
+        aria-label="Suggested commands"
+        data-testid="verb-suggest"
+      >
+        <span class="verb-suggest-lead">try:</span>
+        {#each verbSuggestions as s (s.label)}
+          <button
+            class="verb-chip"
+            title={s.hint}
+            onmousedown={(e) => e.preventDefault() /* keep focus */}
+            onclick={() => void runText(suggestionCommand(s, input))}
+          >
+            {s.label}
+          </button>
+        {/each}
+        <span class="verb-suggest-tab">Tab</span>
+      </div>
     {/if}
 
     <div class="prompt">
@@ -717,6 +785,46 @@
     margin: 0;
     font-size: 0.82rem;
     color: var(--error);
+  }
+
+  /* Verb suggestions for a bare line: a quiet row of "try this" chips under
+     the parsed preview. */
+  .verb-suggest {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    margin: -0.15rem 0 0.4rem;
+    padding: 0 0.6rem;
+  }
+  .verb-suggest-lead {
+    font-size: 0.74rem;
+    color: var(--fg-muted);
+    flex: 0 0 auto;
+  }
+  .verb-chip {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--fg-muted);
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.12rem 0.6rem;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease;
+  }
+  .verb-chip:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .verb-suggest-tab {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    color: var(--fg-muted);
+    border: 1px solid var(--border);
+    border-radius: calc(var(--radius) / 3);
+    padding: 0 0.3rem;
+    opacity: 0.7;
   }
 
   .palette {

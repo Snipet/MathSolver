@@ -226,7 +226,342 @@ std::string ms_expand(std::string input) {
     return transform_json(input, [](const Expr& e) { return expand(e); });
 }
 std::string ms_factor(std::string input) {
-    return transform_json(input, [](const Expr& e) { return factor(e); });
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        // A bare integer factors into primes (2^3 · 3^2 · 5) rather than
+        // echoing itself, matching FactorInteger / factorint.
+        const Expr s = simplify(e);
+        if (s->kind() == Kind::Number && s->number().is_integer()) {
+            const long long n = s->number().num();
+            if (n == 0 || n == 1 || n == -1) {
+                const std::string t = std::to_string(n);
+                return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{}}}",
+                                   jstr(t), jstr(t));
+            }
+            const auto f = factorize(n);
+            const std::string sign = n < 0 ? "-" : "";
+            return std::format(
+                "{{\"ok\":true,\"plain\":{},\"latex\":{}}}",
+                jstr(sign + format_factorization(f, " * ")),
+                jstr(sign + format_factorization_latex(f)));
+        }
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(factor(e)));
+    });
+}
+
+// ---- Number theory: gcd/lcm, primality, factorization, divisors, totient.
+// Each returns a uniform {ok, plain, latex, notes} envelope the console renders
+// like any transform result.
+
+/// Parse a single number-theory argument to an integer, or nullopt.
+std::optional<long long> nt_int(const std::string& tok) {
+    const Expr e = simplify(parse_expression(tok));
+    if (e->kind() != Kind::Number || !e->number().is_integer()) return std::nullopt;
+    return e->number().num();
+}
+
+std::string nt_json(std::string_view plain, std::string_view latex,
+                    const std::vector<std::string>& notes = {}) {
+    return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{},\"notes\":{}}}",
+                       jstr(plain), jstr(latex), jarr_str(notes));
+}
+
+/// gcd/lcm of a comma-separated integer list, folded pairwise.
+std::string ms_gcd(std::string list) {
+    return guarded([&]() -> std::string {
+        long long acc = 0;
+        int count = 0;
+        for (const std::string& t : split_csv(list)) {
+            const auto v = nt_int(t);
+            if (!v) return err_json(std::format("gcd: expected an integer, got '{}'", trim(t)));
+            acc = int_gcd(acc, *v);
+            ++count;
+        }
+        if (count == 0) return err_json("gcd: expected at least one integer");
+        const std::string s = std::to_string(acc);
+        return nt_json(s, s);
+    });
+}
+std::string ms_lcm(std::string list) {
+    return guarded([&]() -> std::string {
+        long long acc = 1;
+        int count = 0;
+        for (const std::string& t : split_csv(list)) {
+            const auto v = nt_int(t);
+            if (!v) return err_json(std::format("lcm: expected an integer, got '{}'", trim(t)));
+            acc = int_lcm(acc, *v);
+            ++count;
+        }
+        if (count == 0) return err_json("lcm: expected at least one integer");
+        const std::string s = std::to_string(acc);
+        return nt_json(s, s);
+    });
+}
+std::string ms_isprime(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("isprime: expected an integer, got '{}'", trim(arg)));
+        const bool p = is_prime(*n);
+        return nt_json(p ? "true" : "false", p ? "\\text{true}" : "\\text{false}",
+                       {std::format("{} is {}", *n, p ? "prime" : "composite")});
+    });
+}
+std::string ms_nextprime(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("nextprime: expected an integer, got '{}'", trim(arg)));
+        const std::string s = std::to_string(next_prime(*n));
+        return nt_json(s, s);
+    });
+}
+std::string ms_totient(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("totient: expected an integer, got '{}'", trim(arg)));
+        if (*n < 1) return err_json("totient is defined for positive integers");
+        const std::string s = std::to_string(euler_totient(*n));
+        return nt_json(s, s, {std::format("phi({})", *n)});
+    });
+}
+std::string ms_divisors(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("divisors: expected an integer, got '{}'", trim(arg)));
+        if (*n == 0) return err_json("divisors of 0 is undefined");
+        const std::vector<long long> ds = divisors(*n);
+        std::string plain;
+        std::string latex;
+        for (std::size_t i = 0; i < ds.size(); ++i) {
+            if (i > 0) {
+                plain += ", ";
+                latex += ", ";
+            }
+            plain += std::to_string(ds[i]);
+            latex += std::to_string(ds[i]);
+        }
+        return nt_json(plain, "\\{" + latex + "\\}", {std::format("{} divisors", ds.size())});
+    });
+}
+
+/// cfrac(value): continued fraction of a rational, sqrt(n), or real, with its
+/// convergents. Returns {ok, plain, latex, notes} like a transform result.
+std::string ms_cfrac(std::string input) {
+    return guarded([&]() -> std::string {
+        const Expr s = simplify(parse_expression(input));
+        CFrac cf;
+        if (s->kind() == Kind::Number) {
+            const Rational r = s->number();
+            cf = cf_rational(r.num(), r.den());
+        } else if (s->kind() == Kind::Pow && s->arg(0)->kind() == Kind::Number &&
+                   s->arg(0)->number().is_integer() && s->arg(0)->number().num() >= 1 &&
+                   s->arg(1)->kind() == Kind::Number &&
+                   s->arg(1)->number() == Rational(1, 2)) {
+            cf = cf_sqrt(s->arg(0)->number().num());
+        } else {
+            cf = cf_numeric(evaluate(s, Bindings{}));
+        }
+        std::vector<std::string> notes;
+        if (!cf.convergents.empty()) {
+            std::string cs = "convergents: ";
+            for (std::size_t i = 0; i < cf.convergents.size(); ++i) {
+                const auto& [p, q] = cf.convergents[i];
+                if (i > 0) cs += ", ";
+                cs += q == 1 ? std::to_string(p)
+                             : std::to_string(p) + "/" + std::to_string(q);
+            }
+            notes.push_back(cs);
+        }
+        if (!cf.exact) notes.push_back("numeric expansion — later terms are approximate");
+        return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{},\"notes\":{}}}",
+                           jstr(format_cfrac(cf)), jstr(format_cfrac_latex(cf)),
+                           jarr_str(notes));
+    });
+}
+
+/// Parse a CSV of integers; nullopt if any token isn't an integer.
+std::optional<std::vector<long long>> nt_int_list(const std::string& list) {
+    std::vector<long long> out;
+    for (const std::string& t : split_csv(list)) {
+        const auto v = nt_int(t);
+        if (!v) return std::nullopt;
+        out.push_back(*v);
+    }
+    return out;
+}
+
+/// Modular arithmetic: mod(a,m), powmod(b,e,m), modinv(a,m). One CSV argument.
+std::string ms_mod(std::string list) {
+    return guarded([&]() -> std::string {
+        const auto v = nt_int_list(list);
+        if (!v || v->size() != 2) return err_json("usage: mod <a>, <m>");
+        const std::string s = std::to_string(int_mod((*v)[0], (*v)[1]));
+        return nt_json(s, s);
+    });
+}
+std::string ms_powmod(std::string list) {
+    return guarded([&]() -> std::string {
+        const auto v = nt_int_list(list);
+        if (!v || v->size() != 3) return err_json("usage: powmod <base>, <exponent>, <modulus>");
+        const std::string s = std::to_string(pow_mod((*v)[0], (*v)[1], (*v)[2]));
+        return nt_json(s, s, {std::format("{}^{} mod {}", (*v)[0], (*v)[1], (*v)[2])});
+    });
+}
+std::string ms_modinv(std::string list) {
+    return guarded([&]() -> std::string {
+        const auto v = nt_int_list(list);
+        if (!v || v->size() != 2) return err_json("usage: modinv <a>, <m>");
+        const std::string s = std::to_string(mod_inverse((*v)[0], (*v)[1]));
+        return nt_json(s, s, {std::format("{}^(-1) mod {}", (*v)[0], (*v)[1])});
+    });
+}
+
+/// discriminant(poly, var): the discriminant of a degree 2–4 polynomial, with
+/// the variable inferred when it's the only symbol.
+std::string ms_discriminant(std::string poly, std::string var) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(poly);
+        std::string v = trim(var);
+        if (v.empty()) {
+            const std::set<std::string> syms = free_symbols(e);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json("discriminant: name the variable, e.g. "
+                                 "discriminant a*x^2 + b*x + c, x");
+        }
+        const DiscriminantResult r = discriminant(e, v);
+        if (r.status != DiscriminantResult::Status::Ok) return err_json(r.message);
+        std::vector<std::string> notes;
+        if (!r.root_nature.empty()) notes.push_back("roots: " + r.root_nature);
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}",
+                           rendered_fields(r.value), jarr_str(notes));
+    });
+}
+
+/// polydiv(dividend, divisor, var): polynomial long division. The quotient is
+/// the rendered result; the remainder rides along as a note.
+std::string ms_polydiv(std::string dividend, std::string divisor, std::string var) {
+    return guarded([&]() -> std::string {
+        const Expr n = parse_expression(dividend);
+        const Expr d = parse_expression(divisor);
+        std::string v = trim(var);
+        if (v.empty()) {
+            std::set<std::string> syms = free_symbols(n);
+            for (const std::string& s : free_symbols(d)) syms.insert(s);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json("polydiv: name the variable, e.g. "
+                                 "polydiv x^3 - 1, x - 1, x");
+        }
+        const PolyDivResult r = polynomial_divide(n, d, v);
+        if (r.status != PolyDivResult::Status::Ok) return err_json(r.message);
+        const std::vector<std::string> notes = {
+            "remainder: " + to_string(r.remainder, PrintStyle::Plain)};
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}",
+                           rendered_fields(r.quotient), jarr_str(notes));
+    });
+}
+
+/// Shared body for polygcd / polylcm: infer the variable when it is the only
+/// symbol, then render the monic gcd or lcm.
+std::string ms_poly_gcd_lcm(const std::string& a, const std::string& b,
+                            const std::string& var, bool lcm) {
+    return guarded([&]() -> std::string {
+        const Expr ea = parse_expression(a);
+        const Expr eb = parse_expression(b);
+        std::string v = trim(var);
+        if (v.empty()) {
+            std::set<std::string> syms = free_symbols(ea);
+            for (const std::string& s : free_symbols(eb)) syms.insert(s);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json(std::format(
+                "{}: name the variable, e.g. {} x^2 - 1, x^3 - 1, x",
+                lcm ? "polylcm" : "polygcd", lcm ? "polylcm" : "polygcd"));
+        }
+        const PolyGcdResult r = lcm ? polynomial_lcm(ea, eb, v) : polynomial_gcd(ea, eb, v);
+        if (r.status != PolyGcdResult::Status::Ok) return err_json(r.message);
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(r.value));
+    });
+}
+std::string ms_polygcd(std::string a, std::string b, std::string var) {
+    return ms_poly_gcd_lcm(a, b, var, false);
+}
+std::string ms_polylcm(std::string a, std::string b, std::string var) {
+    return ms_poly_gcd_lcm(a, b, var, true);
+}
+
+/// resultant(a, b, var): the resultant of two polynomials.
+std::string ms_resultant(std::string a, std::string b, std::string var) {
+    return guarded([&]() -> std::string {
+        const Expr ea = parse_expression(a);
+        const Expr eb = parse_expression(b);
+        std::string v = trim(var);
+        if (v.empty()) {
+            std::set<std::string> syms = free_symbols(ea);
+            for (const std::string& s : free_symbols(eb)) syms.insert(s);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json("resultant: name the variable, e.g. "
+                                 "resultant x^2 - 1, x - 2, x");
+        }
+        const PolyGcdResult r = polynomial_resultant(ea, eb, v);
+        if (r.status != PolyGcdResult::Status::Ok) return err_json(r.message);
+        return std::format("{{\"ok\":true,{}}}", rendered_fields(r.value));
+    });
+}
+
+/// solveIneq(lhs, rhs, op, var): solve the inequality `lhs <op> rhs` for its
+/// variable (op is one of "<", "<=", ">", ">="; var may be empty to infer).
+std::string ms_solve_ineq(std::string lhs, std::string rhs, std::string op,
+                          std::string var) {
+    return guarded([&]() -> std::string {
+        IneqOp o;
+        if (op == "<") o = IneqOp::Lt;
+        else if (op == "<=") o = IneqOp::Le;
+        else if (op == ">") o = IneqOp::Gt;
+        else if (op == ">=") o = IneqOp::Ge;
+        else return err_json("unknown relational operator '" + op + "'");
+        const IneqResult r = solve_inequality(parse_expression(lhs),
+                                              parse_expression(rhs), o, trim(var));
+        if (r.status == IneqResult::Status::Unsolved) {
+            return err_json(r.message.empty() ? "unable to solve inequality"
+                                              : r.message);
+        }
+        return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{},\"notes\":{}}}",
+                           jstr(format_solution_set(r, false)),
+                           jstr(format_solution_set(r, true)), jarr_str(r.warnings));
+    });
+}
+
+/// crt(system): "r1, r2, …; m1, m2, …" — residues before ';', moduli after.
+std::string ms_crt(std::string system) {
+    return guarded([&]() -> std::string {
+        const auto semi = system.find(';');
+        if (semi == std::string::npos) {
+            return err_json("usage: crt <r1, r2, …; m1, m2, …>  (residues ; moduli)");
+        }
+        const auto residues = nt_int_list(system.substr(0, semi));
+        const auto moduli = nt_int_list(system.substr(semi + 1));
+        if (!residues || !moduli) return err_json("crt: residues and moduli must be integers");
+        const Crt r = crt_solve(*residues, *moduli);
+        const std::string plain = std::format("{} (mod {})", r.residue, r.modulus);
+        const std::string latex = std::format("{} \\pmod{{{}}}", r.residue, r.modulus);
+        return nt_json(plain, latex);
+    });
+}
+std::string ms_trigexpand(std::string input) {
+    return transform_json(input, [](const Expr& e) { return trig_expand(e); });
+}
+std::string ms_trigreduce(std::string input) {
+    return transform_json(input, [](const Expr& e) { return trig_reduce(e); });
+}
+std::string ms_logexpand(std::string input) {
+    return transform_json(input, [](const Expr& e) { return log_expand(e); });
+}
+std::string ms_logcombine(std::string input) {
+    return transform_json(input, [](const Expr& e) { return log_combine(e); });
+}
+std::string ms_cancel(std::string input) {
+    return transform_json(input, [](const Expr& e) { return cancel(e); });
+}
+std::string ms_together(std::string input) {
+    return transform_json(input, [](const Expr& e) { return together(e); });
 }
 std::string ms_latex(std::string input) {
     return transform_json(input, identity_op);
@@ -336,6 +671,54 @@ std::string ms_apart(std::string input, std::string variable) {
             var = *syms.begin();
         }
         return std::format("{{\"ok\":true,{}}}", rendered_fields(apart(e, var)));
+    });
+}
+
+/// fit(data, model, degree): least-squares regression of "x,y; x,y; ..." data.
+/// The polynomial models are solved exactly over the rationals; exp/power/log
+/// are numeric. Returns the fitted expression (plottable in x) plus the model
+/// label, exact flag, R², and point count.
+std::string ms_fit(std::string data, std::string model, std::string degree) {
+    return guarded([&]() -> std::string {
+        auto [xs, ys] = parse_point_data(data);
+        std::string name = trim(model);
+        if (name.empty()) name = "linear";
+        const auto spec = parse_fit_model(name);
+        if (!spec) return err_json("unknown fit model '" + name + "'");
+        auto [fam, deg] = *spec;
+        if (fam == FitModel::Poly && deg < 0) { // generic "poly": read the degree
+            deg = 2;
+            const std::string dt = trim(degree);
+            if (!dt.empty()) {
+                try {
+                    deg = std::stoi(dt);
+                } catch (...) {
+                    return err_json("polynomial degree must be an integer");
+                }
+            }
+        }
+        const FitResult r = fit(xs, ys, fam, deg, "x");
+        if (r.status != FitResult::Status::Ok) return err_json(r.message);
+        return std::format(
+            "{{\"ok\":true,{},\"model\":{},\"exact\":{},\"r2\":{},\"n\":{}}}",
+            rendered_fields(r.expr), jstr(r.model), r.exact ? "true" : "false",
+            jnum(r.r2), r.n);
+    });
+}
+
+/// stats(data): exact summary statistics of a data list. Returns an ordered
+/// `items` array of {label, plain, latex} plus the exact flag and count.
+std::string ms_stats(std::string data) {
+    return guarded([&]() -> std::string {
+        const StatsResult r = compute_stats(parse_stat_data(data));
+        if (r.status != StatsResult::Status::Ok) return err_json(r.message);
+        std::string items;
+        for (const StatItem& s : r.items) {
+            if (!items.empty()) items += ",";
+            items += std::format("{{\"label\":{},{}}}", jstr(s.label), rendered_fields(s.value));
+        }
+        return std::format("{{\"ok\":true,\"exact\":{},\"n\":{},\"items\":[{}]}}",
+                           r.exact ? "true" : "false", r.n, items);
     });
 }
 
@@ -632,6 +1015,28 @@ std::string ms_series(std::string input, std::string variable,
         const Expr c = ct.empty() ? make_num(0) : parse_expression(ct);
         return std::format("{{\"ok\":true,{}}}",
                            rendered_fields(series(e, var, c, order)));
+    });
+}
+
+/// pade(input, variable, m, n): the [m/n] Padé approximant P(x)/Q(x) matching
+/// the Maclaurin series of the input through order m + n.
+std::string ms_pade(std::string input, std::string variable, int m, int n) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string var = trim(variable);
+        if (var.empty()) {
+            const std::set<std::string> syms = free_symbols(e);
+            if (syms.size() != 1) {
+                return err_json(
+                    syms.empty()
+                        ? "cannot infer the variable: the input has no free symbols"
+                        : "give the Padé variable explicitly: pade <expr>, <m>, "
+                          "<n>, <var>");
+            }
+            var = *syms.begin();
+        }
+        return std::format("{{\"ok\":true,{}}}",
+                           rendered_fields(pade(e, var, m, n).approximant));
     });
 }
 
@@ -1040,18 +1445,44 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("simplify", &ms_simplify);
     emscripten::function("expand", &ms_expand);
     emscripten::function("factor", &ms_factor);
+    emscripten::function("trigexpand", &ms_trigexpand);
+    emscripten::function("trigreduce", &ms_trigreduce);
+    emscripten::function("logexpand", &ms_logexpand);
+    emscripten::function("logcombine", &ms_logcombine);
+    emscripten::function("cancel", &ms_cancel);
+    emscripten::function("together", &ms_together);
     emscripten::function("latex", &ms_latex);
     emscripten::function("subs", &ms_subs);
     emscripten::function("collect", &ms_collect);
     emscripten::function("derivative", &ms_derivative);
     emscripten::function("apart", &ms_apart);
+    emscripten::function("fit", &ms_fit);
+    emscripten::function("stats", &ms_stats);
     emscripten::function("dsolve", &ms_dsolve);
     emscripten::function("series", &ms_series);
+    emscripten::function("pade", &ms_pade);
     emscripten::function("vectorOp", &ms_vector_op);
     emscripten::function("limit", &ms_limit);
     emscripten::function("mlimit", &ms_mlimit);
     emscripten::function("stirling", &ms_stirling);
     emscripten::function("seq", &ms_seq);
+    emscripten::function("gcd", &ms_gcd);
+    emscripten::function("lcm", &ms_lcm);
+    emscripten::function("isprime", &ms_isprime);
+    emscripten::function("nextprime", &ms_nextprime);
+    emscripten::function("divisors", &ms_divisors);
+    emscripten::function("totient", &ms_totient);
+    emscripten::function("cfrac", &ms_cfrac);
+    emscripten::function("discriminant", &ms_discriminant);
+    emscripten::function("polydiv", &ms_polydiv);
+    emscripten::function("polygcd", &ms_polygcd);
+    emscripten::function("polylcm", &ms_polylcm);
+    emscripten::function("resultant", &ms_resultant);
+    emscripten::function("solveIneq", &ms_solve_ineq);
+    emscripten::function("mod", &ms_mod);
+    emscripten::function("powmod", &ms_powmod);
+    emscripten::function("modinv", &ms_modinv);
+    emscripten::function("crt", &ms_crt);
     emscripten::function("sum", &ms_sum);
     emscripten::function("product", &ms_product);
     emscripten::function("rsolve", &ms_rsolve);

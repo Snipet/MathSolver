@@ -21,7 +21,7 @@ uni-08	simplify	x⁻¹	-	exact	1/x	0
 uni-09	simplify	2x³	-	exact	2*x^3	0
 uni-10	simplify	sin(30°)	-	exact	1/2	0
 uni-11	simplify	180°	-	exact	pi	0
-uni-12	solve	x ≤ 3	-	contains	inequalit	1
+uni-12	solve	x ≤ 3	-	contains	(-∞, 3]	0
 #
 # ---------- absolute-value bars ----------
 bar-01	simplify	|3-π|	-	regex	^abs\(-pi \+ 3\)$|^abs\(3 - pi\)$	0

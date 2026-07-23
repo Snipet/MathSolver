@@ -3,10 +3,18 @@
 // they reference, so opening it reproduces the same picture on any machine.
 // Pure and unit-tested (tools/graph_share_test.mjs).
 
+export interface SharedPoint {
+  x: string;
+  y: string;
+}
 export interface SharedRow {
   text: string;
   color: string;
   visible: boolean;
+  /** Present for data-table rows. */
+  kind?: "expr" | "table";
+  points?: SharedPoint[];
+  fit?: string;
 }
 export interface SharedVar {
   name: string;
@@ -37,8 +45,11 @@ const MAX_PAYLOAD = 64_000; // reject an oversized hostile hash before decoding
 const MAX_TEXT = 2048;
 const MAX_NAME = 64;
 const MAX_VALUE = 1024;
+const MAX_POINTS = 200; // per table
+const MAX_COORD = 64;
 const VIEW_MAX = 1e6; // reject a degenerate/extreme viewport
 const COLOR_RE = /^#[0-9a-fA-F]{3,8}$/; // only hex colors reach style:background
+const FIT_MODELS = new Set(["", "linear", "quadratic", "cubic", "exp", "power", "log"]);
 
 export function encodeState(state: SharedState): string {
   const trimmed: SharedState = {
@@ -73,14 +84,31 @@ export function decodeState(str: string): SharedState | null {
   if (Math.abs(cx) > VIEW_MAX || Math.abs(cy) > VIEW_MAX || scale < 1e-6 || scale > VIEW_MAX) return null;
   if (!Array.isArray(o.rows) || !Array.isArray(o.vars)) return null;
   const rows: SharedRow[] = o.rows
-    .filter((r): r is Record<string, unknown> => !!r && typeof (r as Record<string, unknown>).text === "string")
+    .filter(
+      (r): r is Record<string, unknown> =>
+        !!r &&
+        (typeof (r as Record<string, unknown>).text === "string" ||
+          (r as Record<string, unknown>).kind === "table"),
+    )
     .slice(0, CAP)
-    .map((r) => ({
-      text: (r.text as string).slice(0, MAX_TEXT),
-      color:
-        typeof r.color === "string" && COLOR_RE.test(r.color as string) ? (r.color as string) : "#2563eb",
-      visible: r.visible !== false,
-    }));
+    .map((r) => {
+      const color =
+        typeof r.color === "string" && COLOR_RE.test(r.color as string) ? (r.color as string) : "#2563eb";
+      const visible = r.visible !== false;
+      if (r.kind === "table") {
+        const rawPts = Array.isArray(r.points) ? r.points : [];
+        const points: SharedPoint[] = rawPts
+          .filter((p): p is Record<string, unknown> => !!p && typeof p === "object")
+          .slice(0, MAX_POINTS)
+          .map((p) => ({
+            x: typeof p.x === "string" ? (p.x as string).slice(0, MAX_COORD) : "",
+            y: typeof p.y === "string" ? (p.y as string).slice(0, MAX_COORD) : "",
+          }));
+        const fit = typeof r.fit === "string" && FIT_MODELS.has(r.fit as string) ? (r.fit as string) : "";
+        return { kind: "table" as const, text: "", color, visible, points, fit };
+      }
+      return { text: (r.text as string).slice(0, MAX_TEXT), color, visible };
+    });
   const vars: SharedVar[] = o.vars
     .filter(
       (x): x is Record<string, unknown> =>

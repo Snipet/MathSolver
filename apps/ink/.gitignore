@@ -1,0 +1,5 @@
+node_modules/
+dist/
+# WASM engine artifacts staged by tools/build_wasm.sh (regenerated, never committed).
+wasm/mathsolver.js
+wasm/mathsolver.wasm

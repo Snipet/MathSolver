@@ -46,6 +46,16 @@ try {
   eq(findInnermostCall("diffusion(x)"), null, "word boundary");
   // spaces before paren
   eq(findInnermostCall("diff (x^2)")?.inner, "x^2", "space before paren");
+  // series / taylor recognized as calc calls
+  eq(findInnermostCall("series(sin(x), 0, 5)")?.name, "series", "series name");
+  eq(findInnermostCall("series(sin(x), 0, 5)")?.inner, "sin(x), 0, 5", "series inner");
+  eq(findInnermostCall("taylor(exp(x), 0, 4)")?.name, "taylor", "taylor name");
+  // word boundary: "seriesX(" must not match
+  eq(findInnermostCall("seriesX(x)"), null, "series word boundary");
+  // tangent / normal recognized as calc calls
+  eq(findInnermostCall("tangent(x^2, 1)")?.name, "tangent", "tangent name");
+  eq(findInnermostCall("tangent(x^2, 1)")?.inner, "x^2, 1", "tangent inner");
+  eq(findInnermostCall("normal(sin(x), pi/4)")?.name, "normal", "normal name");
 
   // stripCalc
   eq(stripCalc("x^2"), "x^2", "strip no-op");
@@ -54,6 +64,12 @@ try {
   eq(stripCalc("diff(f, x)"), "(f)", "strip drops var arg");
   eq(stripCalc("integral(diff(sin(x)))"), "((sin(x)))", "strip nested");
   eq(stripCalc("2*integral(t^2, t)"), "2*(t^2)", "strip inside product");
+  // series drops the center/order args, keeping only the source expression
+  eq(stripCalc("series(sin(x), 0, 5)"), "(sin(x))", "strip series args");
+  eq(stripCalc("series(cos(x), 0, 6) - cos(x)"), "(cos(x)) - cos(x)", "strip series keeps outer");
+  // tangent/normal drop the point arg, keeping only the source expression
+  eq(stripCalc("tangent(x^2, 1)"), "(x^2)", "strip tangent point");
+  eq(stripCalc("normal(sin(x), pi/4)"), "(sin(x))", "strip normal point");
 
   console.log(`\n${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);

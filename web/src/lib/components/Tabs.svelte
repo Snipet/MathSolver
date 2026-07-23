@@ -43,23 +43,27 @@
 <style>
   .tabs {
     display: flex;
-    gap: 0.25rem;
+    gap: 0.15rem;
     overflow-x: auto;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--rule);
     padding-bottom: 0;
     scrollbar-width: thin;
   }
   button {
-    font: inherit;
-    font-size: 0.92rem;
+    font-family: var(--font-sans);
+    font-size: 0.9rem;
+    font-weight: 500;
+    letter-spacing: 0;
     color: var(--fg-muted);
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
-    padding: 0.5rem 0.75rem;
+    margin-bottom: -1px;
+    padding: 0.5rem 0.8rem 0.55rem;
     cursor: pointer;
     white-space: nowrap;
     flex: 0 0 auto;
+    transition: color 130ms ease, border-color 130ms ease;
   }
   button:hover {
     color: var(--fg);

@@ -173,8 +173,9 @@ method: laplace transform + linear solve + partial fractions
 Two supporting verbs round out the calculus toolkit. `apart` expands a
 rational function into partial fractions over the rationals (linear and
 irreducible-quadratic factors, repeated factors, improper inputs divided
-out first), and `series` builds Taylor polynomials with exact
-coefficients:
+out first), `series` builds Taylor polynomials with exact
+coefficients, and `pade` builds the rational approximant that matches
+them:
 
 ```console
 $ mathsolver apart "(3x+2)/((x+1)(x+2))"
@@ -185,6 +186,20 @@ $ mathsolver series "sin(x)" x 0 5
 x^5/120 - x^3/6 + x
 $ mathsolver series "ln(x)" x 1 3
 (x - 1)^3/3 - (x - 1)^2/2 + x - 1
+```
+
+`pade "<expr>" <m> <n>` returns the [m/n] Padé approximant P(x)/Q(x): the
+rational function whose Maclaurin series agrees with the input through
+order m + n. It often tracks a function far past the radius of its Taylor
+polynomial, and reproduces a rational input exactly:
+
+```console
+$ mathsolver pade "exp(x)" 2 2
+(x^2/12 + x/2 + 1)/(x^2/12 - x/2 + 1)
+$ mathsolver pade "sin(x)" 3 2
+(-7*x^3/60 + x)/(x^2/20 + 1)
+$ mathsolver pade "1/(1-x)" 2 2
+1/(-x + 1)
 ```
 
 Limits — exact where the structure allows (substitution guarded by
@@ -230,6 +245,48 @@ truncation, not a convergent expansion:
 $ mathsolver stirling x 3
 ln Gamma(x) ~ ln(x)*(x - 1/2) - x + ln(2*pi)/2 + 1/(12*x) - 1/(360*x^3) + 1/(1260*x^5)
 note: ln Gamma(10): Stirling 12.8018274801 vs exact 12.8018274801 (|error| = 5.87e-11)
+```
+
+Least-squares regression — `fit` fits `x,y` data. Polynomial fits are
+solved **exactly** over the rationals (the normal equations reduce to
+exact power sums, then Gaussian elimination over `Q`), so a best fit comes
+back as exact fractions where other tools show only a rounded decimal; it
+falls back to double precision on overflow or non-rational data. `exp`,
+`power`, and `log` fit their linearized numeric models. Each fit reports
+its model, whether it is exact, and R²:
+
+```console
+$ mathsolver fit "0,1; 1,2; 2,2; 3,4"
+9*x/10 + 9/10
+model: linear (exact)
+R^2: 0.852632
+$ mathsolver fit "0,0; 1,1; 2,4; 3,9" quadratic
+x^2
+model: quadratic (exact)
+R^2: 1
+$ mathsolver fit "0,1; 1,2.72; 2,7.39" exp
+e^x
+model: exponential
+R^2: 1
+```
+
+Summary statistics — `stats` reports the mean, median, quartiles (Moore &
+McCabe), spread, and both population and sample standard deviation of a
+data list. On rational data every statistic is **exact** — the mean stays
+a fraction and the standard deviation a simplified radical, where a
+calculator can only show a decimal:
+
+```console
+$ mathsolver stats "1, 2, 3, 4, 5"
+n = 5
+mean = 3
+median = 3
+variance (pop) = 2
+stdev (pop) = sqrt(2)
+stdev (sample) = sqrt(10)/2
+$ mathsolver stats "1, 2, 4"
+mean = 7/3
+stdev (pop) = sqrt(14)/3
 ```
 
 Multivariate and vector calculus — `grad`, `div`, `curl` (3-D vector and
@@ -414,6 +471,12 @@ The same engine, compiled to WebAssembly, powers a static single-page app in
   sys.rlocus 1, s^3 + 3s^2 + 2s          → root locus + critical gain
   sys.tfz z, z^2 - 0.5z + 0.06, 8000     → discrete H(z): unit circle, |p|<1
   sys.c2d 1, s+1, 100                    → discretize H(s) to digital biquads
+  prob.normalcdf 1.96                    → P(X<=1.96) = 0.975, with the bell curve
+  prob.invnorm 0.975                     → the quantile x = 1.95996
+  prob.binompdf 10, 0.5, 5              → Binomial P(X=5) + the PMF stems
+  prob.tcdf 2.228, 10                    → Student's t: P(X<=2.228) = 0.975
+  prob.chi2cdf 7.815, 3                  → chi-squared: P(X<=7.815) = 0.95
+  prob.expcdf 2, 0.5                     → Exponential: 1 - e^-1 = 0.6321
   plot sin(x)/x, -20, 20                 → chart any expression inline
   plugins                                → catalog of compiled-in plugins
   ```
@@ -453,6 +516,28 @@ The repo is bind-mounted, so edits hot-reload as usual. Open a shell in the same
 toolchain with `docker compose run --rm dev bash`. See [docs/DOCKER.md](docs/DOCKER.md)
 for the full workflow.
 
+## Terminal app (Ink)
+
+Alongside the classic C++ REPL/one-shot CLI (`apps/main.cpp`), there is a
+second, experimental terminal frontend in [`apps/ink/`](apps/ink) built with
+[Ink](https://github.com/vadimdemedes/ink) (React for the command line). It
+loads the same WebAssembly engine the web app uses — so it renders structured
+results (values, `method:`, warnings, and caret-underlined parse errors) with
+the same grammar as the classic REPL: a bare expression simplifies, a bare
+equation solves, and verbs (`solve`, `diff`, `integrate`, `limit`, `dsolve`,
+`sum`, `fit`, `grad`, `gcd`, …) take comma-separated arguments.
+
+```sh
+bash tools/build_wasm.sh        # build + stage the engine once (needs Emscripten)
+cd apps/ink && npm install && npm run build
+node dist/cli.js                # interactive REPL
+node dist/cli.js "factor x^2 - 5x + 6"   # one-shot
+```
+
+The classic CLI is unchanged and remains the reference implementation; the Ink
+app is a parallel experiment that may grow into a richer terminal experience.
+See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
+
 ## Features
 
 - **Parser** — LaTeX-style grammar with caret-underlined error diagnostics.
@@ -462,7 +547,15 @@ for the full workflow.
   suggests writing `s*p*e*e*d` instead of silently multiplying letters).
 - **Simplifier** — exact rational arithmetic, like-term/factor collection,
   power and exp/ln rules, trig special values and identities; plus `expand`,
-  `collect`, and best-effort `factor`.
+  `collect`, best-effort `factor`, `polydiv` (polynomial long division →
+  quotient and remainder, e.g. `polydiv x^3 - 1, x - 1` → `x² + x + 1`), and
+  `polygcd`/`polylcm` (monic polynomial GCD/LCM), and `resultant` (zero iff two
+  polynomials share a root). **`trigexpand`** expands trig of sums
+  and multiples into single angles (`sin(a+b)` → `sin(a)cos(b) + cos(a)sin(b)`,
+  `cos(2x)` → `cos(x)² - sin(x)²`); **`trigreduce`** inverts it, turning
+  products and powers back into multiple angles (`sin(x)²` → `1/2 - cos(2x)/2`,
+  `2 sin(x) cos(x)` → `sin(2x)`). **`logexpand`/`logcombine`** do the same for
+  logarithms (`ln(x·y)` → `ln x + ln y` and back).
 - **Derivatives** — full symbolic differentiation (chain/product/general
   power rule) over sin/cos/tan, inverse trig, hyperbolics, ln, abs.
 - **Integrals** — rule-based symbolic integration (table forms, linearity,
@@ -475,10 +568,76 @@ for the full workflow.
   rational-root peeling for higher degrees, isolation through invertible
   layers (`ln(x+1)=2` → `x = e^2 - 1`), and a Newton/bisection numeric
   fallback for the rest (`cos(x) = x`).
+- **Discriminant** — `discriminant a*x^2 + b*x + c, x` → `b^2 - 4*a*c`,
+  exact closed forms for degree 2–4 with symbolic coefficients kept
+  symbolic. With numeric coefficients it also reports the nature of the
+  roots (`x^2 - 5x + 6` → `1`, "two distinct real roots"; `x^2 + 1` → `-4`,
+  "two complex-conjugate roots").
+- **Inequalities** — `solve x^2 < 4` → `x ∈ (-2, 2)`. The solver combines
+  the two sides over a common denominator, takes the real roots of the
+  numerator (zeros) and denominator (poles) as breakpoints, sign-tests each
+  interval, and reports the solution set with exact endpoints (radicals and
+  all) and correct open/closed brackets — poles excluded, `≤`/`≥` roots
+  included:
+
+  ```console
+  $ mathsolver solve "x^2 >= 4"
+  x ∈ (-∞, -2] ∪ [2, ∞)
+  $ mathsolver solve "(x-2)/(x+1) <= 0"
+  x ∈ (-1, 2]
+  $ mathsolver solve "x^2 < 2"
+  x ∈ (-sqrt(2), sqrt(2))
+  ```
 - **Linear systems** — Gaussian elimination over exact expression
   arithmetic (`solve "x + y = 3; x - y = 1"`): symbolic parameters as
   coefficients, underdetermined systems with free variables, and
   inconsistency detection.
+- **Number theory** — integer `factor` (prime factorization), `gcd`/`lcm`
+  of a list, deterministic `isprime` (Miller–Rabin over the whole 64-bit
+  range), `nextprime`, `divisors`, and Euler's `totient` — all exact,
+  factoring via trial division + Pollard's rho:
+
+  ```console
+  $ mathsolver factor 360
+  2^3 * 3^2 * 5
+  $ mathsolver gcd "1071, 462"
+  21
+  $ mathsolver isprime 2147483647
+  2147483647 is prime
+  $ mathsolver divisors 28
+  1, 2, 4, 7, 14, 28
+  $ mathsolver totient 36
+  12
+  ```
+- **Modular arithmetic** — `mod`, `powmod` (modular exponentiation that
+  handles huge exponents no plain evaluation could), `modinv` (modular
+  inverse via extended Euclid), and `crt` (Chinese remainder theorem, even
+  with non-coprime moduli):
+
+  ```console
+  $ mathsolver powmod "7, 1000000, 13"
+  9
+  $ mathsolver modinv "3, 11"
+  4
+  $ mathsolver crt "2, 3, 2; 3, 5, 7"
+  23 (mod 105)
+  ```
+- **Continued fractions** — `cfrac` expands a rational (finite), `sqrt(n)`
+  (exact periodic expansion), or any real (numeric) into `[a0; a1, a2, …]`
+  and lists the **convergents** — the successive best rational
+  approximations:
+
+  ```console
+  $ mathsolver cfrac 355/113
+  [3; 7, 16]
+  convergents: 3, 22/7, 355/113
+  $ mathsolver cfrac "sqrt(2)"
+  [1; (2)]
+  convergents: 1, 3/2, 7/5, 17/12, 41/29, 99/70, …
+  $ mathsolver cfrac pi
+  [3; 7, 15, 1, 292, …]
+  convergents: 3, 22/7, 333/106, 355/113, …
+  ```
 
 ## Limitations (by design, v0.1)
 

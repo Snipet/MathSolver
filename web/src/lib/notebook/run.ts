@@ -8,6 +8,7 @@
 // console line and the equivalent workbench action compute identically.
 import { call } from "../engine";
 import type { EngineError, PluginMeta } from "../engine/types";
+import { splitRelation } from "../graph/classify";
 import { hasTopLevelSemicolon, splitTopLevelCommas } from "../format";
 import type { Outcome } from "../outcome";
 import { vars } from "../vars.svelte";
@@ -34,10 +35,16 @@ export interface NotebookMessage {
 /** What one evaluated cell renders: a normal result card, or a message. */
 export type CellResult = Outcome | NotebookMessage;
 
-const MATH_VERBS = new Set([
+export const MATH_VERBS = new Set([
   "simplify",
   "expand",
   "factor",
+  "trigexpand",
+  "trigreduce",
+  "logexpand",
+  "logcombine",
+  "cancel",
+  "together",
   "latex",
   "solve",
   "diff",
@@ -52,6 +59,7 @@ const MATH_VERBS = new Set([
   "ilaplace",
   "dsolve",
   "series",
+  "pade",
   "grad",
   "div",
   "curl",
@@ -63,9 +71,28 @@ const MATH_VERBS = new Set([
   "mlimit",
   "stirling",
   "seq",
+  "discriminant",
+  "polydiv",
+  "polygcd",
+  "polylcm",
+  "resultant",
   "sum",
   "product",
   "rsolve",
+  "fit",
+  "regress",
+  "stats",
+  "gcd",
+  "lcm",
+  "isprime",
+  "nextprime",
+  "divisors",
+  "totient",
+  "cfrac",
+  "mod",
+  "powmod",
+  "modinv",
+  "crt",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -186,6 +213,8 @@ function helpMessage(): NotebookMessage {
     lines: [
       "A bare expression is simplified; a bare equation is solved.",
       "simplify <expr>        expand <expr>        factor <expr>",
+      "cancel <expr>          cancel a rational's common polynomial factor",
+      "together <expr>        combine a sum of fractions over one denominator",
       "diff <expr>[, <var>]",
       "integrate <expr>[, <var>[, <lo>, <hi>]]",
       "solve <equation>[, <var>]",
@@ -324,7 +353,13 @@ async function runVerb(
   switch (verb) {
     case "simplify":
     case "expand":
-    case "factor": {
+    case "factor":
+    case "trigexpand":
+    case "trigreduce":
+    case "logexpand":
+    case "logcombine":
+    case "cancel":
+    case "together": {
       const env = await applyEnv(expr, [], "expr", ov, scope);
       const r = await call(verb, [env.text]);
       if (!r.ok) return err(env.text, r);
@@ -365,6 +400,123 @@ async function runVerb(
       if (!r.ok) return err(expr, r);
       return { kind: "dsolve", result: r, computedFrom: null };
     }
+    case "fit":
+    case "regress": {
+      // The data holds commas and semicolons, so it can't go through the
+      // comma-split args. Everything up to a '|' is the data; after it come the
+      // model and optional degree: fit 0,0; 1,1; 2,4 | quadratic
+      let data = rest;
+      let model = "linear";
+      let degree = "";
+      const bar = rest.lastIndexOf("|");
+      if (bar >= 0) {
+        data = rest.slice(0, bar);
+        const opts = rest.slice(bar + 1).trim().split(/\s+/).filter(Boolean);
+        model = opts[0] ?? "linear";
+        degree = opts[1] ?? "";
+      }
+      if (!data.trim()) return usage("usage: fit <x,y; x,y; ...> [| <model> [degree]]");
+      const r = await call("fit", [data, model, degree]);
+      if (!r.ok) return err(data, r);
+      const notes = [
+        `${r.model} fit${r.exact ? " (exact)" : ""} · ${r.n} points · R² = ${r.r2.toFixed(4)}`,
+      ];
+      return {
+        kind: "transform",
+        result: { ok: true, plain: r.plain, latex: r.latex, notes },
+        computedFrom: null,
+      };
+    }
+    case "stats": {
+      // The whole input is the data list (commas / semicolons / spaces).
+      if (!rest.trim()) return usage("usage: stats <v1, v2, v3, ...>");
+      const r = await call("stats", [rest]);
+      if (!r.ok) return err(rest, r);
+      // Render the labelled values as a KaTeX table.
+      const rows = r.items.map((it) => `\\text{${it.label}} &=& ${it.latex}`).join(" \\\\ ");
+      const latex = `\\begin{array}{lcl} ${rows} \\end{array}`;
+      const plain = r.items.map((it) => `${it.label} = ${it.plain}`).join("\n");
+      const notes = [`${r.exact ? "exact (rational data)" : "numeric"} · ${r.n} values`];
+      return {
+        kind: "transform",
+        result: { ok: true, plain, latex, notes },
+        computedFrom: null,
+      };
+    }
+    case "gcd":
+    case "lcm": {
+      // The whole line is the integer list (commas / spaces).
+      if (!rest.trim()) return usage(`usage: ${verb} <a, b, ...>`);
+      const r = await call(verb, [rest]);
+      if (!r.ok) return err(rest, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "isprime":
+    case "nextprime":
+    case "divisors":
+    case "totient": {
+      if (args.length > 1) return usage(`usage: ${verb} <integer>`);
+      const r = await call(verb, [expr]);
+      if (!r.ok) return err(expr, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "cfrac": {
+      // A single value: a rational, sqrt(n), or any real expression.
+      if (args.length > 1) return usage("usage: cfrac <rational | sqrt(n) | real>");
+      const r = await call("cfrac", [expr]);
+      if (!r.ok) return err(expr, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "mod":
+    case "powmod":
+    case "modinv":
+    case "crt": {
+      // The whole line is the argument list (commas, and ';' for crt).
+      if (!rest.trim()) {
+        const u =
+          verb === "crt"
+            ? "crt <r1, r2, …; m1, m2, …>"
+            : verb === "powmod"
+              ? "powmod <base>, <exponent>, <modulus>"
+              : `${verb} <a>, <m>`;
+        return usage(`usage: ${u}`);
+      }
+      const r = await call(verb, [rest]);
+      if (!r.ok) return err(rest, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "discriminant": {
+      if (args.length > 2) return usage("usage: discriminant <polynomial>[, <var>]");
+      const v = args[1] ?? "";
+      const env = await applyEnv(expr, v ? [v] : [], "expr", ov, scope);
+      const r = await call("discriminant", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "polydiv": {
+      if (args.length < 2 || args.length > 3)
+        return usage("usage: polydiv <dividend>, <divisor>[, <var>]");
+      const v = args[2] ?? "";
+      const keep = v ? [v] : [];
+      const ed = await applyEnv(expr, keep, "expr", ov, scope);
+      const es = await applyEnv(args[1], keep, "expr", ov, scope);
+      const r = await call("polydiv", [ed.text, es.text, v]);
+      if (!r.ok) return err(ed.text, r);
+      return { kind: "transform", result: r, computedFrom: ed.computedFrom };
+    }
+    case "polygcd":
+    case "polylcm":
+    case "resultant": {
+      if (args.length < 2 || args.length > 3)
+        return usage(`usage: ${verb} <a>, <b>[, <var>]`);
+      const v = args[2] ?? "";
+      const keep = v ? [v] : [];
+      const ea = await applyEnv(expr, keep, "expr", ov, scope);
+      const eb = await applyEnv(args[1], keep, "expr", ov, scope);
+      const r = await call(verb, [ea.text, eb.text, v]);
+      if (!r.ok) return err(ea.text, r);
+      return { kind: "transform", result: r, computedFrom: ea.computedFrom };
+    }
     case "series": {
       if (args.length > 4)
         return usage("usage: series <expr>[, <var>[, <center>[, <order>]]]");
@@ -374,6 +526,19 @@ async function runVerb(
         return usage(`series order must be an integer, got '${args[3]}'`);
       const env = await applyEnv(expr, [v], "expr", ov, scope);
       const r = await call("series", [env.text, v, args[2] ?? "", order]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "pade": {
+      if (args.length < 3 || args.length > 4)
+        return usage("usage: pade <expr>, <m>, <n>[, <var>]");
+      const m = Number.parseInt(args[1], 10);
+      const n = Number.parseInt(args[2], 10);
+      if (Number.isNaN(m) || Number.isNaN(n))
+        return usage("pade degrees m and n must be non-negative integers");
+      const v = args[3] ?? (await inferVar(expr));
+      const env = await applyEnv(expr, [v], "expr", ov, scope);
+      const r = await call("pade", [env.text, v, m, n]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }
@@ -692,6 +857,14 @@ async function runSolve(
   scope?: ScopeEnv,
 ): Promise<CellResult> {
   const target = args[0] ?? "";
+  // An inequality (x^2 < 4) yields an interval solution set. Split it at the
+  // text level — the parser rejects `<` — and skip environment resolution.
+  const rel = splitRelation(target);
+  if (rel && rel.op !== "=") {
+    const r = await call("solveIneq", [rel.lhs, rel.rhs, rel.op, args[1] ?? ""]);
+    if (!r.ok) return err(target, r);
+    return { kind: "transform", result: r, computedFrom: null };
+  }
   if (hasTopLevelSemicolon(target)) {
     let sv = args.slice(1);
     if (sv.length === 0) {

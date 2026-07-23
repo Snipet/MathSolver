@@ -119,6 +119,233 @@ TEST_CASE("cli: factor") {
     CHECK(contains(r.output, ")*("));
 }
 
+TEST_CASE("cli: factor of a bare integer gives its prime factorization") {
+    const RunResult r = run_cli({"factor", "360"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "2^3 * 3^2 * 5"));
+
+    const RunResult prime = run_cli({"factor", "97"});
+    CHECK(prime.exit_code == 0);
+    CHECK(contains(prime.output, "97"));
+
+    const RunResult tex = run_cli({"factor", "12", "--latex"});
+    CHECK(tex.exit_code == 0);
+    CHECK(contains(tex.output, "2^{2} \\cdot 3"));
+}
+
+TEST_CASE("cli: number-theory verbs") {
+    const RunResult gcd = run_cli({"gcd", "48, 36"});
+    INFO(gcd.output);
+    CHECK(gcd.exit_code == 0);
+    CHECK(contains(gcd.output, "12"));
+
+    const RunResult lcm = run_cli({"lcm", "4, 6, 8"});
+    CHECK(lcm.exit_code == 0);
+    CHECK(contains(lcm.output, "24"));
+
+    const RunResult prime = run_cli({"isprime", "97"});
+    CHECK(prime.exit_code == 0);
+    CHECK(contains(prime.output, "prime"));
+
+    const RunResult composite = run_cli({"isprime", "91"});
+    CHECK(composite.exit_code == 0);
+    CHECK(contains(composite.output, "composite"));
+
+    const RunResult np = run_cli({"nextprime", "100"});
+    CHECK(np.exit_code == 0);
+    CHECK(contains(np.output, "101"));
+
+    const RunResult div = run_cli({"divisors", "28"});
+    CHECK(div.exit_code == 0);
+    CHECK(contains(div.output, "1, 2, 4, 7, 14, 28"));
+
+    const RunResult phi = run_cli({"totient", "36"});
+    CHECK(phi.exit_code == 0);
+    CHECK(contains(phi.output, "12"));
+
+    // A non-integer argument is a usage error (exit 2).
+    const RunResult bad = run_cli({"isprime", "x"});
+    CHECK(bad.exit_code == 2);
+}
+
+TEST_CASE("cli: trigexpand of sums and multiples") {
+    const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
+    INFO(sum.output);
+    CHECK(sum.exit_code == 0);
+    CHECK(contains(sum.output, "sin(a)*cos(b)"));
+    CHECK(contains(sum.output, "sin(b)*cos(a)"));
+
+    const RunResult dbl = run_cli({"trigexpand", "cos(2*x)"});
+    CHECK(dbl.exit_code == 0);
+    CHECK(contains(dbl.output, "cos(x)^2"));
+    CHECK(contains(dbl.output, "sin(x)^2"));
+}
+
+TEST_CASE("cli: resultant of two polynomials") {
+    const RunResult nonzero = run_cli({"resultant", "x^2 - 1", "x - 2"});
+    INFO(nonzero.output);
+    CHECK(nonzero.exit_code == 0);
+    CHECK(contains(nonzero.output, "3"));
+
+    // Shared root → resultant 0.
+    const RunResult zero = run_cli({"resultant", "x^2 - 1", "x - 1"});
+    CHECK(zero.exit_code == 0);
+    CHECK(contains(zero.output, "0"));
+}
+
+TEST_CASE("cli: polygcd and polylcm") {
+    const RunResult g = run_cli({"polygcd", "x^2 - 1", "x^3 - 1"});
+    INFO(g.output);
+    CHECK(g.exit_code == 0);
+    CHECK(contains(g.output, "x - 1"));
+
+    const RunResult l = run_cli({"polylcm", "x - 1", "x + 1"});
+    CHECK(l.exit_code == 0);
+    CHECK(contains(l.output, "x^2 - 1"));
+}
+
+TEST_CASE("cli: polydiv quotient and remainder") {
+    const RunResult exact = run_cli({"polydiv", "x^3 - 1", "x - 1"});
+    INFO(exact.output);
+    CHECK(exact.exit_code == 0);
+    CHECK(contains(exact.output, "quotient: x^2 + x + 1"));
+    CHECK(contains(exact.output, "remainder: 0"));
+
+    const RunResult rem = run_cli({"polydiv", "x^3 + 2x + 1", "x^2 + 1"});
+    CHECK(rem.exit_code == 0);
+    CHECK(contains(rem.output, "quotient: x"));
+    CHECK(contains(rem.output, "remainder: x + 1"));
+}
+
+TEST_CASE("cli: logexpand and logcombine") {
+    const RunResult e = run_cli({"logexpand", "ln(x*y)"});
+    INFO(e.output);
+    CHECK(e.exit_code == 0);
+    CHECK(contains(e.output, "ln(x)"));
+    CHECK(contains(e.output, "ln(y)"));
+
+    const RunResult c = run_cli({"logcombine", "ln(x) + ln(y)"});
+    CHECK(c.exit_code == 0);
+    CHECK(contains(c.output, "ln(x*y)"));
+}
+
+TEST_CASE("cli: trigreduce of products and powers") {
+    const RunResult sq = run_cli({"trigreduce", "sin(x)^2"});
+    INFO(sq.output);
+    CHECK(sq.exit_code == 0);
+    CHECK(contains(sq.output, "cos(2*x)"));
+
+    const RunResult prod = run_cli({"trigreduce", "2*sin(x)*cos(x)"});
+    CHECK(prod.exit_code == 0);
+    CHECK(contains(prod.output, "sin(2*x)"));
+}
+
+TEST_CASE("cli: discriminant of a polynomial") {
+    const RunResult sym = run_cli({"discriminant", "a*x^2 + b*x + c", "x"});
+    INFO(sym.output);
+    CHECK(sym.exit_code == 0);
+    CHECK(contains(sym.output, "b^2 - 4*a*c"));
+
+    const RunResult num = run_cli({"discriminant", "x^2 - 5x + 6"});
+    CHECK(num.exit_code == 0);
+    CHECK(contains(num.output, "1"));
+    CHECK(contains(num.output, "two distinct real"));
+
+    // Degree 5 is unsupported (usage error, exit 2).
+    const RunResult bad = run_cli({"discriminant", "x^5 + 1", "x"});
+    CHECK(bad.exit_code == 2);
+}
+
+TEST_CASE("cli: solve inequalities into interval solution sets") {
+    const RunResult quad = run_cli({"solve", "x^2 < 4"});
+    INFO(quad.output);
+    CHECK(quad.exit_code == 0);
+    CHECK(contains(quad.output, "(-2, 2)"));
+
+    const RunResult ge = run_cli({"solve", "x^2 >= 4"});
+    CHECK(ge.exit_code == 0);
+    CHECK(contains(ge.output, "-2]"));
+    CHECK(contains(ge.output, "[2"));
+
+    const RunResult rat = run_cli({"solve", "1/x > 0"});
+    CHECK(rat.exit_code == 0);
+    CHECK(contains(rat.output, "(0"));
+
+    // Equations still solve to roots (no regression).
+    const RunResult eq = run_cli({"solve", "x^2 = 4", "x"});
+    CHECK(eq.exit_code == 0);
+    CHECK(contains(eq.output, "2"));
+}
+
+TEST_CASE("cli: modular arithmetic verbs") {
+    const RunResult pm = run_cli({"powmod", "7, 100, 13"});
+    INFO(pm.output);
+    CHECK(pm.exit_code == 0);
+    CHECK(contains(pm.output, "9"));
+
+    // A huge exponent that would overflow ordinary evaluation still works.
+    const RunResult big = run_cli({"powmod", "7, 1000000, 13"});
+    CHECK(big.exit_code == 0);
+    CHECK(contains(big.output, "9"));
+
+    const RunResult inv = run_cli({"modinv", "3, 11"});
+    CHECK(inv.exit_code == 0);
+    CHECK(contains(inv.output, "4"));
+
+    const RunResult crt = run_cli({"crt", "2, 3, 2; 3, 5, 7"});
+    CHECK(crt.exit_code == 0);
+    CHECK(contains(crt.output, "23 (mod 105)"));
+
+    // Non-invertible input is an error (exit 3, an engine Error).
+    const RunResult bad = run_cli({"modinv", "6, 9"});
+    CHECK(bad.exit_code != 0);
+}
+
+TEST_CASE("cli: cfrac — rational, surd, and convergents") {
+    const RunResult rat = run_cli({"cfrac", "355/113"});
+    INFO(rat.output);
+    CHECK(rat.exit_code == 0);
+    CHECK(contains(rat.output, "[3; 7, 16]"));
+    CHECK(contains(rat.output, "22/7"));
+
+    const RunResult surd = run_cli({"cfrac", "sqrt(2)"});
+    CHECK(surd.exit_code == 0);
+    CHECK(contains(surd.output, "[1; (2)]"));
+    CHECK(contains(surd.output, "17/12"));
+}
+
+TEST_CASE("cli: cancel — success, no-op, and usage error") {
+    const RunResult ok = run_cli({"cancel", "(x^2 - 1)/(x - 1)"});
+    INFO(ok.output);
+    CHECK(ok.exit_code == 0);
+    CHECK(contains(ok.output, "x + 1"));
+
+    // A non-cancelling input prints the simplified input back, exit 0.
+    const RunResult noop = run_cli({"cancel", "(x^2 + 1)/(x + 1)"});
+    INFO(noop.output);
+    CHECK(noop.exit_code == 0);
+    CHECK(contains(noop.output, "(x^2 + 1)/(x + 1)"));
+
+    // Naming a variable not free in the input is a usage error (exit 2).
+    const RunResult bad = run_cli({"cancel", "(x^2 - 1)/(x - 1)", "z"});
+    CHECK(bad.exit_code == 2);
+    CHECK(contains(bad.output, "is not a free variable"));
+}
+
+TEST_CASE("cli: together — combine and no-op") {
+    const RunResult ok = run_cli({"together", "1/x + 1/y"});
+    INFO(ok.output);
+    CHECK(ok.exit_code == 0);
+    CHECK(contains(ok.output, "(x + y)/(x*y)"));
+
+    // Nothing to combine (no symbolic denominator): input back, exit 0.
+    const RunResult noop = run_cli({"together", "x + 1"});
+    INFO(noop.output);
+    CHECK(noop.exit_code == 0);
+    CHECK(contains(noop.output, "x + 1"));
+}
+
 TEST_CASE("cli: solve exact quadratic") {
     const RunResult r = run_cli({"solve", "x^2 = 4", "x"});
     INFO(r.output);
@@ -295,6 +522,17 @@ TEST_CASE("cli: eval with bindings") {
     CHECK(r.output == "9.5\n");
 }
 
+TEST_CASE("cli: eval over the complex domain") {
+    // A complex expression evaluates over C and prints a + b*i.
+    CHECK(run_cli({"eval", "(2+3i)*(1-i)"}).output == "5 + i\n");
+    CHECK(run_cli({"eval", "1/(1+i)"}).output == "0.5 - 0.5*i\n");
+    CHECK(run_cli({"eval", "2*i"}).output == "2*i\n");
+    CHECK(run_cli({"eval", "abs(3+4i)"}).output == "5\n"); // modulus
+    // Euler's formula, chopped clean.
+    CHECK(run_cli({"eval", "e^(i*pi)"}).output == "-1\n");
+    CHECK(run_cli({"eval", "e^(i*pi/2)"}).output == "i\n");
+}
+
 TEST_CASE("cli: eval without bindings evaluates constants") {
     const RunResult r = run_cli({"eval", "e^2"});
     INFO(r.output);
@@ -404,7 +642,7 @@ TEST_CASE("cli: --version and --help") {
     const RunResult version = run_cli({"--version"});
     INFO(version.output);
     CHECK(version.exit_code == 0);
-    CHECK(contains(version.output, "0.5.0"));
+    CHECK(contains(version.output, "0.6.0"));
 
     const RunResult help = run_cli({"--help"});
     CHECK(help.exit_code == 0);
@@ -1267,4 +1505,21 @@ TEST_CASE("cli: seq recognizes patterns and predicts terms") {
     const RunResult bad = run_cli({"seq", "1", "2", "x", "4"}, "2>&1 1>/dev/null");
     CHECK(bad.exit_code == 2);
     CHECK(contains(bad.output, "exact numbers"));
+}
+
+TEST_CASE("cli: pade approximant") {
+    // exp(x) [2/2] = (12 + 6x + x^2)/(12 - 6x + x^2); printed with 1/12 scaling.
+    const RunResult r = run_cli({"pade", "exp(x)", "2", "2"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "x/2"));   // numerator/denominator both carry x/2
+    CHECK(contains(r.output, "/12"));   // the x^2/12 terms
+
+    // A non-integer degree is a usage error (exit code 2).
+    const RunResult bad = run_cli({"pade", "exp(x)", "2", "x"}, "2>&1 1>/dev/null");
+    CHECK(bad.exit_code == 2);
+
+    // REPL form with an explicit variable.
+    const RunResult repl = run_repl("pade exp(t), 1, 1, t\nquit\n");
+    CHECK(contains(repl.output, "t/2"));
 }

@@ -24,6 +24,8 @@ check("simplify", ms.simplify("2x + 3x"), (r) => r.ok && r.plain === "5*x", "5*x
 check("simplify latex", ms.simplify("2x + 3x"), (r) => r.ok && r.latex === "5x", "5x");
 check("expand", ms.expand("(x+1)^2"), (r) => r.ok && r.plain === "x^2 + 2*x + 1", "x^2 + 2*x + 1");
 check("factor", ms.factor("x^2 - 5x + 6"), (r) => r.ok && r.plain.includes("(x - 3)"), "(x-3)(x-2)");
+check("cancel", ms.cancel("(x^2-1)/(x-1)"), (r) => r.ok && r.plain === "x + 1", "x + 1");
+check("together", ms.together("1/x + 1/y"), (r) => r.ok && r.plain === "(x + y)/(x*y)", "(x + y)/(x*y)");
 check("latex frac", ms.latex("sqrt(x)/2"), (r) => r.ok && r.latex.includes("\\frac"), "\\frac");
 check("analyze expr", ms.analyze("a*x^2 + b"), (r) => r.ok && r.kind === "expression" && r.symbols.join(",") === "a,b,x", "symbols a,b,x");
 check("analyze equation", ms.analyze("x^2 = 4"), (r) => r.ok && r.kind === "equation", "equation");
@@ -88,6 +90,20 @@ check("sys feedback", ms.pluginCall("sys", "feedback", "1,s + 1,3"), (r) => r.ok
 check("sys rlocus", ms.pluginCall("sys", "rlocus", "1,s^3 + 3s^2 + 2s,100"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.series.some((s) => s.label.startsWith("locus"))) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Verdict" && v.includes("unstable near K"))), "locus + critical gain");
 check("sys tfz", ms.pluginCall("sys", "tfz", "z,z^2 - 0.5z + 0.06,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.equal === true && b.series.some((s) => s.label === "unit circle")) && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("inside |z| = 1"))), "z-plane analysis");
 check("sys tfz unstable", ms.pluginCall("sys", "tfz", "1,z - 1.2,8000"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k, v]) => k === "Stability" && v.includes("outside |z| = 1"))), "unstable z pole");
+// fit / regression
+check("fit exact line", ms.fit("0,1; 1,3; 2,5", "linear", ""), (r) => r.ok && r.plain === "2*x + 1" && r.exact === true && r.r2 === 1, "2x + 1 exactly");
+check("fit exact quadratic", ms.fit("0,0; 1,1; 2,4; 3,9", "quadratic", ""), (r) => r.ok && r.plain === "x^2" && r.exact === true, "x^2");
+check("fit exact fractions", ms.fit("0,1; 1,2; 2,2; 3,4", "linear", ""), (r) => r.ok && r.plain === "9*x/10 + 9/10" && r.exact === true, "exact rational best fit");
+check("fit exponential", ms.fit("0,1; 1,2.71828; 2,7.38906", "exp", ""), (r) => r.ok && r.model === "exponential" && r.r2 > 0.999, "a*e^(bx)");
+check("fit error few points", ms.fit("0,0", "linear", ""), (r) => !r.ok && r.error.includes("at least 2"), "needs 2 points");
+check("fit error bad model", ms.fit("0,0; 1,1", "wiggle", ""), (r) => !r.ok && r.error.includes("unknown fit model"), "unknown model rejected");
+// stats — exact summary statistics
+const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
+check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");
+check("stats exact stdev radical", ms.stats("1, 2, 3, 4, 5"), (r) => r.ok && statVal(r, "stdev (pop)") === "sqrt(2)" && statVal(r, "stdev (sample)") === "sqrt(10)/2", "sqrt radicals");
+check("stats quartiles (TI method)", ms.stats("1, 2, 3, 4, 5"), (r) => r.ok && statVal(r, "Q1") === "3/2" && statVal(r, "Q3") === "9/2", "Q1=3/2 Q3=9/2");
+check("stats numeric fallback", ms.stats("1, pi, 2"), (r) => r.ok && r.exact === false && r.n === 3, "irrational → numeric");
+check("stats error empty", ms.stats(""), (r) => !r.ok && r.error.includes("no data"), "empty rejected");
 // series at infinity + mlimit
 check("series at inf rational", ms.series("(x+1)/(x-1)", "x", "inf", 3), (r) => r.ok && r.plain.includes("2/x"), "1 + 2/x + ...");
 check("series at inf error", ms.series("e^x", "x", "inf", 3), (r) => !r.ok && r.error.includes("no expansion"), "e^x rejected");
@@ -139,6 +155,19 @@ check("fem bvp flux", ms.pluginCall("fem", "bvp", "1,0,0,0,1,u=1,u'=2"), (r) => 
 check("fem modes string", ms.pluginCall("fem", "modes", "1,0,1,0,pi,3"), (r) => r.ok && r.blocks.some((b) => b.type === "table" && Math.abs(parseFloat(b.rows[0][1]) - 1) < 5e-3 && Math.abs(parseFloat(b.rows[2][1]) - 9) < 1e-1), "lambda = 1, 4, 9");
 check("fem singular error", ms.pluginCall("fem", "bvp", "1,0,1,0,1,u'=0,u'=0"), (r) => !r.ok && r.error.includes("singular"), "pure Neumann reported");
 check("fem symbol error", ms.pluginCall("fem", "bvp", "y,0,1,0,1,u=0,u=0"), (r) => !r.ok && r.error.includes("found 'y'"), "stray symbol rejected");
+// prob — probability distributions
+const kvOf = (r, pfx) => r.blocks[0].items.find(([k]) => k.startsWith(pfx))?.[1];
+check("prob normalcdf", ms.pluginCall("prob", "normalcdf", "1.96"), (r) => r.ok && parseFloat(kvOf(r, "P(X <=")) > 0.9749 && parseFloat(kvOf(r, "P(X <=")) < 0.9751 && r.blocks.some((b) => b.type === "series"), "P=0.975 + curve");
+check("prob invnorm", ms.pluginCall("prob", "invnorm", "0.975"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "x")) - 1.95996) < 1e-3, "quantile 1.96");
+check("prob binompdf", ms.pluginCall("prob", "binompdf", "10, 0.5, 5"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X =")) - 0.246094) < 1e-5 && r.blocks.some((b) => b.type === "series" && b.series[0].points === true), "C(10,5)/1024 + stems");
+check("prob poissoncdf", ms.pluginCall("prob", "poissoncdf", "3, 2"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X <=")) - 0.42319) < 1e-4, "0.42319");
+check("prob domain error", ms.pluginCall("prob", "normalcdf", "1, 0, -2"), (r) => !r.ok && r.error.includes("positive"), "sigma>0 enforced");
+check("prob integer error", ms.pluginCall("prob", "binompdf", "10, 0.5, 2.5"), (r) => !r.ok && r.error.includes("whole number"), "k must be integer");
+check("prob tcdf", ms.pluginCall("prob", "tcdf", "2.228, 10"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X <=")) - 0.975) < 1e-4, "t(10) 97.5th pct");
+check("prob chi2cdf", ms.pluginCall("prob", "chi2cdf", "7.815, 3"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X <=")) - 0.95) < 1e-4, "chi2(3) 95th pct");
+check("prob expcdf", ms.pluginCall("prob", "expcdf", "2, 0.5"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X <=")) - (1 - Math.exp(-1))) < 1e-6, "1 - e^-1");
+check("prob unifcdf", ms.pluginCall("prob", "unifcdf", "3, 0, 10"), (r) => r.ok && Math.abs(parseFloat(kvOf(r, "P(X <=")) - 0.3) < 1e-9, "(3-0)/10");
+check("prob t df error", ms.pluginCall("prob", "tcdf", "1, -2"), (r) => !r.ok && r.error.includes("degrees of freedom"), "nu>0 enforced");
 // pde.simulate
 check("pde simulate fisher", ms.pluginCall("pde", "simulate", "10,1,u*(1-u),0.5*sin(pi*x/10),8"), (r) => r.ok && r.blocks.some((b) => b.type === "series" && b.title === "Concentration profiles" && b.series.length === 5 && Math.max(...b.series[4].ys) > 0.9 && Math.max(...b.series[4].ys) < 1.001), "growth toward u = 1");
 check("pde simulate newton kv", ms.pluginCall("pde", "simulate", "1,1,2u,sin(pi*x),0.2"), (r) => r.ok && r.blocks.some((b) => b.type === "kv" && b.items.some(([k]) => k === "Newton iterations")), "newton stats reported");

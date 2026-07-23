@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(MathSolver
-    VERSION 0.5.0
+    VERSION 0.6.0
     DESCRIPTION "A from-scratch computer-algebra system: parse, simplify, differentiate, solve"
     LANGUAGES CXX)
 
@@ -50,12 +50,24 @@ add_library(mathsolver_core STATIC
     src/printer.cpp
     src/evaluator.cpp
     src/simplify.cpp
+    src/cancel.cpp
+    src/together.cpp
     src/derivative.cpp
     src/discrete.cpp
     src/integrate.cpp
     src/limit.cpp
     src/apart.cpp
+    src/fit.cpp
+    src/stats.cpp
+    src/numtheory.cpp
+    src/cfrac.cpp
+    src/inequality.cpp
+    src/discriminant.cpp
+    src/trig.cpp
+    src/polydiv.cpp
+    src/logexpand.cpp
     src/ode.cpp
+    src/pade.cpp
     src/series.cpp
     src/vector_calculus.cpp
     src/solver.cpp
@@ -84,6 +96,7 @@ add_library(mathsolver_plugins STATIC
     plugins/hyb/hyb_core.cpp
     plugins/fem/fem.cpp
     plugins/fem/fem_core.cpp
+    plugins/prob/prob.cpp
 )
 target_link_libraries(mathsolver_plugins PUBLIC mathsolver_core PRIVATE mathsolver_warnings)
 

@@ -23,6 +23,32 @@ export type TransformResult =
   | ({ ok: true; notes?: string[] } & Rendered)
   | EngineError;
 
+/** Summary statistics: an ordered list of labelled values (exact where the
+ *  data are rational) plus the count and exactness flag. */
+export type StatsResult =
+  | {
+      ok: true;
+      exact: boolean;
+      n: number;
+      items: { label: string; plain: string; latex: string }[];
+    }
+  | EngineError;
+
+/** Regression fit: the fitted expression (plottable in x) plus its stats. */
+export type FitResult =
+  | ({
+      ok: true;
+      /** Model label, e.g. "linear", "quadratic", "exponential". */
+      model: string;
+      /** True when the polynomial fit was solved exactly over the rationals. */
+      exact: boolean;
+      /** Coefficient of determination (0..1, may be negative). */
+      r2: number;
+      /** Number of data points used. */
+      n: number;
+    } & Rendered)
+  | EngineError;
+
 export type SeqCallResult =
   | ({
       ok: true;
@@ -200,6 +226,12 @@ export interface EngineApi {
   simplify: [[input: string], TransformResult];
   expand: [[input: string], TransformResult];
   factor: [[input: string], TransformResult];
+  trigexpand: [[input: string], TransformResult];
+  trigreduce: [[input: string], TransformResult];
+  logexpand: [[input: string], TransformResult];
+  logcombine: [[input: string], TransformResult];
+  cancel: [[input: string], TransformResult];
+  together: [[input: string], TransformResult];
   latex: [[input: string], TransformResult];
   subs: [
     [input: string, assignments: string, simplifyResult: boolean],
@@ -207,9 +239,15 @@ export interface EngineApi {
   ];
   collect: [[input: string, variable: string], TransformResult];
   apart: [[input: string, variable: string], TransformResult];
+  fit: [[data: string, model: string, degree: string], FitResult];
+  stats: [[data: string], StatsResult];
   dsolve: [[ode: string, conditionsCsv: string], DsolveResult];
   series: [
     [input: string, variable: string, center: string, order: number],
+    TransformResult,
+  ];
+  pade: [
+    [input: string, variable: string, m: number, n: number],
     TransformResult,
   ];
   vectorOp: [[op: string, fieldSemi: string, varsCsv: string], TransformResult];
@@ -223,6 +261,25 @@ export interface EngineApi {
   ];
   stirling: [[variable: string, terms: number], TransformResult];
   seq: [[termsCsv: string], SeqCallResult];
+  // Number theory over the integers (exact int64). gcd/lcm take a CSV list;
+  // the rest take a single integer. All return a plain/latex result + notes.
+  gcd: [[list: string], TransformResult];
+  lcm: [[list: string], TransformResult];
+  isprime: [[n: string], TransformResult];
+  nextprime: [[n: string], TransformResult];
+  divisors: [[n: string], TransformResult];
+  totient: [[n: string], TransformResult];
+  cfrac: [[value: string], TransformResult];
+  discriminant: [[poly: string, variable: string], TransformResult];
+  polydiv: [[dividend: string, divisor: string, variable: string], TransformResult];
+  polygcd: [[a: string, b: string, variable: string], TransformResult];
+  polylcm: [[a: string, b: string, variable: string], TransformResult];
+  resultant: [[a: string, b: string, variable: string], TransformResult];
+  solveIneq: [[lhs: string, rhs: string, op: string, variable: string], TransformResult];
+  mod: [[args: string], TransformResult];
+  powmod: [[args: string], TransformResult];
+  modinv: [[args: string], TransformResult];
+  crt: [[system: string], TransformResult];
   sum: [[term: string, variable: string, lo: string, hi: string], SumCallResult];
   product: [
     [term: string, variable: string, lo: string, hi: string],

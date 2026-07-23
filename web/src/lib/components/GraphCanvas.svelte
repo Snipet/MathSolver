@@ -194,12 +194,45 @@
       if (s.visible && s.kind === "region" && s.region) drawRegion(ctx, v, w, h, s);
     }
 
+    // Definite-integral area shading (drawn under the curves, above the grid).
+    for (const s of series) {
+      if (s.visible && s.kind === "area") drawArea(ctx, v, w, h, s, bg, label);
+    }
+
+    // Slope/direction field: thin, muted segments drawn under the curves.
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
+    for (const s of series) {
+      if (!s.visible || s.kind !== "field" || s.xs.length === 0) continue;
+      ctx.strokeStyle = s.color;
+      ctx.globalAlpha = 0.42;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      let pen = false;
+      for (let i = 0; i < s.xs.length; i++) {
+        const x = s.xs[i];
+        const y = s.ys[i];
+        if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) {
+          pen = false;
+          continue;
+        }
+        const px = xToPx(x, v, w);
+        const py = yToPx(y, v, h);
+        if (pen) ctx.lineTo(px, py);
+        else {
+          ctx.moveTo(px, py);
+          pen = true;
+        }
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
     ctx.lineWidth = 2.2;
     for (const s of series) {
       if (!s.visible || s.kind !== "line" || s.xs.length === 0) continue;
       ctx.strokeStyle = s.color;
+      ctx.setLineDash(s.dash ? [6, 5] : []);
       ctx.beginPath();
       let pen = false;
       for (let i = 0; i < s.xs.length; i++) {
@@ -221,6 +254,7 @@
       }
       ctx.stroke();
     }
+    ctx.setLineDash([]); // don't let an asymptote's dash leak into later strokes
 
     let ghostDrawn = false;
     for (const s of series) {
@@ -244,6 +278,26 @@
     if (ghost && !ghostDrawn) {
       const s = series.find((ss) => ss.id === ghost!.sid);
       drawPointDot(ctx, xToPx(ghost.x, v, w), yToPx(ghost.y, v, h), s?.color ?? "#2563eb", true);
+    }
+
+    // Points of interest (exact zeros / y-intercept from the CAS): hollow
+    // rings, always visible; hovering one reveals its exact coordinate label.
+    for (const s of series) {
+      if (!s.visible || s.kind !== "poi") continue;
+      for (let i = 0; i < s.xs.length; i++) {
+        const x = s.xs[i];
+        const y = s.ys[i];
+        if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+        const px = xToPx(x, v, w);
+        const py = yToPx(y, v, h);
+        ctx.beginPath();
+        ctx.arc(px, py, 4, 0, 2 * Math.PI);
+        ctx.fillStyle = bg;
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = s.color;
+        ctx.stroke();
+      }
     }
 
     drawTrace(ctx, v, w, h, label, bg);
@@ -270,6 +324,99 @@
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
+  }
+
+  // Shade the signed area between a sampled boundary (`y = f(x)` over `[a, b]`)
+  // and the x-axis: fill each contiguous sub-band down to y = 0 (so the band
+  // flips below the axis wherever f < 0), stroke the boundary on top, and draw
+  // the exact ∫ value from the CAS centred over the region.
+  function drawArea(
+    ctx: CanvasRenderingContext2D,
+    v: View,
+    w: number,
+    h: number,
+    s: DrawSeries,
+    bg: string,
+    labelColor: string,
+  ): void {
+    const axisPy = yToPx(0, v, h);
+    const finite = (i: number) =>
+      s.xs[i] !== null &&
+      s.ys[i] !== null &&
+      Number.isFinite(s.xs[i] as number) &&
+      Number.isFinite(s.ys[i] as number);
+
+    ctx.fillStyle = s.color;
+    ctx.globalAlpha = 0.2;
+    ctx.beginPath();
+    let pen = false;
+    let bandLastPx = 0;
+    for (let i = 0; i < s.xs.length; i++) {
+      if (!finite(i)) {
+        if (pen) {
+          ctx.lineTo(bandLastPx, axisPy);
+          ctx.closePath();
+          pen = false;
+        }
+        continue;
+      }
+      const px = xToPx(s.xs[i] as number, v, w);
+      const py = yToPx(s.ys[i] as number, v, h);
+      if (!pen) {
+        ctx.moveTo(px, axisPy);
+        ctx.lineTo(px, py);
+        pen = true;
+      } else {
+        ctx.lineTo(px, py);
+      }
+      bandLastPx = px;
+    }
+    if (pen) {
+      ctx.lineTo(bandLastPx, axisPy);
+      ctx.closePath();
+    }
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // Boundary stroke.
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    pen = false;
+    for (let i = 0; i < s.xs.length; i++) {
+      if (!finite(i)) {
+        pen = false;
+        continue;
+      }
+      const px = xToPx(s.xs[i] as number, v, w);
+      const py = yToPx(s.ys[i] as number, v, h);
+      if (pen) ctx.lineTo(px, py);
+      else {
+        ctx.moveTo(px, py);
+        pen = true;
+      }
+    }
+    ctx.stroke();
+
+    // Value label centred over the band, midway between the axis and the curve.
+    if (!s.label) return;
+    let anchor = -1;
+    const target = (s.xs.length - 1) / 2;
+    for (let i = 0; i < s.xs.length; i++) {
+      if (finite(i) && (anchor < 0 || Math.abs(i - target) < Math.abs(anchor - target))) anchor = i;
+    }
+    if (anchor < 0) return;
+    const ax = xToPx(s.xs[anchor] as number, v, w);
+    const ay = (axisPy + yToPx(s.ys[anchor] as number, v, h)) / 2;
+    ctx.font = "12px " + (cssColor(canvas!, "--font-mono", "") || "monospace");
+    const tw = ctx.measureText(s.label).width;
+    ctx.fillStyle = bg;
+    roundRect(ctx, ax - tw / 2 - 6, ay - 10, tw + 12, 20, 5);
+    ctx.fill();
+    ctx.fillStyle = labelColor;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(s.label, ax, ay);
   }
 
   function drawRegion(
@@ -311,10 +458,19 @@
     bg: string,
   ): void {
     if (!cursor || dragging || pointDrag) return;
-    let best: { px: number; py: number; x: number; y: number; color: string } | null = null;
+    let best: {
+      px: number;
+      py: number;
+      x: number;
+      y: number;
+      color: string;
+      label?: string;
+    } | null = null;
     let bestD = 24 * 24;
     for (const s of series) {
-      if (!s.visible || s.kind !== "line") continue;
+      // Snap to sampled curve vertices and to points-of-interest markers; the
+      // latter carry an exact coordinate label from the CAS.
+      if (!s.visible || (s.kind !== "line" && s.kind !== "poi")) continue;
       for (let i = 0; i < s.xs.length; i++) {
         const y = s.ys[i];
         const x = s.xs[i];
@@ -324,7 +480,7 @@
         const d = (px - cursor.x) ** 2 + (py - cursor.y) ** 2;
         if (d < bestD) {
           bestD = d;
-          best = { px, py, x, y, color: s.color };
+          best = { px, py, x, y, color: s.color, label: s.kind === "poi" ? s.labels?.[i] ?? undefined : undefined };
         }
       }
     }
@@ -336,7 +492,7 @@
     ctx.lineWidth = 2;
     ctx.strokeStyle = bg;
     ctx.stroke();
-    const txt = `(${fmtCoord(best.x)}, ${fmtCoord(best.y)})`;
+    const txt = best.label ?? `(${fmtCoord(best.x)}, ${fmtCoord(best.y)})`;
     ctx.font = "12px " + (cssColor(canvas!, "--font-mono", "") || "monospace");
     const tw = ctx.measureText(txt).width;
     let lx = best.px + 10;

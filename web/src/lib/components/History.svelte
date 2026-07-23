@@ -63,14 +63,16 @@
     display: flex;
     align-items: baseline;
     justify-content: space-between;
+    padding-bottom: 0.35rem;
+    border-bottom: 1px solid var(--rule);
   }
   h2 {
     margin: 0;
-    font-size: 0.85rem;
+    font-family: var(--font-sans);
+    font-size: 1rem;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: var(--fg-muted);
+    letter-spacing: -0.01em;
+    color: var(--fg);
   }
   .clear {
     font: inherit;

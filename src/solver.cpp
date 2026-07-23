@@ -614,6 +614,10 @@ IsoStatus isolate_function(const Expr& side, const Expr& c, IsoState& st) {
     case FunctionId::Erfc:
     case FunctionId::Fib:
     case FunctionId::Harmonic:
+    case FunctionId::Conj:
+    case FunctionId::Re:
+    case FunctionId::Im:
+    case FunctionId::Arg:
         // No elementary inverses; the numeric fallback handles these.
         return IsoStatus::Fail;
     }

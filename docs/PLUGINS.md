@@ -218,6 +218,30 @@ where supported:
 | `linalg.toeplitz [first column], [b]` | **Structured**: symmetric Toeplitz solve by the O(n²) Levinson recursion; singular leading principal minors are reported (the recursion needs strong nonsingularity). |
 | `linalg.circulant [first column], [b]` | **Structured**: circulant solve by DFT diagonalization; a vanishing eigenvalue (DFT coefficient of the first column) is reported as singular. Every structured command prints the residual against a structured matvec. |
 
+The **prob** plugin covers the distributions of a first statistics course.
+Each command reports the queried value and plots the distribution — the bell
+curve for the normal, stem markers for the discrete PMFs, the density for the
+continuous families — with a vertical marker at the query point. The normal
+CDF/inverse use `erf` and Acklam's rational quantile approximation (refined by
+one Halley step); the binomial and Poisson PMFs are evaluated in log-space
+(`lgamma`) for stability at large counts; the **t** and **chi-squared** CDFs use
+the regularized incomplete **beta** and **gamma** functions (Lentz continued
+fractions):
+
+| Command | What it does |
+| --- | --- |
+| `prob.normalpdf <x>[, <mu>, <sigma>]` | Normal density f(x) (μ = 0, σ = 1 by default). |
+| `prob.normalcdf <x>[, <mu>, <sigma>]` | Lower-tail probability P(X ≤ x) via erf; also reports the upper tail. `prob.normalcdf 1.96` → 0.975. |
+| `prob.invnorm <p>[, <mu>, <sigma>]` | The quantile — the x with P(X ≤ x) = p. `prob.invnorm 0.975` → 1.95996. |
+| `prob.binompdf <n>, <p>, <k>` | Binomial P(X = k) = C(n,k) pᵏ (1−p)ⁿ⁻ᵏ, with the PMF over k = 0…n. |
+| `prob.binomcdf <n>, <p>, <k>` | Binomial P(X ≤ k). |
+| `prob.poissonpdf <lambda>, <k>` | Poisson P(X = k) = e^−λ λᵏ / k!, with the PMF plotted. |
+| `prob.poissoncdf <lambda>, <k>` | Poisson P(X ≤ k). |
+| `prob.tpdf <t>, <nu>` / `prob.tcdf <t>, <nu>` | Student's t with ν degrees of freedom. `prob.tcdf 2.228, 10` → 0.975 (and t → normal as ν → ∞). |
+| `prob.chi2pdf <x>, <k>` / `prob.chi2cdf <x>, <k>` | Chi-squared with k degrees of freedom. `prob.chi2cdf 7.815, 3` → 0.95. |
+| `prob.exppdf <x>, <lambda>` / `prob.expcdf <x>, <lambda>` | Exponential(λ): f = λe^−λx, F = 1 − e^−λx. |
+| `prob.unifpdf <x>, <a>, <b>` / `prob.unifcdf <x>, <a>, <b>` | Continuous uniform on [a, b]. |
+
 Every analysis additionally reports **classical stability margins** (gain
 margin at the −180° crossing, phase margin at the 0 dB crossing, refined by
 bisection on Im H(jω)), with the crossover frequencies marked as ωpc/ωgc

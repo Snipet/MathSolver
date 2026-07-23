@@ -1,8 +1,10 @@
 # Proposal: `cancel` — rational-expression cancellation via univariate polynomial GCD
 
-Status: proposed (ROADMAP P1-1, first half — `together` is a separate proposal).
-Target: v0.5. Depends on nothing beyond the existing library; changes no
-existing behavior of `simplify`, `solve`, or `integrate`.
+Status: **implemented** in v0.5 (ROADMAP P1-1, first half — `together` is a
+separate proposal). The engine (`src/cancel.cpp`), the `cancel` verb (CLI /
+REPL / wasm), and the full test battery ship as specified below.
+Depends on nothing beyond the existing library; changes no existing behavior
+of `simplify`, `solve`, or `integrate`.
 
 This document is written to the DESIGN.md standard: it is the contract for the
 feature. An implementer should be able to build `cancel` from this document

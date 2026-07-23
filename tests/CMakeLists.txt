@@ -21,11 +21,23 @@ add_executable(mathsolver_tests
     test_derivative.cpp
     test_integrate.cpp
     test_apart.cpp
+    test_fit.cpp
+    test_stats.cpp
+    test_numtheory.cpp
+    test_cfrac.cpp
+    test_inequality.cpp
+    test_discriminant.cpp
+    test_trig.cpp
+    test_polydiv.cpp
+    test_logexpand.cpp
+    test_cancel.cpp
+    test_together.cpp
     test_solver.cpp
     test_solver_review.cpp
     test_transform.cpp
     test_ode.cpp
     test_series.cpp
+    test_pade.cpp
     test_special.cpp
     test_limit.cpp
     test_discrete.cpp
@@ -39,6 +51,7 @@ add_executable(mathsolver_tests
     test_plugin_ie.cpp
     test_plugin_hyb.cpp
     test_plugin_fem.cpp
+    test_plugin_prob.cpp
 )
 target_link_libraries(mathsolver_tests PRIVATE mathsolver_core mathsolver_plugins Catch2::Catch2WithMain)
 
