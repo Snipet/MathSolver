@@ -436,6 +436,29 @@ std::string ms_discriminant(std::string poly, std::string var) {
     });
 }
 
+/// polydiv(dividend, divisor, var): polynomial long division. The quotient is
+/// the rendered result; the remainder rides along as a note.
+std::string ms_polydiv(std::string dividend, std::string divisor, std::string var) {
+    return guarded([&]() -> std::string {
+        const Expr n = parse_expression(dividend);
+        const Expr d = parse_expression(divisor);
+        std::string v = trim(var);
+        if (v.empty()) {
+            std::set<std::string> syms = free_symbols(n);
+            for (const std::string& s : free_symbols(d)) syms.insert(s);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json("polydiv: name the variable, e.g. "
+                                 "polydiv x^3 - 1, x - 1, x");
+        }
+        const PolyDivResult r = polynomial_divide(n, d, v);
+        if (r.status != PolyDivResult::Status::Ok) return err_json(r.message);
+        const std::vector<std::string> notes = {
+            "remainder: " + to_string(r.remainder, PrintStyle::Plain)};
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}",
+                           rendered_fields(r.quotient), jarr_str(notes));
+    });
+}
+
 /// solveIneq(lhs, rhs, op, var): solve the inequality `lhs <op> rhs` for its
 /// variable (op is one of "<", "<=", ">", ">="; var may be empty to infer).
 std::string ms_solve_ineq(std::string lhs, std::string rhs, std::string op,
@@ -1373,6 +1396,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("totient", &ms_totient);
     emscripten::function("cfrac", &ms_cfrac);
     emscripten::function("discriminant", &ms_discriminant);
+    emscripten::function("polydiv", &ms_polydiv);
     emscripten::function("solveIneq", &ms_solve_ineq);
     emscripten::function("mod", &ms_mod);
     emscripten::function("powmod", &ms_powmod);

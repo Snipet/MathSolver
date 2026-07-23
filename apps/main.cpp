@@ -458,6 +458,20 @@ void run_stats(const std::string& input, PrintStyle style) {
     }
 }
 
+/// `polydiv`: polynomial long division, printing the quotient and remainder.
+void run_polydiv(const std::string& dividend, const std::string& divisor,
+                 const std::string& explicit_var, PrintStyle style) {
+    const Expr n = parse_expression_diag(dividend);
+    const Expr d = parse_expression_diag(divisor);
+    std::set<std::string> syms = free_symbols(n);
+    for (const std::string& s : free_symbols(d)) syms.insert(s);
+    const std::string var = choose_variable(explicit_var, syms, "polydiv");
+    const PolyDivResult r = polynomial_divide(n, d, var);
+    if (r.status != PolyDivResult::Status::Ok) throw UsageError{r.message};
+    std::println("quotient: {}", to_string(r.quotient, style));
+    std::println("remainder: {}", to_string(r.remainder, style));
+}
+
 /// `discriminant`: the discriminant of a polynomial (degree 2–4), symbolic
 /// coefficients kept symbolic; the variable is inferred like diff when omitted.
 void run_discriminant(const std::string& input, const std::string& explicit_var,
@@ -1373,6 +1387,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver divisors 360                divisors, totient\n"
                "  mathsolver cfrac    \"355/113\"          continued fraction + convergents\n"
                "  mathsolver discriminant \"a*x^2+b*x+c\" x  polynomial discriminant\n"
+               "  mathsolver polydiv  \"x^3-1\" \"x-1\"      polynomial long division\n"
                "  mathsolver powmod   \"7, 100, 13\"        modular pow/inverse/mod\n"
                "  mathsolver crt      \"2,3,2; 3,5,7\"      Chinese remainder theorem\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
@@ -1413,7 +1428,8 @@ bool is_known_subcommand(std::string_view s) {
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
            s == "divisors" || s == "totient" || s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
-           s == "discriminant" || s == "trigexpand" || s == "trigreduce";
+           s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
+           s == "polydiv";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1622,6 +1638,13 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_stirling(input, positionals.size() > 1 ? positionals[1] : "",
                          style);
+        } else if (sub == "polydiv") {
+            if (positionals.size() < 2 || positionals.size() > 3) {
+                throw UsageError{"usage: mathsolver polydiv \"<dividend>\" "
+                                 "\"<divisor>\" [var]"};
+            }
+            run_polydiv(positionals[0], positionals[1],
+                        positionals.size() > 2 ? positionals[2] : "", style);
         } else if (sub == "discriminant") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
@@ -1710,6 +1733,7 @@ void print_repl_help() {
         "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
         "  discriminant <polynomial>[, <var>]     discriminant (degree 2–4)\n"
+        "  polydiv <dividend>, <divisor>[, <var>] quotient + remainder\n"
         "  fit <x,y; x,y; ...> [| <model> [<degree>]]  least-squares regression\n"
         "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
         "  stats <v1, v2, v3, ...>                exact summary statistics\n"
@@ -1769,7 +1793,7 @@ bool is_repl_command(std::string_view word) {
            word == "lcm" || word == "isprime" || word == "nextprime" ||
            word == "divisors" || word == "totient" || word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
-           word == "crt" || word == "discriminant";
+           word == "crt" || word == "discriminant" || word == "polydiv";
 }
 
 // ---------------------------------------------------------------------------
@@ -2512,6 +2536,22 @@ void repl_command(const std::string& command, const std::string& rest,
             resolve_expr(parse_expression_diag(input), env, excluded),
             PrintStyle::Plain);
         run_discriminant(resolved, var, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "polydiv") {
+        // polydiv <dividend>, <divisor>[, <var>]
+        if (parts.size() < 2 || parts.size() > 3) {
+            throw UsageError{"usage: polydiv <dividend>, <divisor>[, <variable>]"};
+        }
+        const std::string var = parts.size() > 2 ? parts[2] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string dvd =
+            to_string(resolve_expr(parse_expression_diag(parts[0]), env, excluded), PrintStyle::Plain);
+        const std::string dvs =
+            to_string(resolve_expr(parse_expression_diag(parts[1]), env, excluded), PrintStyle::Plain);
+        run_polydiv(dvd, dvs, var, PrintStyle::Plain);
         warn_assigned_variable(var, env);
     } else if (command == "laplace" || command == "ilaplace") {
         if (parts.size() > 2) {
