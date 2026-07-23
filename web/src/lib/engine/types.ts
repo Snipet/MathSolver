@@ -23,6 +23,17 @@ export type TransformResult =
   | ({ ok: true; notes?: string[] } & Rendered)
   | EngineError;
 
+/** Summary statistics: an ordered list of labelled values (exact where the
+ *  data are rational) plus the count and exactness flag. */
+export type StatsResult =
+  | {
+      ok: true;
+      exact: boolean;
+      n: number;
+      items: { label: string; plain: string; latex: string }[];
+    }
+  | EngineError;
+
 /** Regression fit: the fitted expression (plottable in x) plus its stats. */
 export type FitResult =
   | ({
@@ -225,6 +236,7 @@ export interface EngineApi {
   collect: [[input: string, variable: string], TransformResult];
   apart: [[input: string, variable: string], TransformResult];
   fit: [[data: string, model: string, degree: string], FitResult];
+  stats: [[data: string], StatsResult];
   dsolve: [[ode: string, conditionsCsv: string], DsolveResult];
   series: [
     [input: string, variable: string, center: string, order: number],

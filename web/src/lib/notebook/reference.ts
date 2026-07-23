@@ -158,6 +158,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "fit 0,1; 1,2; 2,2; 3,4 | linear",
       },
       {
+        insert: "stats",
+        usage: "stats <v1, v2, v3, …>",
+        hint: "Exact summary statistics — mean, median, quartiles, stdev (fractions & radicals)",
+        example: "stats 1, 2, 3, 4, 5",
+      },
+      {
         insert: "stirling",
         usage: "stirling [<var>[, <terms>]]",
         hint: "Stirling series for ln Γ with exact Bernoulli coefficients",

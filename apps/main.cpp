@@ -406,6 +406,18 @@ void run_fit(const std::string& input, const std::string& model_text,
     std::println("R^2: {:.6g}", r.r2);
 }
 
+/// `stats`: exact summary statistics of a data list (mean, median, quartiles,
+/// spread). Each statistic prints as `label = value`; values are exact
+/// (fractions / radicals) when the data are rational.
+void run_stats(const std::string& input, PrintStyle style) {
+    const std::vector<std::string> data = parse_stat_data(input);
+    const StatsResult r = compute_stats(data);
+    if (r.status != StatsResult::Status::Ok) throw UsageError{r.message};
+    for (const StatItem& s : r.items) {
+        std::println("{} = {}", s.label, to_string(s.value, style));
+    }
+}
+
 /// `series`: Taylor expansion about a center (default 0) to an order
 /// (default 6); the variable is inferred like diff when omitted.
 void run_series(const std::string& input, const std::string& explicit_var,
@@ -1101,6 +1113,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
                "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
                "  mathsolver fit      \"0,0; 1,1; 2,4\" quadratic\n"
+               "  mathsolver stats    \"1, 2, 3, 4, 5\"\n"
                "  mathsolver stirling x [3]\n"
                "  mathsolver seq      0 1 1 2 3 5 8\n"
                "  mathsolver limit    \"sin(x)/x\" x 0\n"
@@ -1137,7 +1150,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
            s == "rsolve" || s == "mlimit" || s == "stirling" ||
-           s == "seq" || s == "fit" || s == "regress";
+           s == "seq" || s == "fit" || s == "regress" || s == "stats";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1293,6 +1306,14 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_fit(input, positionals.size() > 1 ? positionals[1] : "",
                     positionals.size() > 2 ? positionals[2] : "", style);
+        } else if (sub == "stats") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the data in one quoted "
+                    "argument: mathsolver stats \"1, 2, 3, 4\")",
+                    positionals[1])};
+            }
+            run_stats(input, style);
         } else if (sub == "seq") {
             run_seq(positionals, style);
         } else if (sub == "stirling") {
@@ -1380,6 +1401,7 @@ void print_repl_help() {
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
         "  fit <x,y; x,y; ...> [| <model> [<degree>]]  least-squares regression\n"
         "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
+        "  stats <v1, v2, v3, ...>                exact summary statistics\n"
         "  stirling [<var>[, <terms>]]            ln Gamma asymptotics\n"
         "  seq <a0>, <a1>, <a2>, <a3>[, ...]      recognize the pattern\n"
         "  limit <expression>, <variable>, <point>[, left|right]\n"
@@ -1423,7 +1445,7 @@ bool is_repl_command(std::string_view word) {
            word == "hessian" || word == "limit" || word == "sum" ||
            word == "product" || word == "rsolve" || word == "mlimit" ||
            word == "stirling" || word == "seq" || word == "fit" ||
-           word == "regress";
+           word == "regress" || word == "stats";
 }
 
 // ---------------------------------------------------------------------------
@@ -1980,6 +2002,12 @@ void repl_command(const std::string& command, const std::string& rest,
             throw UsageError{"usage: fit <x,y; x,y; ...> [| <model> [<degree>]]"};
         }
         run_fit(data, model, degree, PrintStyle::Plain);
+        return;
+    }
+    if (command == "stats") {
+        // The whole line is the data list (commas / semicolons / spaces).
+        if (trim(rest).empty()) throw UsageError{"usage: stats <v1, v2, v3, ...>"};
+        run_stats(rest, PrintStyle::Plain);
         return;
     }
     const std::vector<std::string> parts = split_top_level_commas(rest);

@@ -94,6 +94,16 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **`stats` — exact summary statistics.** A new verb that summarizes a data
+  list (`stats "1, 2, 3, 4, 5"`) — n, sum, mean, min/max/range, the quartiles
+  and median (Moore & McCabe method), IQR, and both population and sample
+  variance and standard deviation. When the data are rational every statistic
+  is **exact**: the mean stays a fraction (`1, 2, 4` → `7/3`) and the standard
+  deviation a simplified radical (`1, 2, 3, 4, 5` → `√2` and `√10/2`), where a
+  calculator can only show a decimal; non-rational data or 64-bit overflow fall
+  back to double precision. Shipped across the CLI, REPL, the `stats` wasm
+  binding, and the web console (rendered as a typeset table, with a
+  reference-panel entry).
 - **`fit` — least-squares regression, exact for polynomials.** A new verb that
   fits `x,y` data. Polynomial models (`linear`, `quadratic`, `cubic`,
   `quartic`, or `poly <degree>`) are solved **exactly over the rationals**: the

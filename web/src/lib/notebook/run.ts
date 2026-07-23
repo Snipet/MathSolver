@@ -70,6 +70,7 @@ export const MATH_VERBS = new Set([
   "rsolve",
   "fit",
   "regress",
+  "stats",
 ]);
 
 function err(input: string, e: EngineError): Outcome {
@@ -397,6 +398,22 @@ async function runVerb(
       return {
         kind: "transform",
         result: { ok: true, plain: r.plain, latex: r.latex, notes },
+        computedFrom: null,
+      };
+    }
+    case "stats": {
+      // The whole input is the data list (commas / semicolons / spaces).
+      if (!rest.trim()) return usage("usage: stats <v1, v2, v3, ...>");
+      const r = await call("stats", [rest]);
+      if (!r.ok) return err(rest, r);
+      // Render the labelled values as a KaTeX table.
+      const rows = r.items.map((it) => `\\text{${it.label}} &=& ${it.latex}`).join(" \\\\ ");
+      const latex = `\\begin{array}{lcl} ${rows} \\end{array}`;
+      const plain = r.items.map((it) => `${it.label} = ${it.plain}`).join("\n");
+      const notes = [`${r.exact ? "exact (rational data)" : "numeric"} · ${r.n} values`];
+      return {
+        kind: "transform",
+        result: { ok: true, plain, latex, notes },
         computedFrom: null,
       };
     }
