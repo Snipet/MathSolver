@@ -57,6 +57,17 @@ per-feature specs are under docs/proposals/.
   `x^2 - 5x + 6` → `1` ("two distinct real roots"), `x^2 + 1` → `-4` ("two
   complex-conjugate roots"), `(x-1)^2` → `0` ("one repeated real root"). In
   the CLI, REPL, and web console.
+- **Terminal app (Ink).** A new, experimental second frontend in `apps/ink/`,
+  built with [Ink](https://github.com/vadimdemedes/ink) (React for the command
+  line). It loads the same WebAssembly engine as the web app and drives it with
+  the classic REPL grammar — a bare expression simplifies, a bare equation
+  solves, and verbs (`solve`, `diff`, `integrate`, `limit`, `dsolve`, `sum`,
+  `fit`, `grad`, `gcd`, …) take comma-separated arguments — rendering structured
+  results (values, `method:`, warnings, caret-underlined parse errors) and a
+  live "as parsed" preview. Runs interactively, one-shot, or over piped stdin.
+  The classic C++ REPL/one-shot CLI (`apps/main.cpp`) is unchanged and remains
+  the reference; this is a parallel experiment that may grow into a richer
+  terminal experience. Session assignments (`:=`) are not yet supported there.
 - **Inequality solving.** `solve` now accepts inequalities and returns a
   solution set of intervals instead of only equations: `solve x^2 < 4` →
   `x ∈ (-2, 2)`, `solve x^2 >= 4` → `x ∈ (-∞, -2] ∪ [2, ∞)`. It combines the

@@ -501,6 +501,28 @@ The repo is bind-mounted, so edits hot-reload as usual. Open a shell in the same
 toolchain with `docker compose run --rm dev bash`. See [docs/DOCKER.md](docs/DOCKER.md)
 for the full workflow.
 
+## Terminal app (Ink)
+
+Alongside the classic C++ REPL/one-shot CLI (`apps/main.cpp`), there is a
+second, experimental terminal frontend in [`apps/ink/`](apps/ink) built with
+[Ink](https://github.com/vadimdemedes/ink) (React for the command line). It
+loads the same WebAssembly engine the web app uses — so it renders structured
+results (values, `method:`, warnings, and caret-underlined parse errors) with
+the same grammar as the classic REPL: a bare expression simplifies, a bare
+equation solves, and verbs (`solve`, `diff`, `integrate`, `limit`, `dsolve`,
+`sum`, `fit`, `grad`, `gcd`, …) take comma-separated arguments.
+
+```sh
+bash tools/build_wasm.sh        # build + stage the engine once (needs Emscripten)
+cd apps/ink && npm install && npm run build
+node dist/cli.js                # interactive REPL
+node dist/cli.js "factor x^2 - 5x + 6"   # one-shot
+```
+
+The classic CLI is unchanged and remains the reference implementation; the Ink
+app is a parallel experiment that may grow into a richer terminal experience.
+See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
+
 ## Features
 
 - **Parser** — LaTeX-style grammar with caret-underlined error diagnostics.
