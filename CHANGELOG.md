@@ -11,6 +11,17 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Exact real-root counting & isolation (`rootcount`, `isolate`).** By Sturm's
+  theorem over exact rational arithmetic: `rootcount x^5 - 3x + 1` → `3 distinct
+  real roots`; `rootcount x^2 - 2, x, 0, 5` → `1 distinct real root in (0, 5]`.
+  `isolate x^3 - x - 1` brackets the sole real root (the plastic number
+  `≈ 1.3247`) in a rational interval, and `isolate 2x^2 - 3x + 1` reports the
+  exact rational roots `x = 1/2`, `x = 1`. Multiplicity never inflates the count
+  (a double root counts once), rational roots are pulled out exactly (rational-
+  root theorem) and irrational ones bracketed then refined, and both verbs
+  accept an equation form (`isolate x^2 = 2`). Symbolic coefficients are
+  rejected with a clear message — Sturm needs concrete signs.
+
 - **Padé approximants (`pade`).** `pade exp(x), 2, 2` →
   `(x^2/12 + x/2 + 1)/(x^2/12 - x/2 + 1)`; `pade sin(x), 3, 2` →
   `(-7*x^3/60 + x)/(x^2/20 + 1)`. The [m/n] Padé approximant is the rational

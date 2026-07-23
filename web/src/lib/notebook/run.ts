@@ -60,6 +60,8 @@ export const MATH_VERBS = new Set([
   "dsolve",
   "series",
   "pade",
+  "rootcount",
+  "isolate",
   "grad",
   "div",
   "curl",
@@ -120,6 +122,26 @@ async function inferVar(exprText: string): Promise<string> {
   if (a.ok && "symbols" in a && a.symbols.length > 0)
     return a.symbols.includes("x") ? "x" : a.symbols[0];
   return "x";
+}
+
+/** Reduce `lhs = rhs` to `(lhs) - (rhs)` so the root verbs accept an equation. */
+function reduceEquation(text: string): string {
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== "=") continue;
+    const p = text[i - 1];
+    const n = text[i + 1];
+    if (p !== "<" && p !== ">" && p !== "!" && p !== "=" && n !== "=") {
+      return `(${text.slice(0, i)}) - (${text.slice(i + 1)})`;
+    }
+  }
+  return text;
+}
+
+/** Compact decimal (≈10 significant figures, trailing zeros trimmed). */
+function fmtRoot(n: number): string {
+  if (!Number.isFinite(n)) return "?";
+  if (Math.abs(n) < 1e-12) return "0";
+  return String(Number(n.toPrecision(10)));
 }
 
 /** Left-hand names of `x=...` argument pairs (so the environment won't override them). */
@@ -541,6 +563,42 @@ async function runVerb(
       const r = await call("pade", [env.text, v, m, n]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "rootcount": {
+      if (args.length > 4)
+        return usage("usage: rootcount <poly>[, <var>[, <lo>, <hi>]]");
+      const poly = reduceEquation(expr);
+      const v = args[1] || (await inferVar(poly));
+      const env = await applyEnv(poly, [v], "expr", ov, scope);
+      const r = await call("rootcount", [env.text, v, args[2] ?? "", args[3] ?? ""]);
+      if (!r.ok) return err(env.text, r);
+      const noun = r.count === 1 ? "root" : "roots";
+      const where =
+        r.lo !== undefined && r.hi !== undefined ? ` in (${r.lo}, ${r.hi}]` : "";
+      return {
+        kind: "message",
+        tone: "info",
+        title: "rootcount",
+        lines: [`${r.count} distinct real ${noun}${where}`],
+      };
+    }
+    case "isolate": {
+      if (args.length > 2) return usage("usage: isolate <poly>[, <var>]");
+      const poly = reduceEquation(expr);
+      const v = args[1] || (await inferVar(poly));
+      const env = await applyEnv(poly, [v], "expr", ov, scope);
+      const r = await call("isolate", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      const noun = r.count === 1 ? "root" : "roots";
+      const lines = [`${r.count} distinct real ${noun}${r.count ? ":" : ""}`];
+      for (const root of r.roots) {
+        lines.push(
+          root.exact
+            ? `${v} = ${root.value}`
+            : `${v} ≈ ${fmtRoot(root.approx)}   in (${fmtRoot(root.lo)}, ${fmtRoot(root.hi)})`,
+        );
+      }
+      return { kind: "message", tone: "info", title: "isolate", lines };
     }
     case "stirling": {
       // stirling [<var>[, <terms>]] — no expression argument.

@@ -1040,6 +1040,95 @@ std::string ms_pade(std::string input, std::string variable, int m, int n) {
     });
 }
 
+/// Reduce `lhs = rhs` to `(lhs) - (rhs)` so the root verbs accept an equation.
+std::string reduce_equation(const std::string& input) {
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        if (input[i] != '=') continue;
+        const char p = i > 0 ? input[i - 1] : '\0';
+        const char n = i + 1 < input.size() ? input[i + 1] : '\0';
+        if (p != '<' && p != '>' && p != '!' && p != '=' && n != '=') {
+            return "(" + input.substr(0, i) + ") - (" + input.substr(i + 1) + ")";
+        }
+    }
+    return input;
+}
+
+/// Infer the single free variable of `e`, or `""` with an error JSON written to
+/// `errOut` when it is ambiguous.
+std::string infer_var(const Expr& e, std::string variable, std::string& errOut,
+                      const char* usage) {
+    std::string var = trim(variable);
+    if (var.empty()) {
+        const std::set<std::string> syms = free_symbols(e);
+        if (syms.size() != 1) {
+            errOut = err_json(syms.empty()
+                                  ? "cannot infer the variable: no free symbols"
+                                  : usage);
+            return "";
+        }
+        var = *syms.begin();
+    }
+    return var;
+}
+
+/// rootcount(input, variable, lo, hi): the number of distinct real roots of a
+/// rational-coefficient polynomial (Sturm), over all of R or (lo, hi].
+std::string ms_rootcount(std::string input, std::string variable, std::string lo,
+                         std::string hi) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(reduce_equation(input));
+        std::string err;
+        const std::string var = infer_var(
+            e, variable, err, "give the variable explicitly: rootcount <poly>, <var>");
+        if (var.empty()) return err;
+        std::optional<Rational> a, b;
+        const std::string lt = trim(lo), ht = trim(hi);
+        if (!lt.empty() || !ht.empty()) {
+            if (lt.empty() || ht.empty()) return err_json("give both interval bounds");
+            const Expr la = simplify(parse_expression(lt));
+            const Expr hb = simplify(parse_expression(ht));
+            if (la->kind() != Kind::Number || hb->kind() != Kind::Number) {
+                return err_json("interval bounds must be rational numbers");
+            }
+            a = la->number();
+            b = hb->number();
+        }
+        const int count = sturm_root_count(e, var, a, b);
+        std::string out = std::format("{{\"ok\":true,\"count\":{}", count);
+        if (a && b) {
+            out += std::format(",\"lo\":{},\"hi\":{}", jstr(a->to_string()),
+                               jstr(b->to_string()));
+        }
+        return out + "}";
+    });
+}
+
+/// isolate(input, variable): a rational interval around every distinct real
+/// root, exact rationals reported exactly.
+std::string ms_isolate(std::string input, std::string variable) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(reduce_equation(input));
+        std::string err;
+        const std::string var = infer_var(
+            e, variable, err, "give the variable explicitly: isolate <poly>, <var>");
+        if (var.empty()) return err;
+        const std::vector<RootInterval> roots = sturm_isolate_roots(e, var);
+        std::string arr = "[";
+        for (std::size_t i = 0; i < roots.size(); ++i) {
+            const RootInterval& r = roots[i];
+            if (i) arr += ",";
+            arr += std::format(
+                "{{\"exact\":{},\"value\":{},\"lo\":{},\"hi\":{},\"approx\":{}}}",
+                r.exact ? "true" : "false",
+                r.exact ? jstr(r.lo.to_string()) : "null", jnum(r.lo.to_double()),
+                jnum(r.hi.to_double()), jnum(r.approx));
+        }
+        arr += "]";
+        return std::format("{{\"ok\":true,\"count\":{},\"roots\":{}}}", roots.size(),
+                           arr);
+    });
+}
+
 /// stirling(variable, terms): the Stirling asymptotic series for
 /// ln Gamma(variable) with exact Bernoulli coefficients; the lgamma
 /// accuracy check rides along as warnings.
@@ -1461,6 +1550,8 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("dsolve", &ms_dsolve);
     emscripten::function("series", &ms_series);
     emscripten::function("pade", &ms_pade);
+    emscripten::function("rootcount", &ms_rootcount);
+    emscripten::function("isolate", &ms_isolate);
     emscripten::function("vectorOp", &ms_vector_op);
     emscripten::function("limit", &ms_limit);
     emscripten::function("mlimit", &ms_mlimit);

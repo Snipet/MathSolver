@@ -38,6 +38,7 @@ add_executable(mathsolver_tests
     test_ode.cpp
     test_series.cpp
     test_pade.cpp
+    test_sturm.cpp
     test_special.cpp
     test_limit.cpp
     test_discrete.cpp

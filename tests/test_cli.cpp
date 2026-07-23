@@ -1523,3 +1523,32 @@ TEST_CASE("cli: pade approximant") {
     const RunResult repl = run_repl("pade exp(t), 1, 1, t\nquit\n");
     CHECK(contains(repl.output, "t/2"));
 }
+
+TEST_CASE("cli: rootcount and isolate") {
+    const RunResult c = run_cli({"rootcount", "(x-1)(x-2)(x-3)"});
+    INFO(c.output);
+    CHECK(c.exit_code == 0);
+    CHECK(contains(c.output, "3 distinct real roots"));
+
+    // Interval count: only +sqrt(2) lies in (0, 5].
+    const RunResult ci = run_cli({"rootcount", "x^2 - 2", "x", "0", "5"});
+    CHECK(contains(ci.output, "1 distinct real root in (0, 5]"));
+
+    // Exact rational roots reported exactly.
+    const RunResult iso = run_cli({"isolate", "2x^2 - 3x + 1"});
+    CHECK(iso.exit_code == 0);
+    CHECK(contains(iso.output, "x = 1/2"));
+    CHECK(contains(iso.output, "x = 1"));
+
+    // Irrational root approximated (plastic number ~1.3247).
+    const RunResult plastic = run_cli({"isolate", "x^3 - x - 1"});
+    CHECK(contains(plastic.output, "1.32471"));
+
+    // Equation form via the REPL (roots of x^2 = 2).
+    const RunResult repl = run_repl("isolate x^2 = 2\nquit\n");
+    CHECK(contains(repl.output, "1.41421"));
+
+    // Symbolic coefficients are a usage-style error.
+    const RunResult bad = run_cli({"rootcount", "x^2 + a"}, "2>&1 1>/dev/null");
+    CHECK(bad.exit_code != 0);
+}
