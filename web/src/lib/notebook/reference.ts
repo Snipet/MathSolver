@@ -51,6 +51,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "trigexpand sin(a + b)",
       },
       {
+        insert: "trigreduce",
+        usage: "trigreduce <expr>",
+        hint: "Products/powers of sin,cos → multiple angles (sin(x)² → …)",
+        example: "trigreduce sin(x)^2",
+      },
+      {
         insert: "cancel",
         usage: "cancel <expr>",
         hint: "Cancel a rational's common polynomial factor",

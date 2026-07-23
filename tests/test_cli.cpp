@@ -182,6 +182,17 @@ TEST_CASE("cli: trigexpand of sums and multiples") {
     CHECK(contains(dbl.output, "sin(x)^2"));
 }
 
+TEST_CASE("cli: trigreduce of products and powers") {
+    const RunResult sq = run_cli({"trigreduce", "sin(x)^2"});
+    INFO(sq.output);
+    CHECK(sq.exit_code == 0);
+    CHECK(contains(sq.output, "cos(2*x)"));
+
+    const RunResult prod = run_cli({"trigreduce", "2*sin(x)*cos(x)"});
+    CHECK(prod.exit_code == 0);
+    CHECK(contains(prod.output, "sin(2*x)"));
+}
+
 TEST_CASE("cli: discriminant of a polynomial") {
     const RunResult sym = run_cli({"discriminant", "a*x^2 + b*x + c", "x"});
     INFO(sym.output);

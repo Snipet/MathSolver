@@ -11,6 +11,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Trigonometric reduction (`trigreduce`).** The inverse of `trigexpand`:
+  rewrite products and powers of sines and cosines into a linear combination of
+  sines and cosines of multiple angles. `sin(x)²` → `1/2 - cos(2x)/2`,
+  `2 sin(x) cos(x)` → `sin(2x)`, `cos(x)⁴` → `cos(4x)/8 + cos(2x)/2 + 3/8`, and
+  `sin(x) sin(y)` → `cos(x - y)/2 - cos(x + y)/2`. Exact, via the
+  complex-exponential form; non-trig factors ride along as coefficients. In the
+  CLI, REPL, and web console.
 - **Trigonometric expansion (`trigexpand`).** A new verb expands trig of sums
   and integer multiples into single-angle products and powers, then
   simplifies: `sin(a + b)` → `sin(a)cos(b) + cos(a)sin(b)`, `cos(2x)` →
