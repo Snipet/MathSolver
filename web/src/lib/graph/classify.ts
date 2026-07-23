@@ -19,6 +19,7 @@ export type RowKind =
   | { t: "function"; expr: string; restrict?: string[] } // y = f(x)  (bare expr, or "y = …")
   | { t: "functionY"; expr: string; restrict?: string[] } // x = f(y)
   | { t: "polar"; expr: string; restrict?: string[] } // r = f(θ)
+  | { t: "slopefield"; expr: string; restrict?: string[] } // y' = f(x, y) / dy/dx = …
   | { t: "pointish"; coords: [string, string][]; restrict?: string[] } // points or parametric
   | { t: "define"; name: string; expr: string; restrict?: string[] } // name = expr
   | { t: "relation"; lhs: string; rhs: string; op: RelOp; restrict?: string[] }; // implicit / ineq
@@ -200,6 +201,9 @@ function classifyBody(text: string): RowKind {
       // A chained `y = x = 2` — the right side still holds a relation. Treat the
       // whole row as a relation rather than folding the second '=' into a body.
       if (splitRelation(rhs)) return { t: "relation", lhs: lhs.trim(), rhs: rhs.trim(), op };
+      // A first-order ODE: y' = f(x, y) or dy/dx = f(x, y) → slope field.
+      const lhsNo = lhs.replace(/\s+/g, "");
+      if (lhsNo === "y'" || lhsNo === "dy/dx") return { t: "slopefield", expr: rhs.trim() };
       if (isVar(lhs, "y")) return { t: "function", expr: rhs.trim() };
       if (isVar(rhs, "y")) return { t: "function", expr: lhs.trim() };
       if (isVar(lhs, "x")) return { t: "functionY", expr: rhs.trim() };

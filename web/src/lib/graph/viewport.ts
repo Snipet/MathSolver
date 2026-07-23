@@ -46,8 +46,8 @@ export interface DrawSeries {
   id: string;
   color: string;
   visible: boolean;
-  kind: "line" | "points" | "region" | "poi";
-  /** For "line"/"points"/"poi": aligned world coords; a null in either breaks
+  kind: "line" | "points" | "region" | "poi" | "field";
+  /** For "line"/"points"/"poi"/"field": aligned world coords; a null in either breaks
    *  the polyline (x can be null for x=f(y) where f is undefined). */
   xs: (number | null)[];
   ys: (number | null)[];

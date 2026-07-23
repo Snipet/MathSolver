@@ -194,8 +194,35 @@
       if (s.visible && s.kind === "region" && s.region) drawRegion(ctx, v, w, h, s);
     }
 
+    // Slope/direction field: thin, muted segments drawn under the curves.
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
+    for (const s of series) {
+      if (!s.visible || s.kind !== "field" || s.xs.length === 0) continue;
+      ctx.strokeStyle = s.color;
+      ctx.globalAlpha = 0.42;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      let pen = false;
+      for (let i = 0; i < s.xs.length; i++) {
+        const x = s.xs[i];
+        const y = s.ys[i];
+        if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) {
+          pen = false;
+          continue;
+        }
+        const px = xToPx(x, v, w);
+        const py = yToPx(y, v, h);
+        if (pen) ctx.lineTo(px, py);
+        else {
+          ctx.moveTo(px, py);
+          pen = true;
+        }
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
     ctx.lineWidth = 2.2;
     for (const s of series) {
       if (!s.visible || s.kind !== "line" || s.xs.length === 0) continue;

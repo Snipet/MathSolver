@@ -11,6 +11,15 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — slope fields & solution curves.** A row written as `y' = f(x, y)`
+  (or `dy/dx = f(x, y)`) now draws the **direction field** of that first-order
+  ODE — a lattice of short segments whose slope is `f` — pairing the CAS with
+  the canvas. Any plotted **point `(x₀, y₀)`** then grows the **solution curve**
+  through it, integrated with RK4; because points stay draggable, dragging one
+  **sweeps its solution curve live** across the field. The field's `f` is
+  sampled once through the engine and the curves ride a bilinear interpolant of
+  that grid, so the whole thing re-integrates smoothly per frame. A parameter in
+  `f` (e.g. `y' = a - y`) auto-creates a slider like any other row.
 - **Grapher — editable data tables with regression.** A new **＋ Add table**
   button drops an editable `(x, y)` grid into the expression list: type points
   (the grid auto-grows a blank row) and they plot as a scatter in the row's
