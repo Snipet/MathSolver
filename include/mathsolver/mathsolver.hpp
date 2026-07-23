@@ -16,6 +16,7 @@
 #include "mathsolver/inequality.hpp"
 #include "mathsolver/integrate.hpp"
 #include "mathsolver/limit.hpp"
+#include "mathsolver/logexpand.hpp"
 #include "mathsolver/numtheory.hpp"
 #include "mathsolver/ode.hpp"
 #include "mathsolver/parser.hpp"

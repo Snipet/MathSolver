@@ -29,6 +29,7 @@ add_executable(mathsolver_tests
     test_discriminant.cpp
     test_trig.cpp
     test_polydiv.cpp
+    test_logexpand.cpp
     test_cancel.cpp
     test_together.cpp
     test_solver.cpp

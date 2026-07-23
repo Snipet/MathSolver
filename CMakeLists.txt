@@ -65,6 +65,7 @@ add_library(mathsolver_core STATIC
     src/discriminant.cpp
     src/trig.cpp
     src/polydiv.cpp
+    src/logexpand.cpp
     src/ode.cpp
     src/series.cpp
     src/vector_calculus.cpp

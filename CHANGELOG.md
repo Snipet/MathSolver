@@ -11,6 +11,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Logarithm expansion & combination (`logexpand`, `logcombine`).** The log
+  analog of the trig-rewrite pair. `logexpand ln(x*y)` → `ln(x) + ln(y)`,
+  `ln(x^3)` → `3·ln(x)`, `ln(x/y)` → `ln(x) - ln(y)`; `logcombine` inverts it,
+  collecting a sum of logs into one — `ln(x) + ln(y)` → `ln(x·y)`, `3·ln(x)` →
+  `ln(x^3)`, `ln(x) - ln(y)` → `ln(x/y)`. Formal rewrites (valid for positive
+  arguments); atoms and non-log terms are left alone. In the CLI, REPL, and web
+  console.
 - **Polynomial GCD & LCM (`polygcd`, `polylcm`).** `polygcd x^2 - 1, x^3 - 1`
   → `x - 1`; `polylcm x - 1, x + 1` → `x² - 1`. The GCD runs the Euclidean
   algorithm over the polynomial remainder (building on `polydiv`) and returns a
