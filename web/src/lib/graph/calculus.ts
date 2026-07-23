@@ -1,11 +1,18 @@
-// Calculus operators inside graph expressions: diff(...) / integral(...).
-// These aren't engine functions — GraphCalculator expands them by calling the
-// engine's derivative/integrate, so "diff(f)" or "integral(sin(x))" plot.
-// This module holds the pure text scanning (unit-tested); the async expansion
-// lives in the component.
+// Calculus operators inside graph expressions: diff(...) / integral(...) /
+// series(...). These aren't engine functions — GraphCalculator expands them by
+// calling the engine's derivative/integrate/series, so "diff(f)",
+// "integral(sin(x))", or "series(sin(x), 0, 5)" plot. This module holds the
+// pure text scanning (unit-tested); the async expansion lives in the component.
 import { splitTopLevelCommas } from "./classify";
 
-export const CALC_FNS = ["diff", "derivative", "integral", "antiderivative"];
+export const CALC_FNS = [
+  "diff",
+  "derivative",
+  "integral",
+  "antiderivative",
+  "series",
+  "taylor",
+];
 
 function nameAt(text: string, i: number, name: string): boolean {
   if (text.slice(i, i + name.length) !== name) return false;

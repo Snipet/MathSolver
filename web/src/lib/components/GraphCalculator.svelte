@@ -141,11 +141,20 @@
       const c = findInnermostCall(s);
       if (!c) break;
       const parts = splitTopLevelCommas(c.inner);
-      const variable = (parts[1] ?? "x").trim();
+      const isSeries = c.name === "series" || c.name === "taylor";
+      // series(f, center, order): the trailing args are center/order, not a
+      // variable — Taylor is always in x here. diff/integral take (f, var).
+      const variable = isSeries ? "x" : (parts[1] ?? "x").trim();
       const argEnv = await applyEnv(parts[0]?.trim() ?? "", [variable], "expr", overrides);
       const isDiff = c.name === "diff" || c.name === "derivative";
       let plain: string;
-      if (isDiff) {
+      if (isSeries) {
+        const center = (parts[1] ?? "0").trim() || "0";
+        const order = Math.max(1, Math.min(12, Math.round(Number(parts[2]) || 6)));
+        const r = await call("series", [argEnv.text, variable, center, order]);
+        if (!r.ok) throw new Error(r.error);
+        plain = r.plain;
+      } else if (isDiff) {
         const r = await call("derivative", [argEnv.text, variable]);
         if (!r.ok) throw new Error(r.error);
         plain = r.plain;

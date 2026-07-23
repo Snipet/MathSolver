@@ -7,6 +7,16 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — Taylor-series overlay operator.** The graph expression list now
+  understands `series(f, center, order)` (and its alias `taylor(...)`) as an
+  inline operator alongside the existing `diff(...)` / `integral(...)`: a row
+  like `series(sin(x), 0, 5)` plots the degree-5 Taylor polynomial of `sin x`
+  about 0, so you can drop the source curve on one row and its truncated
+  expansion on the next and watch them agree near the center and peel apart
+  away from it. `center` defaults to `0` and `order` to `6`, clamped to
+  `[1, 12]`; the polynomial is computed by the CAS `series` verb, so it is
+  exact, and free-symbol analysis (auto-sliders, classification) sees through
+  the call to the source expression just as it does for `diff`/`integral`.
 - **Console cookbook.** The console side panel gains a **Cookbook** tab beside
   the flat **Commands** reference: a set of curated, worked recipes — grouped
   by topic (getting started, algebra, equations, calculus, series & discrete,
