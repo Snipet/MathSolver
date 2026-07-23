@@ -11,6 +11,15 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — editable data tables with regression.** A new **＋ Add table**
+  button drops an editable `(x, y)` grid into the expression list: type points
+  (the grid auto-grows a blank row) and they plot as a scatter in the row's
+  color. A **Fit** selector overlays a regression curve — **linear /
+  quadratic / cubic** (solved *exactly* over the rationals by the CAS `fit`
+  verb, so `(0,1) (1,2) (2,2) (3,4)` fits to `x²/4 + 3x/20 + 23/20`, not a
+  rounded decimal) plus **exponential / power / logarithmic** numeric models —
+  and shows the fitted equation with its R² and an "exact" badge. Tables
+  persist to localStorage and ride along in share links.
 - **Grapher — Taylor-series overlay operator.** The graph expression list now
   understands `series(f, center, order)` (and its alias `taylor(...)`) as an
   inline operator alongside the existing `diff(...)` / `integral(...)`: a row
