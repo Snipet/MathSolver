@@ -402,6 +402,44 @@ try {
     check("same-variable point (a,a) drags along y=x (single value)", Math.abs(a - 3) < 0.4, `a=${a}`);
   }
 
+  // Keyboard navigation: focusing the graph paper lets arrows pan, +/= zoom,
+  // and 0 reset the viewport — persisted to localStorage like mouse pan/zoom.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({ rows: [{ text: "y=x", color: "#2563eb", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
+    );
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  await clickGraph();
+  await new Promise((r) => setTimeout(r, 400));
+  {
+    const readView = () =>
+      page.evaluate(() => JSON.parse(localStorage.getItem("mathsolver.graph")).view);
+    await page.$eval(".calc .graph canvas", (el) => el.focus());
+
+    await page.keyboard.press("ArrowRight");
+    await new Promise((r) => setTimeout(r, 350));
+    let v = await readView();
+    check("ArrowRight pans the viewport +x", v.cx > 0 && Math.abs(v.cy) < 1e-9, JSON.stringify(v));
+
+    await page.keyboard.press("ArrowUp");
+    await new Promise((r) => setTimeout(r, 350));
+    v = await readView();
+    check("ArrowUp pans the viewport +y", v.cy > 0, JSON.stringify(v));
+
+    await page.keyboard.press("=");
+    await new Promise((r) => setTimeout(r, 350));
+    v = await readView();
+    check("'=' zooms in (scale increases)", v.scale > 40, JSON.stringify(v));
+
+    await page.keyboard.press("0");
+    await new Promise((r) => setTimeout(r, 350));
+    v = await readView();
+    check("'0' resets the view to default", v.cx === 0 && v.cy === 0 && v.scale === 40, JSON.stringify(v));
+  }
+
   // Share link: a #g=… hash restores the graph rows, view, and variables and
   // opens Graph mode, then clears the hash.
   {

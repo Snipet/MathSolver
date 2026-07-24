@@ -11,6 +11,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — keyboard navigation.** The graph paper is now focusable and
+  responds to the keyboard (Desmos-style): the **arrow keys** pan (hold Shift
+  for a larger step), **`+`/`=`** and **`-`** zoom about the center, and
+  **`0`** (or **Home**) resets the view. A focus ring shows when the graph has
+  keyboard focus, and unhandled keys (Tab, etc.) still pass through to the
+  browser — so the whole plane is now usable without a mouse.
+
 - **Console — `interp` exact polynomial interpolation.** `interp 1,1; 2,4; 3,9`
   returns the unique polynomial through the points — solved exactly over the
   rationals (Vandermonde system), so `x^2` comes back as `x^2`, not a float
