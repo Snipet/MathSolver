@@ -440,6 +440,43 @@ try {
     check("'0' resets the view to default", v.cx === 0 && v.cy === 0 && v.scale === 40, JSON.stringify(v));
   }
 
+  // Keyboard trace (accessibility): T starts a trace whose coordinate is
+  // announced via an aria-live region; arrows walk the curve; Escape ends it.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({ rows: [{ text: "y=x^2", color: "#2563eb", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
+    );
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  await clickGraph();
+  await new Promise((r) => setTimeout(r, 400));
+  {
+    const liveText = () =>
+      page.$eval(".calc .graph [aria-live]", (el) => el.textContent.trim());
+    await page.$eval(".calc .graph canvas", (el) => el.focus());
+
+    await page.keyboard.press("t");
+    await new Promise((r) => setTimeout(r, 250));
+    const started = await liveText();
+    check(
+      "T starts a keyboard trace and announces a coordinate",
+      /tracing/i.test(started) && /x\s/.test(started) && /y\s/.test(started),
+      started,
+    );
+
+    await page.keyboard.press("ArrowRight");
+    await new Promise((r) => setTimeout(r, 250));
+    const moved = await liveText();
+    check("ArrowRight moves the trace and re-announces", moved !== started && /x\s/.test(moved), moved);
+
+    await page.keyboard.press("Escape");
+    await new Promise((r) => setTimeout(r, 200));
+    const ended = await liveText();
+    check("Escape ends the trace", /trace off/i.test(ended), ended);
+  }
+
   // Share link: a #g=… hash restores the graph rows, view, and variables and
   // opens Graph mode, then clears the hash.
   {
