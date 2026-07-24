@@ -159,6 +159,12 @@ check("stirling2 error negative", ms.stirling2("-1", "2"), (r) => !r.ok && r.err
 check("bell B(5)", ms.bell("5"), (r) => r.ok && r.plain === "52", "B(5)=52");
 check("bell B(10)", ms.bell("10"), (r) => r.ok && r.plain === "115975", "B(10)=115975");
 check("bell error negative", ms.bell("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+// derangements (subfactorial !n)
+check("derangement !4", ms.derangement("4"), (r) => r.ok && r.plain === "9", "!4=9");
+check("derangement !10", ms.derangement("10"), (r) => r.ok && r.plain === "1334961", "!10=1334961");
+check("derangement !0", ms.derangement("0"), (r) => r.ok && r.plain === "1", "!0=1");
+check("derangement error negative", ms.derangement("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("derangement error overflow", ms.derangement("21"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

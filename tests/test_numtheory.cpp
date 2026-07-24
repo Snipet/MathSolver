@@ -211,6 +211,26 @@ TEST_CASE("Bell numbers") {
     CHECK_THROWS_AS(bell_number(100), OverflowError);
 }
 
+TEST_CASE("Derangements (subfactorial)") {
+    CHECK(derangement_count(0) == 1);
+    CHECK(derangement_count(1) == 0);
+    CHECK(derangement_count(2) == 1);
+    CHECK(derangement_count(3) == 2);
+    CHECK(derangement_count(4) == 9);
+    CHECK(derangement_count(5) == 44);
+    CHECK(derangement_count(6) == 265);
+    CHECK(derangement_count(10) == 1334961);
+    // !n = n·!(n-1) + (-1)^n, cross-checked against the two-term recurrence.
+    for (long long n = 2; n <= 18; ++n) {
+        const long long sign = (n % 2 == 0) ? 1 : -1;
+        CHECK(derangement_count(n) == n * derangement_count(n - 1) + sign);
+    }
+    // !20 is the largest derangement number fitting in a signed 64-bit int.
+    CHECK(derangement_count(20) == 895014631192902121LL);
+    CHECK_THROWS_AS(derangement_count(-1), EvalError);
+    CHECK_THROWS_AS(derangement_count(21), OverflowError);
+}
+
 TEST_CASE("Catalan numbers") {
     CHECK(catalan_number(0) == 1);
     CHECK(catalan_number(1) == 1);
