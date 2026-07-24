@@ -325,6 +325,18 @@ TEST_CASE("Tribonacci numbers") {
     CHECK_THROWS_AS(tribonacci_number(75), OverflowError);
 }
 
+TEST_CASE("Pell numbers") {
+    const long long expected[] = {0, 1, 2, 5, 12, 29, 70, 169, 408, 985, 2378};
+    for (long long n = 0; n <= 10; ++n) CHECK(pell_number(n) == expected[n]);
+    // Each term is twice the previous plus the one before.
+    for (long long n = 2; n <= 48; ++n)
+        CHECK(pell_number(n) == 2 * pell_number(n - 1) + pell_number(n - 2));
+    // P(50) is the largest Pell number fitting in a signed 64-bit int.
+    CHECK(pell_number(50) == 4866752642924153522LL);
+    CHECK_THROWS_AS(pell_number(-1), EvalError);
+    CHECK_THROWS_AS(pell_number(51), OverflowError);
+}
+
 TEST_CASE("Catalan numbers") {
     CHECK(catalan_number(0) == 1);
     CHECK(catalan_number(1) == 1);

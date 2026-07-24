@@ -230,6 +230,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "tribonacci 10",
       },
       {
+        insert: "pell",
+        usage: "pell <n>",
+        hint: "The n-th Pell number: P₀=0, P₁=1, P(n)=2·P(n−1)+P(n−2) — numerators of the √2 convergents",
+        example: "pell 10",
+      },
+      {
         insert: "cfrac",
         usage: "cfrac <rational | sqrt(n) | real>",
         hint: "Continued fraction + convergents (best rational approximations)",

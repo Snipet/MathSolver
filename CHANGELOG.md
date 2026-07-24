@@ -30,6 +30,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `pell` numbers.** `pell n` is the n-th Pell number P(n) —
+  P₀ = 0, P₁ = 1, P(n) = 2·P(n−1) + P(n−2) (0, 1, 2, 5, 12, 29, 70, 169, …;
+  `pell 10` → 2378) — the numerators of the continued-fraction convergents to
+  √2. Exact over the 64-bit range (P₅₀ is the largest that fits) and errors
+  cleanly past it; it joins the Fibonacci/`lucas`/`tribonacci` recurrence
+  family. CLI too.
+
 - **Console — `tribonacci` numbers.** `tribonacci n` is the n-th tribonacci
   number T(n) — the three-term analogue of Fibonacci: T₀ = T₁ = 0, T₂ = 1,
   each term the sum of the previous three (`tribonacci 10` → 81). Exact over

@@ -679,9 +679,10 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   permutations with no fixed point), the Lucas numbers `lucas`
   (companion to Fibonacci), the primorial `primorial` (n#, the product
   of primes ≤ n), the Motzkin numbers `motzkin` (non-crossing chords), and
-  the Euler numbers `euler` (secant numbers, companion to Bernoulli), and
-  the tribonacci numbers `tribonacci` (three-term Fibonacci) — all exact,
-  factoring via trial division + Pollard's rho:
+  the Euler numbers `euler` (secant numbers, companion to Bernoulli),
+  the tribonacci numbers `tribonacci` (three-term Fibonacci), and the Pell
+  numbers `pell` (P(n) = 2·P(n−1) + P(n−2), numerators of the √2 convergents)
+  — all exact, factoring via trial division + Pollard's rho:
 
   ```console
   $ mathsolver factor 360
@@ -716,6 +717,8 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   1385
   $ mathsolver tribonacci 10
   81
+  $ mathsolver pell 10
+  2378
   ```
 - **Modular arithmetic** — `mod`, `powmod` (modular exponentiation that
   handles huge exponents no plain evaluation could), `modinv` (modular

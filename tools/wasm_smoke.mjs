@@ -195,6 +195,12 @@ check("tribonacci T(20)", ms.tribonacci("20"), (r) => r.ok && r.plain === "35890
 check("tribonacci T(2)", ms.tribonacci("2"), (r) => r.ok && r.plain === "1", "T(2)=1");
 check("tribonacci error negative", ms.tribonacci("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
 check("tribonacci error overflow", ms.tribonacci("75"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+// pell numbers P(n)
+check("pell P(2)", ms.pell("2"), (r) => r.ok && r.plain === "2", "P(2)=2");
+check("pell P(10)", ms.pell("10"), (r) => r.ok && r.plain === "2378", "P(10)=2378");
+check("pell P(20)", ms.pell("20"), (r) => r.ok && r.plain === "15994428", "P(20)=15994428");
+check("pell error negative", ms.pell("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("pell error overflow", ms.pell("51"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

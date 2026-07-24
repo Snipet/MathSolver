@@ -343,6 +343,20 @@ TEST_CASE("cli: tribonacci numbers") {
     CHECK(run_cli({"tribonacci", "75"}).exit_code != 0);
 }
 
+TEST_CASE("cli: pell numbers") {
+    const RunResult p10 = run_cli({"pell", "10"});
+    CHECK(p10.exit_code == 0);
+    CHECK(contains(p10.output, "2378"));
+
+    const RunResult p20 = run_cli({"pell", "20"});
+    CHECK(p20.exit_code == 0);
+    CHECK(contains(p20.output, "15994428"));
+
+    // Negative arg is a usage error; P(51) overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"pell", "-1"}).exit_code == 2);
+    CHECK(run_cli({"pell", "51"}).exit_code != 0);
+}
+
 TEST_CASE("cli: trigexpand of sums and multiples") {
     const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
     INFO(sum.output);
