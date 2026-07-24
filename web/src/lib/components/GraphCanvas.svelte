@@ -1091,6 +1091,39 @@
     if (y !== null) bringIntoView(kbTrace.x, y);
     announceTrace(`tracing ${seriesName(si, order)}. `);
   }
+  /** The points-of-interest series (roots, extrema, intercepts) for a line
+   *  series, matched by the `${id}:poi` convention the calculator emits. */
+  function poiSeriesFor(si: number): DrawSeries | null {
+    const s = series[si];
+    if (!s) return null;
+    return series.find((p) => p.kind === "poi" && p.visible && p.id === `${s.id}:poi`) ?? null;
+  }
+  /** Jump the trace to the next/previous point of interest and announce it. */
+  function jumpPOI(dir: -1 | 1): void {
+    if (!kbTrace) return;
+    const poi = poiSeriesFor(kbTrace.si);
+    if (!poi || !poi.xs.length) {
+      announce = "no points of interest on this curve";
+      return;
+    }
+    let best: { x: number; i: number } | null = null;
+    for (let i = 0; i < poi.xs.length; i++) {
+      const px = poi.xs[i];
+      if (px === null || !Number.isFinite(px)) continue;
+      const ahead = dir > 0 ? px > kbTrace.x + 1e-9 : px < kbTrace.x - 1e-9;
+      if (!ahead) continue;
+      if (!best || (dir > 0 ? px < best.x : px > best.x)) best = { x: px, i };
+    }
+    if (!best) {
+      announce = dir > 0 ? "no later points of interest" : "no earlier points of interest";
+      return;
+    }
+    kbTrace = { si: kbTrace.si, x: best.x };
+    const y = poi.ys[best.i];
+    if (y !== null && Number.isFinite(y)) bringIntoView(best.x, y);
+    const label = poi.labels?.[best.i];
+    announce = label ? `point of interest, ${label}` : `x ${fmtCoord(best.x)}`;
+  }
 
   // Keyboard navigation (Desmos-style) when the graph paper is focused: arrows
   // pan, +/- zoom about the center, 0/Home reset. `t` toggles a keyboard trace
@@ -1122,6 +1155,16 @@
           return;
         case "ArrowDown":
           cycleSeries(1);
+          e.preventDefault();
+          return;
+        case "n":
+        case "N":
+          jumpPOI(1);
+          e.preventDefault();
+          return;
+        case "p":
+        case "P":
+          jumpPOI(-1);
           e.preventDefault();
           return;
         case "Escape":
@@ -1159,7 +1202,7 @@
     bind:this={canvas}
     tabindex="0"
     style:cursor={cursorStyle}
-    aria-label="Interactive graph — drag or arrow keys to pan, scroll or +/- to zoom, 0 to reset, drag points to move them, click a traced point to copy its coordinate. Press T then the left/right arrows to trace a curve and hear its coordinates; up/down switch curves; Escape ends the trace."
+    aria-label="Interactive graph — drag or arrow keys to pan, scroll or +/- to zoom, 0 to reset, drag points to move them, click a traced point to copy its coordinate. Press T then the left/right arrows to trace a curve and hear its coordinates; N and P jump to the next and previous points of interest (roots, extrema, intercepts); up/down switch curves; Escape ends the trace."
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}

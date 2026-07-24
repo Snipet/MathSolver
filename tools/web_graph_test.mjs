@@ -446,12 +446,12 @@ try {
     localStorage.clear();
     localStorage.setItem(
       "mathsolver.graph",
-      JSON.stringify({ rows: [{ text: "y=x^2", color: "#2563eb", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
+      JSON.stringify({ rows: [{ text: "y=x^2 - 1", color: "#2563eb", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
     );
   });
   await page.reload({ waitUntil: "networkidle0" });
   await clickGraph();
-  await new Promise((r) => setTimeout(r, 400));
+  await new Promise((r) => setTimeout(r, 900)); // let POIs (solve/derivative) compute
   {
     const liveText = () =>
       page.$eval(".calc .graph [aria-live]", (el) => el.textContent.trim());
@@ -470,6 +470,12 @@ try {
     await new Promise((r) => setTimeout(r, 250));
     const moved = await liveText();
     check("ArrowRight moves the trace and re-announces", moved !== started && /x\s/.test(moved), moved);
+
+    // N jumps to the next point of interest (root at x=1 for y=x^2-1).
+    await page.keyboard.press("n");
+    await new Promise((r) => setTimeout(r, 250));
+    const poi = await liveText();
+    check("N jumps to a point of interest", /point of interest/i.test(poi), poi);
 
     await page.keyboard.press("Escape");
     await new Promise((r) => setTimeout(r, 200));
