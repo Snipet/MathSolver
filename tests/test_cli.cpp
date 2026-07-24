@@ -254,6 +254,20 @@ TEST_CASE("cli: stirling2 and bell numbers") {
     CHECK(run_cli({"bell", "100"}).exit_code != 0);
 }
 
+TEST_CASE("cli: derangement numbers") {
+    const RunResult d4 = run_cli({"derangement", "4"});
+    CHECK(d4.exit_code == 0);
+    CHECK(contains(d4.output, "9"));
+
+    const RunResult d10 = run_cli({"derangement", "10"});
+    CHECK(d10.exit_code == 0);
+    CHECK(contains(d10.output, "1334961"));
+
+    // Negative arg is a usage error; !21 overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"derangement", "-1"}).exit_code == 2);
+    CHECK(run_cli({"derangement", "21"}).exit_code != 0);
+}
+
 TEST_CASE("cli: trigexpand of sums and multiples") {
     const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
     INFO(sum.output);

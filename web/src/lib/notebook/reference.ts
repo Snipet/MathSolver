@@ -194,6 +194,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "bell 8",
       },
       {
+        insert: "derangement",
+        usage: "derangement <n>",
+        hint: "The subfactorial !n: permutations of n items with no fixed point",
+        example: "derangement 6",
+      },
+      {
         insert: "cfrac",
         usage: "cfrac <rational | sqrt(n) | real>",
         hint: "Continued fraction + convergents (best rational approximations)",

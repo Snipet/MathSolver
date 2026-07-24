@@ -674,8 +674,10 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   `partitions` (p(n) via Euler's pentagonal recurrence), the Catalan
   numbers `catalan`, the Bernoulli numbers `bernoulli` (exact rationals,
   B₁ = −1/2), the Stirling numbers of the second kind `stirling2` (S(n, k),
-  set partitions into k blocks), and the Bell numbers `bell` (total set
-  partitions) — all exact, factoring via trial division + Pollard's rho:
+  set partitions into k blocks), the Bell numbers `bell` (total set
+  partitions), and the derangement counts `derangement` (subfactorial !n,
+  permutations with no fixed point) — all exact, factoring via trial
+  division + Pollard's rho:
 
   ```console
   $ mathsolver factor 360
@@ -698,6 +700,8 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   16796
   $ mathsolver bernoulli 12
   -691/2730
+  $ mathsolver derangement 10
+  1334961
   ```
 - **Modular arithmetic** — `mod`, `powmod` (modular exponentiation that
   handles huge exponents no plain evaluation could), `modinv` (modular

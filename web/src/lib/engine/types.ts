@@ -326,6 +326,7 @@ export interface EngineApi {
   bernoulli: [[n: string], TransformResult];
   stirling2: [[n: string, k: string], TransformResult];
   bell: [[n: string], TransformResult];
+  derangement: [[n: string], TransformResult];
   cfrac: [[value: string], TransformResult];
   discriminant: [[poly: string, variable: string], TransformResult];
   polydiv: [[dividend: string, divisor: string, variable: string], TransformResult];

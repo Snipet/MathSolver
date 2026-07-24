@@ -30,6 +30,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `derangement` (subfactorial) counts.** `derangement n` is the
+  subfactorial !n — the number of permutations of *n* items that leave nothing
+  in its original place (`derangement 4` → 9, `derangement 10` → 1334961) —
+  built exactly by the recurrence !n = (n−1)·(!(n−1) + !(n−2)). Exact over the
+  64-bit range and errors cleanly past it; it joins the combinatorial family
+  alongside `partitions` / `catalan` / `bell` / `stirling2`. CLI too.
+
 - **Grapher — name the axes.** An **Axes** button in the graph toolbar opens
   two inputs to label the x- and y-axes (e.g. "time (s)" / "height (m)"); the
   names draw at the far end of each axis and persist with the document. Handy

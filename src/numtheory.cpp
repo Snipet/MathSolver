@@ -288,6 +288,25 @@ long long bell_number(long long n) {
     return row[0];
 }
 
+long long derangement_count(long long n) {
+    if (n < 0) throw EvalError{"derangement is defined for n >= 0"};
+    // !n = (n-1)·(!(n-1) + !(n-2)), rolled forward with two running values.
+    // !0 = 1, !1 = 0. Overflow-guarded (D(n) ~ n!/e leaves int64 near n = 21).
+    if (n == 0) return 1;
+    long long prev2 = 1; // !(k-2), starting at !0
+    long long prev1 = 0; // !(k-1), starting at !1
+    for (long long k = 2; k <= n; ++k) {
+        long long sum = 0;
+        long long term = 0;
+        if (__builtin_add_overflow(prev1, prev2, &sum) ||
+            __builtin_mul_overflow(k - 1, sum, &term))
+            throw OverflowError{"derangement overflows the 64-bit range"};
+        prev2 = prev1;
+        prev1 = term;
+    }
+    return prev1;
+}
+
 long long catalan_number(long long n) {
     if (n < 0) throw EvalError{"catalan is defined for n >= 0"};
     // Iterate C(k+1) = C(k)·2(2k+1)/(k+2) — an exact division at every step

@@ -75,6 +75,12 @@ long long stirling_second(long long n, long long k);
 /// OverflowError past the 64-bit range (around n = 26).
 long long bell_number(long long n);
 
+/// The n-th derangement (subfactorial !n) for n >= 0: the number of
+/// permutations of n elements with no fixed point. !0 = 1, !1 = 0. Built
+/// exactly via the recurrence !n = (n-1)·(!(n-1) + !(n-2)); throws
+/// OverflowError past the 64-bit range (around n = 21).
+long long derangement_count(long long n);
+
 /// Euclidean remainder: the r with 0 <= r < |m| and a == r (mod m). m = 0
 /// throws DivisionByZeroError.
 long long int_mod(long long a, long long m);
