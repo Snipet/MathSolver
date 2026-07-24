@@ -10,6 +10,7 @@
 import { call } from "../engine";
 import { splitTopLevelCommas, varLatex } from "../format";
 import { splitAssignment, buildAssignPreview } from "../vars/session";
+import { MATH_VERBS } from "./run";
 
 export type ConsolePreview =
   | { kind: "none" }
@@ -330,6 +331,12 @@ export async function buildConsolePreview(raw: string): Promise<ConsolePreview> 
       };
     }
     default: {
+      // A recognized verb without a bespoke typeset branch (gcd, rootcount,
+      // bezout, crt, interp, fit, stats, chebyshev, number-theory verbs, …):
+      // no live math preview — the usage hint / result covers it. Crucially,
+      // do NOT fall through to bare-math analysis, which would mis-read the
+      // verb head as a variable product and flash a false "unknown name".
+      if (MATH_VERBS.has(verb)) return NONE;
       // Bare math: expression, equation, or system.
       const f = await fragment(line);
       return "latex" in f ? { kind: "math", latex: f.latex } : wrap(f, line);

@@ -538,6 +538,34 @@ try {
   check("preview surfaces parse errors with a caret", true);
   await clearPrompt();
 
+  // A recognized verb that has no bespoke typeset branch (gcd, rootcount, …)
+  // must NOT flash a false "unknown name" error — the preview stays quiet
+  // instead of mis-reading the verb head as a variable product.
+  for (const verb of ["gcd 12, 18", "rootcount x^5 - 3x + 1", "bezout x^2-1, x^3-1"]) {
+    await page.click(TA);
+    await page.type(TA, verb);
+    await new Promise((r) => setTimeout(r, 350));
+    // NONE renders no preview element at all; a false warning would render one
+    // with .has-error. Either "no element" or "element without error" passes.
+    const errEl = await page.$("[data-testid='console-preview'].has-error");
+    check(`verb preview does not flash a false error: ${verb.split(" ")[0]}`, errEl === null);
+    await clearPrompt();
+  }
+
+  // rootcount leads its result with the count, not the literal verb name.
+  // (Locally the prebuilt wasm may lack rootcount — emcc isn't available to
+  // rebuild it — so the result is an engine-unavailable error and this check
+  // is skipped; CI/deploy rebuild the wasm and exercise it.)
+  await run("rootcount x^5 - 3x + 1");
+  const rcTitle = await page
+    .$eval(".cells .cell:last-child .message-title", (el) => el.textContent.trim())
+    .catch(() => null);
+  if (rcTitle !== null) {
+    check("rootcount leads with the count, not 'rootcount'", /distinct real roots/.test(rcTitle) && rcTitle !== "rootcount", rcTitle);
+  } else {
+    console.log("SKIP  rootcount headline (local wasm lacks rootcount)");
+  }
+
   await page.click(TA);
   await page.click(".palette .palette-chip"); // π
   await page.evaluate(() => {
