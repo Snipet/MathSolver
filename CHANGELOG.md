@@ -30,6 +30,12 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — copy the graph image to the clipboard.** A **Copy image** button
+  in the graph toolbar, beside **Save PNG**, writes the current plot to the
+  clipboard as a PNG so it can be pasted straight into a doc or chat — no
+  download round-trip. Falls back to a "Copy failed" note where the browser's
+  clipboard-image API isn't available (use **Save PNG** there).
+
 - **Console — `derangement` (subfactorial) counts.** `derangement n` is the
   subfactorial !n — the number of permutations of *n* items that leave nothing
   in its original place (`derangement 4` → 9, `derangement 10` → 1334961) —
