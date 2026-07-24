@@ -358,6 +358,44 @@ long long motzkin_number(long long n) {
     return prev1;
 }
 
+long long euler_number(long long n) {
+    if (n < 0) throw EvalError{"euler is defined for n >= 0"};
+    if (n % 2 == 1) return 0; // odd-indexed Euler numbers vanish
+    // Boustrophedon (Seidel) triangle for the zigzag numbers A(n): each row is
+    // read in the opposite direction to the last, accumulating prefix sums.
+    // |E(2m)| = A(2m); the sign is (-1)^m. Overflow-guarded (E(22) is the
+    // largest in magnitude that fits int64).
+    std::vector<long long> row{1}; // n = 0 row
+    long long an = 1;              // A(0)
+    for (long long i = 1; i <= n; ++i) {
+        std::vector<long long> next(static_cast<std::size_t>(i) + 1, 0);
+        if (i % 2 == 1) { // left to right
+            for (long long k = 1; k <= i; ++k) {
+                long long s = 0;
+                if (__builtin_add_overflow(next[static_cast<std::size_t>(k - 1)],
+                                           row[static_cast<std::size_t>(k - 1)], &s))
+                    throw OverflowError{"euler overflows the 64-bit range"};
+                next[static_cast<std::size_t>(k)] = s;
+            }
+            an = next[static_cast<std::size_t>(i)];
+        } else { // right to left, then reverse into place
+            std::vector<long long> r(static_cast<std::size_t>(i) + 1, 0);
+            for (long long k = 1; k <= i; ++k) {
+                long long s = 0;
+                if (__builtin_add_overflow(r[static_cast<std::size_t>(k - 1)],
+                                           row[static_cast<std::size_t>(i - k)], &s))
+                    throw OverflowError{"euler overflows the 64-bit range"};
+                r[static_cast<std::size_t>(k)] = s;
+            }
+            for (long long k = 0; k <= i; ++k)
+                next[static_cast<std::size_t>(k)] = r[static_cast<std::size_t>(i - k)];
+            an = next[0];
+        }
+        row = std::move(next);
+    }
+    return (n / 2) % 2 == 0 ? an : -an;
+}
+
 long long catalan_number(long long n) {
     if (n < 0) throw EvalError{"catalan is defined for n >= 0"};
     // Iterate C(k+1) = C(k)·2(2k+1)/(k+2) — an exact division at every step

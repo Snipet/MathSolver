@@ -218,6 +218,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "motzkin 10",
       },
       {
+        insert: "euler",
+        usage: "euler <n>",
+        hint: "The n-th Euler (secant) number Eₙ: E₀=1, E₂=−1, E₄=5, odd n = 0",
+        example: "euler 8",
+      },
+      {
         insert: "cfrac",
         usage: "cfrac <rational | sqrt(n) | real>",
         hint: "Continued fraction + convergents (best rational approximations)",

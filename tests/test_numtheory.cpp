@@ -294,6 +294,23 @@ TEST_CASE("Motzkin numbers") {
     CHECK_THROWS_AS(motzkin_number(45), OverflowError);
 }
 
+TEST_CASE("Euler numbers") {
+    CHECK(euler_number(0) == 1);
+    CHECK(euler_number(2) == -1);
+    CHECK(euler_number(4) == 5);
+    CHECK(euler_number(6) == -61);
+    CHECK(euler_number(8) == 1385);
+    CHECK(euler_number(10) == -50521);
+    CHECK(euler_number(12) == 2702765);
+    CHECK(euler_number(14) == -199360981);
+    // Every odd-indexed Euler number is zero.
+    for (long long n = 1; n <= 21; n += 2) CHECK(euler_number(n) == 0);
+    // E(22) is the largest-magnitude Euler number fitting a signed 64-bit int.
+    CHECK(euler_number(22) == -69348874393137901LL);
+    CHECK_THROWS_AS(euler_number(-1), EvalError);
+    CHECK_THROWS_AS(euler_number(24), OverflowError);
+}
+
 TEST_CASE("Catalan numbers") {
     CHECK(catalan_number(0) == 1);
     CHECK(catalan_number(1) == 1);

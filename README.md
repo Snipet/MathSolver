@@ -678,7 +678,8 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   partitions), the derangement counts `derangement` (subfactorial !n,
   permutations with no fixed point), the Lucas numbers `lucas`
   (companion to Fibonacci), the primorial `primorial` (n#, the product
-  of primes ≤ n), and the Motzkin numbers `motzkin` (non-crossing chords) —
+  of primes ≤ n), the Motzkin numbers `motzkin` (non-crossing chords), and
+  the Euler numbers `euler` (secant numbers, companion to Bernoulli) —
   all exact, factoring via trial division + Pollard's rho:
 
   ```console
@@ -710,6 +711,8 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   30030
   $ mathsolver motzkin 10
   2188
+  $ mathsolver euler 8
+  1385
   ```
 - **Modular arithmetic** — `mod`, `powmod` (modular exponentiation that
   handles huge exponents no plain evaluation could), `modinv` (modular
