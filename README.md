@@ -307,6 +307,19 @@ $ mathsolver interp "0,0; 1,1; 2,1"
 degree: 2 (exact)
 ```
 
+For the *construction* rather than the expanded result, `newton` and
+`lagrange` present the same interpolant kept factored — the Newton
+divided-difference form `1 + 3(x−1) + (x−1)(x−2)` or the Lagrange weighted
+basis `Σ wᵢ·Π(x−xⱼ)` — each listing its constant coefficients:
+
+```console
+$ mathsolver newton "1,1; 2,4; 3,9"
+(x - 2)*(x - 1) + 3*(x - 1) + 1
+  c0 = 1
+  c1 = 3
+  c2 = 1
+```
+
 Orthogonal polynomials — `chebyshev`, `chebyu` (second kind), `legendre`,
 `hermite`, and `laguerre` generate the exact degree-n member of each
 classical family from its three-term recurrence over the rationals, so the

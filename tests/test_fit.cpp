@@ -196,6 +196,56 @@ TEST_CASE("interp error paths") {
     CHECK(interp({"1", "2"}, {"x", "3"}, "x").status == InterpResult::Status::Error);   // non-const y
 }
 
+TEST_CASE("newton and lagrange forms expand to the interpolating polynomial") {
+    // Both forms are alternative presentations of the SAME polynomial interp
+    // finds: expanding them must reproduce it, and they must pass through the
+    // data — but they stay factored, so their text differs from the expansion.
+    const std::vector<std::pair<std::vector<std::string>, std::vector<std::string>>> cases = {
+        {{"1", "2", "3"}, {"1", "4", "9"}},   // → x^2
+        {{"0", "1", "2"}, {"0", "1", "1"}},   // → -x^2/2 + 3x/2 (fractions)
+        {{"-1", "0", "2"}, {"3", "1", "7"}},  // arbitrary
+    };
+    for (const auto& [xs, ys] : cases) {
+        const InterpResult ip = interp(xs, ys, "x");
+        REQUIRE(ip.status == InterpResult::Status::Ok);
+        for (InterpForm f : {InterpForm::Newton, InterpForm::Lagrange}) {
+            const InterpFormResult r = interp_form(xs, ys, "x", f);
+            REQUIRE(r.status == InterpFormResult::Status::Ok);
+            CHECK(r.exact);
+            CHECK(static_cast<int>(r.notes.size()) == static_cast<int>(xs.size()));
+            // Expands to interp's polynomial.
+            CHECK(structurally_equal(simplify(expand(make_sub(r.expr, ip.expr))), make_num(0)));
+            // Passes through every data point.
+            for (std::size_t i = 0; i < xs.size(); ++i) {
+                const double xi = std::stod(xs[i]);
+                const double yi = std::stod(ys[i]);
+                CHECK(std::abs(at(r.expr, xi) - yi) < 1e-9);
+            }
+            // Stays factored: its canonical form differs from the expansion.
+            CHECK(!structurally_equal(simplify(r.expr), simplify(ip.expr)));
+        }
+    }
+}
+
+TEST_CASE("newton form leads with c0 = y0; single point is the constant") {
+    const InterpFormResult nw = interp_form({"2", "5"}, {"3", "12"}, "x", InterpForm::Newton);
+    REQUIRE(nw.status == InterpFormResult::Status::Ok);
+    CHECK(nw.notes.front() == "c0 = 3");   // c0 is the first y
+
+    const InterpFormResult one = interp_form({"4"}, {"7"}, "x", InterpForm::Lagrange);
+    REQUIRE(one.status == InterpFormResult::Status::Ok);
+    CHECK(structurally_equal(simplify(one.expr), make_num(7)));
+}
+
+TEST_CASE("interp form error paths mirror interp") {
+    CHECK(interp_form({"1", "1"}, {"2", "3"}, "x", InterpForm::Newton).status ==
+          InterpFormResult::Status::Error); // dup x
+    CHECK(interp_form({"1", "2"}, {"3"}, "x", InterpForm::Lagrange).status ==
+          InterpFormResult::Status::Error); // length
+    CHECK(interp_form({}, {}, "x", InterpForm::Newton).status ==
+          InterpFormResult::Status::Error); // empty
+}
+
 namespace {
 
 std::vector<Expr> nodes(std::initializer_list<const char*> ss) {

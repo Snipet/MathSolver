@@ -805,6 +805,24 @@ std::string ms_interp(std::string data) {
     });
 }
 
+/// interpForm(data, form): the interpolating polynomial through the "x,y; …"
+/// points, kept in its factored Newton or Lagrange construction (form is
+/// "newton" or "lagrange"). Returns it rendered plain and LaTeX with the
+/// constant coefficients (divided differences / weights) as notes.
+std::string ms_interp_form(std::string data, std::string form) {
+    return guarded([&]() -> std::string {
+        const std::string f = trim(form);
+        if (f != "newton" && f != "lagrange")
+            return err_json("interp form must be 'newton' or 'lagrange'");
+        auto [xs, ys] = parse_point_data(data);
+        const InterpFormResult r = interp_form(
+            xs, ys, "x", f == "newton" ? InterpForm::Newton : InterpForm::Lagrange);
+        if (r.status != InterpFormResult::Status::Ok) return err_json(r.message);
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}", rendered_fields(r.expr),
+                           jarr_str(r.notes));
+    });
+}
+
 /// orthopoly(family, n, variable): the exact degree-n orthogonal polynomial of
 /// the family ("chebyshev"/"chebyshevu"/"legendre"/"hermite"/"laguerre") in
 /// `variable`. Returns the rendered polynomial plus its family label and degree.
@@ -1662,6 +1680,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("apart", &ms_apart);
     emscripten::function("fit", &ms_fit);
     emscripten::function("interp", &ms_interp);
+    emscripten::function("interpForm", &ms_interp_form);
     emscripten::function("orthopoly", &ms_orthopoly);
     emscripten::function("stats", &ms_stats);
     emscripten::function("dsolve", &ms_dsolve);

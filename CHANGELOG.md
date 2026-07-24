@@ -30,6 +30,14 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `newton` and `lagrange` interpolation forms.** Two new
+  presentations of the polynomial `interp` finds, kept **factored** so the
+  construction shows instead of the expanded result. `newton 1,1; 2,4; 3,9`
+  gives the divided-difference form `1 + 3(x−1) + (x−1)(x−2)` (with the
+  divided differences listed); `lagrange` gives the weighted basis form
+  `Σ wᵢ·Π(x−xⱼ)`. Both expand to the same polynomial `interp` returns, are
+  exact over the rationals, and are available in the CLI.
+
 - **Grapher — keyboard trace with spoken coordinates (accessibility).** Focus
   the graph and press **T** to start a trace: the **left/right arrows** walk a
   `y = f(x)` curve and each coordinate is announced through an `aria-live`
