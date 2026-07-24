@@ -432,6 +432,15 @@ std::string ms_euler(std::string arg) {
         return nt_json(s, s, {std::format("E({})", *n)});
     });
 }
+std::string ms_tribonacci(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("tribonacci: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("tribonacci is defined for n >= 0");
+        const std::string s = std::to_string(tribonacci_number(*n));
+        return nt_json(s, s, {std::format("T({})", *n)});
+    });
+}
 std::string ms_bernoulli(std::string arg) {
     return guarded([&]() -> std::string {
         const auto n = nt_int(arg);
@@ -1831,6 +1840,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("primorial", &ms_primorial);
     emscripten::function("motzkin", &ms_motzkin);
     emscripten::function("euler", &ms_euler);
+    emscripten::function("tribonacci", &ms_tribonacci);
     emscripten::function("cfrac", &ms_cfrac);
     emscripten::function("discriminant", &ms_discriminant);
     emscripten::function("polydiv", &ms_polydiv);

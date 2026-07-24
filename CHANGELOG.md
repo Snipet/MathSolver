@@ -30,6 +30,12 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `tribonacci` numbers.** `tribonacci n` is the n-th tribonacci
+  number T(n) — the three-term analogue of Fibonacci: T₀ = T₁ = 0, T₂ = 1,
+  each term the sum of the previous three (`tribonacci 10` → 81). Exact over
+  the 64-bit range (T₇₄ is the largest that fits) and errors cleanly past it.
+  CLI too.
+
 - **Console — `euler` numbers.** `euler n` is the n-th Euler (secant) number
   Eₙ — the integer companion to the Bernoulli numbers: E₀ = 1, E₂ = −1,
   E₄ = 5, E₆ = −61, … with every odd-indexed value 0 (`euler 8` → 1385).

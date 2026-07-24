@@ -224,6 +224,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "euler 8",
       },
       {
+        insert: "tribonacci",
+        usage: "tribonacci <n>",
+        hint: "The n-th tribonacci number: T₀=T₁=0, T₂=1, each term the sum of the previous three",
+        example: "tribonacci 10",
+      },
+      {
         insert: "cfrac",
         usage: "cfrac <rational | sqrt(n) | real>",
         hint: "Continued fraction + convergents (best rational approximations)",

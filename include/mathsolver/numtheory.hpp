@@ -104,6 +104,11 @@ long long motzkin_number(long long n);
 /// that fits).
 long long euler_number(long long n);
 
+/// The n-th tribonacci number T(n) for n >= 0: T(0) = T(1) = 0, T(2) = 1,
+/// T(n) = T(n-1) + T(n-2) + T(n-3). Exact; throws OverflowError past the
+/// 64-bit range (T(74) is the largest that fits).
+long long tribonacci_number(long long n);
+
 /// Euclidean remainder: the r with 0 <= r < |m| and a == r (mod m). m = 0
 /// throws DivisionByZeroError.
 long long int_mod(long long a, long long m);
