@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <compare>
 #include <cstddef>
+#include <format>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -95,4 +96,12 @@ private:
 template <>
 struct std::hash<mathsolver::BigInt> {
     std::size_t operator()(const mathsolver::BigInt& v) const noexcept { return v.hash(); }
+};
+
+/// Format a BigInt with `std::format`/`std::println` as its decimal string.
+template <>
+struct std::formatter<mathsolver::BigInt> : std::formatter<std::string> {
+    auto format(const mathsolver::BigInt& v, std::format_context& ctx) const {
+        return std::formatter<std::string>::format(v.to_string(), ctx);
+    }
 };

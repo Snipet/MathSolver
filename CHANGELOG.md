@@ -7,6 +7,16 @@ per-feature specs are under docs/proposals/.
 
 ### Changed
 
+- **Exact arithmetic is now arbitrary precision — no 64-bit ceiling.** The whole
+  exact-number tower (`Rational`) runs on a new bignum integer, so sums,
+  products, powers, and exact symbolic coefficients grow without overflowing.
+  `expand (x+1)^100` (whose middle coefficient is a 30-digit number), `2^200`,
+  `1e300`, big linear systems, exact polynomial fits, and high-degree
+  orthogonal polynomials all compute exactly instead of erroring or falling
+  back to floating point. (Phase 3 of docs/proposals/bigint.md; a few bounded
+  64-bit numeric subroutines — rational-root divisor search, perfect-root
+  extraction — simply skip their optimization for larger operands.)
+
 - **Combinatorial sequence verbs are now arbitrary precision.** `partitions`,
   `catalan`, `stirling2`, `bell`, `derangement`, `lucas`, `primorial`,
   `motzkin`, `euler`, `tribonacci`, and `pell` no longer stop at the 64-bit

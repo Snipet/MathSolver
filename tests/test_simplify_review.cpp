@@ -276,10 +276,10 @@ TEST_CASE("generalized power rule: guards") {
     expect_unchanged_shape("(x^4)^(1/8)");
 }
 
-TEST_CASE("generalized power rule: a*b overflow leaves the node unchanged") {
-    // a = 1/INT64_MAX, b = 1/7: the product's denominator does not fit
-    // 64 bits, so the checked Rational multiply throws and the rule bails.
-    expect_unchanged_shape("(x^(1/9223372036854775807))^(1/7)");
+TEST_CASE("generalized power rule: a*b past 64 bits combines exactly") {
+    // a = 1/INT64_MAX, b = 1/7: the product's denominator (7*INT64_MAX) is now
+    // exact (arbitrary precision), so the rule applies.
+    expect_folds("(x^(1/9223372036854775807))^(1/7)", "x^(1/64563604257983430649)");
 }
 
 TEST_CASE("generalized power rule: value preservation at sample points") {

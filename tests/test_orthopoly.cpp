@@ -113,10 +113,10 @@ TEST_CASE("degree, variable naming, and error paths") {
     const OrthoPolyResult bad = ortho_poly(OrthoFamily::Legendre, -1);
     CHECK(bad.status == OrthoPolyResult::Status::Error);
 
-    // A degree that overflows the exact int64 range fails cleanly (Chebyshev
-    // leading coefficient is 2^(n-1)).
+    // A high degree (Chebyshev leading coefficient 2^(n-1)) is now computed
+    // exactly with arbitrary-precision coefficients.
     const OrthoPolyResult huge = ortho_poly(OrthoFamily::ChebyshevT, 200);
-    CHECK(huge.status == OrthoPolyResult::Status::Error);
+    CHECK(huge.status == OrthoPolyResult::Status::Ok);
 }
 
 TEST_CASE("family-name parsing accepts the documented aliases") {

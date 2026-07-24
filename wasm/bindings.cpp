@@ -231,8 +231,9 @@ std::string ms_factor(std::string input) {
         // A bare integer factors into primes (2^3 · 3^2 · 5) rather than
         // echoing itself, matching FactorInteger / factorint.
         const Expr s = simplify(e);
-        if (s->kind() == Kind::Number && s->number().is_integer()) {
-            const long long n = s->number().num();
+        if (s->kind() == Kind::Number && s->number().is_integer() &&
+            s->number().num().fits_ll()) {
+            const long long n = s->number().num().to_ll();
             if (n == 0 || n == 1 || n == -1) {
                 const std::string t = std::to_string(n);
                 return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{}}}",
@@ -256,8 +257,10 @@ std::string ms_factor(std::string input) {
 /// Parse a single number-theory argument to an integer, or nullopt.
 std::optional<long long> nt_int(const std::string& tok) {
     const Expr e = simplify(parse_expression(tok));
-    if (e->kind() != Kind::Number || !e->number().is_integer()) return std::nullopt;
-    return e->number().num();
+    if (e->kind() != Kind::Number || !e->number().is_integer() ||
+        !e->number().num().fits_ll())
+        return std::nullopt;
+    return e->number().num().to_ll();
 }
 
 std::string nt_json(std::string_view plain, std::string_view latex,
@@ -487,14 +490,16 @@ std::string ms_cfrac(std::string input) {
     return guarded([&]() -> std::string {
         const Expr s = simplify(parse_expression(input));
         CFrac cf;
-        if (s->kind() == Kind::Number) {
+        if (s->kind() == Kind::Number && s->number().num().fits_ll() &&
+            s->number().den().fits_ll()) {
             const Rational r = s->number();
-            cf = cf_rational(r.num(), r.den());
+            cf = cf_rational(r.num().to_ll(), r.den().to_ll());
         } else if (s->kind() == Kind::Pow && s->arg(0)->kind() == Kind::Number &&
                    s->arg(0)->number().is_integer() && s->arg(0)->number().num() >= 1 &&
+                   s->arg(0)->number().num().fits_ll() &&
                    s->arg(1)->kind() == Kind::Number &&
                    s->arg(1)->number() == Rational(1, 2)) {
-            cf = cf_sqrt(s->arg(0)->number().num());
+            cf = cf_sqrt(s->arg(0)->number().num().to_ll());
         } else {
             cf = cf_numeric(evaluate(s, Bindings{}));
         }

@@ -59,18 +59,16 @@ bool is_zero_poly(const std::vector<Rational>& p) {
 }
 
 /// Content of a nonzero coefficient vector: a positive rational,
-/// gcd(|num|) / lcm(den). Propagates OverflowError from the checked lcm.
+/// gcd(|num|) / lcm(den). Exact (arbitrary precision).
 Rational content(const std::vector<Rational>& p) {
-    long long ng = 0;   // gcd of |numerators|
-    long long dl = 1;   // lcm of denominators
+    BigInt ng(0); // gcd of |numerators|
+    BigInt dl(1); // lcm of denominators
     for (const Rational& c : p) {
-        ng = std::gcd(ng, std::llabs(c.num()));
-        const long long g = std::gcd(dl, c.den());
-        long long scaled = 0;
-        if (!checked_mul_ll(dl / g, c.den(), scaled)) throw OverflowError("cancel content lcm");
-        dl = scaled;
+        ng = BigInt::gcd(ng, c.num().abs());
+        const BigInt g = BigInt::gcd(dl, c.den());
+        dl = dl / g * c.den();
     }
-    if (ng == 0) ng = 1;  // all-zero: content 1 (only reached for {0})
+    if (ng.is_zero()) ng = BigInt(1); // all-zero: content 1 (only reached for {0})
     return Rational(ng, dl);
 }
 
@@ -86,12 +84,12 @@ std::vector<Rational> primitive_part(const std::vector<Rational>& p) {
     return out;
 }
 
-/// gcd of two positive rationals: gcd(num) / lcm(den). Overflow-checked.
+/// gcd of two positive rationals: gcd(num) / lcm(den). Exact (arbitrary
+/// precision).
 Rational gcd_Q(const Rational& a, const Rational& b) {
-    const long long n = std::gcd(a.num(), b.num());
-    const long long g = std::gcd(a.den(), b.den());
-    long long d = 0;
-    if (!checked_mul_ll(a.den() / g, b.den(), d)) throw OverflowError("cancel gcd_Q lcm");
+    const BigInt n = BigInt::gcd(a.num(), b.num());
+    const BigInt g = BigInt::gcd(a.den(), b.den());
+    const BigInt d = a.den() / g * b.den();
     return Rational(n, d);
 }
 

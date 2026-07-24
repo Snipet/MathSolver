@@ -323,14 +323,14 @@ std::vector<std::vector<Rational>> rational_null_space(
 /// Pretty form: scale to coprime integers with a positive leading entry.
 std::string rational_vec_text(std::vector<Rational> v) {
     try {
-        long long l = 1;
+        BigInt l(1);
         for (const Rational& r : v) {
-            l = std::lcm(l, r.den());
+            l = l / BigInt::gcd(l, r.den()) * r.den();
         }
-        long long g = 0;
+        BigInt g(0);
         for (Rational& r : v) {
             r = r * Rational(l);
-            g = std::gcd(g, r.num());
+            g = BigInt::gcd(g, r.num());
         }
         if (g > 1) {
             for (Rational& r : v) {

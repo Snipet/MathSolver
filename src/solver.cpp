@@ -125,11 +125,11 @@ std::pair<long long, long long> square_free_split(long long n) {
 
 Expr sqrt_of_rational(const Rational& d) {
     const Expr half = make_num(Rational(1, 2));
-    long long nm = 0;
-    if (!checked_mul_ll(d.num(), d.den(), nm)) {
-        return make_pow(make_num(d), half);
+    const BigInt nmb = d.num() * d.den();
+    if (!nmb.fits_ll()) {
+        return make_pow(make_num(d), half); // radicand too large to split in 64 bits
     }
-    const auto [s, r] = square_free_split(nm);
+    const auto [s, r] = square_free_split(nmb.to_ll());
     const Rational coeff(s, d.den());
     if (r == 1) {
         return make_num(coeff);
@@ -357,8 +357,11 @@ IsoStatus isolate_mul(const Expr& side, const Expr& c, IsoState& st) {
 /// u^(p/q) = c with p/q a reduced rational Number (DESIGN.md §9 parity table).
 IsoStatus isolate_rational_pow(const Expr& base, const Rational& expo, const Expr& c,
                                IsoState& st) {
-    const long long p = expo.num();
-    const long long q = expo.den();
+    if (!expo.num().fits_ll() || !expo.den().fits_ll()) {
+        return IsoStatus::Fail; // an exponent this large is never a real query
+    }
+    const long long p = expo.num().to_ll();
+    const long long q = expo.den().to_ll();
     const bool p_even = (p % 2) == 0;
     const bool q_even = (q % 2) == 0;
     const Rational inv(q, p); // reduced; sign normalizes into the numerator
@@ -784,36 +787,35 @@ std::vector<long long> divisors_of(long long n) {
 
 /// One rational root of the polynomial (rational-root theorem), or nullopt.
 std::optional<Rational> find_rational_root(const std::vector<Rational>& coeffs) {
-    long long lcm_den = 1;
+    BigInt lcm_den(1);
     for (const Rational& c : coeffs) {
-        const long long g = std::gcd(lcm_den, c.den());
-        long long scaled = 0;
-        if (!checked_mul_ll(lcm_den / g, c.den(), scaled)) {
-            return std::nullopt;
-        }
-        lcm_den = scaled;
+        lcm_den = lcm_den / BigInt::gcd(lcm_den, c.den()) * c.den();
     }
-    std::vector<long long> ints(coeffs.size());
+    std::vector<BigInt> ints(coeffs.size());
     for (std::size_t i = 0; i < coeffs.size(); ++i) {
-        if (!checked_mul_ll(coeffs[i].num(), lcm_den / coeffs[i].den(), ints[i])) {
-            return std::nullopt;
-        }
+        ints[i] = coeffs[i].num() * (lcm_den / coeffs[i].den());
     }
-    long long all_gcd = 0;
-    for (const long long v : ints) {
-        all_gcd = std::gcd(all_gcd, v);
+    BigInt all_gcd(0);
+    for (const BigInt& v : ints) {
+        all_gcd = BigInt::gcd(all_gcd, v);
     }
     if (all_gcd > 1) {
-        for (long long& v : ints) {
-            v /= all_gcd;
+        for (BigInt& v : ints) {
+            v = v / all_gcd;
         }
     }
 
-    const long long a0 = std::abs(ints.front());
-    const long long an = std::abs(ints.back());
-    if (a0 == 0 || an == 0) {
+    const BigInt a0b = ints.front().abs();
+    const BigInt anb = ints.back().abs();
+    if (a0b.is_zero() || anb.is_zero()) {
         return std::nullopt; // zero roots are peeled before this is called
     }
+    // The divisor enumeration runs in 64 bits; larger end coefficients skip it.
+    if (!a0b.fits_ll() || !anb.fits_ll()) {
+        return std::nullopt;
+    }
+    const long long a0 = a0b.to_ll();
+    const long long an = anb.to_ll();
     for (const long long p : divisors_of(a0)) {
         for (const long long q : divisors_of(an)) {
             for (const int sign : {1, -1}) {

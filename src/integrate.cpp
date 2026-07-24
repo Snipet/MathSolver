@@ -659,27 +659,27 @@ std::vector<long long> divisors_of(long long n) {
 
 /// One rational root of the polynomial (rational-root theorem), or nullopt.
 std::optional<Rational> find_rational_root(const std::vector<Rational>& coeffs) {
-    long long lcm_den = 1;
+    BigInt lcm_den(1);
     for (const Rational& c : coeffs) {
-        const long long g = std::gcd(lcm_den, c.den());
-        long long scaled = 0;
-        if (!checked_mul_ll(lcm_den / g, c.den(), scaled)) return std::nullopt;
-        lcm_den = scaled;
+        lcm_den = lcm_den / BigInt::gcd(lcm_den, c.den()) * c.den();
     }
-    std::vector<long long> ints(coeffs.size());
+    std::vector<BigInt> ints(coeffs.size());
     for (std::size_t i = 0; i < coeffs.size(); ++i) {
-        if (!checked_mul_ll(coeffs[i].num(), lcm_den / coeffs[i].den(), ints[i]))
-            return std::nullopt;
+        ints[i] = coeffs[i].num() * (lcm_den / coeffs[i].den());
     }
-    long long all_gcd = 0;
-    for (const long long v : ints) all_gcd = std::gcd(all_gcd, v);
+    BigInt all_gcd(0);
+    for (const BigInt& v : ints) all_gcd = BigInt::gcd(all_gcd, v);
     if (all_gcd > 1) {
-        for (long long& v : ints) v /= all_gcd;
+        for (BigInt& v : ints) v = v / all_gcd;
     }
 
-    const long long a0 = std::abs(ints.front());
-    const long long an = std::abs(ints.back());
-    if (a0 == 0 || an == 0) return std::nullopt;  // zero roots are peeled first
+    const BigInt a0b = ints.front().abs();
+    const BigInt anb = ints.back().abs();
+    if (a0b.is_zero() || anb.is_zero()) return std::nullopt; // zero roots peeled first
+    // The divisor enumeration runs in 64 bits; larger end coefficients skip it.
+    if (!a0b.fits_ll() || !anb.fits_ll()) return std::nullopt;
+    const long long a0 = a0b.to_ll();
+    const long long an = anb.to_ll();
     for (const long long p : divisors_of(a0)) {
         for (const long long q : divisors_of(an)) {
             for (const int sign : {1, -1}) {
@@ -984,7 +984,7 @@ std::optional<Attempt> try_trig_powers(const Expr& e, const std::string& sym,
                                      : make_add({make_num(1), cos2u})});
     } else if (n == Rational(3) || n == Rational(5)) {
         // sin^(2k+1)(u) = (1 - cos^2(u))^k * sin(u) (and symmetrically).
-        const long long k = (n.num() - 1) / 2;
+        const long long k = ((n.num() - 1) / 2).to_ll(); // n is 3 or 5 here
         const Expr other =
             make_fn(is_sin ? FunctionId::Cos : FunctionId::Sin, u);
         rewritten = make_mul(

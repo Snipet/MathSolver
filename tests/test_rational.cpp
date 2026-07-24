@@ -6,6 +6,7 @@
 #include "mathsolver/errors.hpp"
 #include "mathsolver/rational.hpp"
 
+using mathsolver::BigInt;
 using mathsolver::DivisionByZeroError;
 using mathsolver::OverflowError;
 using mathsolver::ParseError;
@@ -60,10 +61,11 @@ TEST_CASE("rational: construction normalizes", "[rational]") {
         Rational half_min(LLONG_MIN, 2);
         REQUIRE(half_min.num() == LLONG_MIN / 2);
         REQUIRE(half_min.den() == 1);
-        // LLONG_MIN / -1 = 2^63, which does not fit.
-        REQUIRE_THROWS_AS(Rational(LLONG_MIN, -1), OverflowError);
-        // 1 / LLONG_MIN would need denominator 2^63.
-        REQUIRE_THROWS_AS(Rational(1, LLONG_MIN), OverflowError);
+        // LLONG_MIN / -1 = 2^63 is now exact (arbitrary precision).
+        REQUIRE(Rational(LLONG_MIN, -1).num() == BigInt("9223372036854775808"));
+        // 1 / LLONG_MIN = -1 / 2^63.
+        REQUIRE(Rational(1, LLONG_MIN).num() == BigInt(-1));
+        REQUIRE(Rational(1, LLONG_MIN).den() == BigInt("9223372036854775808"));
     }
 }
 
@@ -107,20 +109,26 @@ TEST_CASE("rational: arithmetic", "[rational]") {
         REQUIRE(-Rational(3, 4) == Rational(-3, 4));
         REQUIRE(-Rational(-3, 4) == Rational(3, 4));
         REQUIRE(-Rational(0) == Rational(0));
-        REQUIRE_THROWS_AS(-Rational(LLONG_MIN), OverflowError);
+        // -LLONG_MIN = 2^63 is now exact (arbitrary precision).
+        REQUIRE((-Rational(LLONG_MIN)).num() == BigInt("9223372036854775808"));
     }
 }
 
-TEST_CASE("rational: overflow is checked, never wrapped", "[rational]") {
+TEST_CASE("rational: arithmetic is exact beyond 64 bits", "[rational]") {
     const Rational max_val(LLONG_MAX);
-    REQUIRE_THROWS_AS(max_val + Rational(1), OverflowError);
-    REQUIRE_THROWS_AS(max_val * Rational(2), OverflowError);
-    REQUIRE_THROWS_AS(Rational(LLONG_MIN) - Rational(1), OverflowError);
-    REQUIRE_THROWS_AS(Rational(LLONG_MIN) * Rational(-1), OverflowError);
-    // Numerator * numerator too big even before normalization could help.
-    REQUIRE_THROWS_AS(Rational(LLONG_MAX, 2) * Rational(LLONG_MAX, 3), OverflowError);
-    // Additions whose lcm blows up.
-    REQUIRE_THROWS_AS(Rational(1, LLONG_MAX) + Rational(1, LLONG_MAX - 1), OverflowError);
+    // Values that used to overflow are now computed exactly (arbitrary precision).
+    REQUIRE((max_val + Rational(1)).num() == BigInt("9223372036854775808"));       // 2^63
+    REQUIRE((max_val * Rational(2)).num() == BigInt("18446744073709551614"));      // 2^64-2
+    REQUIRE((Rational(LLONG_MIN) - Rational(1)).num() == BigInt("-9223372036854775809"));
+    REQUIRE((Rational(LLONG_MIN) * Rational(-1)).num() == BigInt("9223372036854775808"));
+    // Numerator * numerator far past 64 bits.
+    const Rational prod = Rational(LLONG_MAX, 2) * Rational(LLONG_MAX, 3);
+    REQUIRE(prod.num() == BigInt("85070591730234615847396907784232501249"));
+    REQUIRE(prod.den() == BigInt(6));
+    // An addition whose lcm blows up past 64 bits.
+    const Rational sum = Rational(1, LLONG_MAX) + Rational(1, LLONG_MAX - 1);
+    REQUIRE(sum.num() == BigInt("18446744073709551613"));
+    REQUIRE(sum.den() == BigInt("85070591730234615838173535747377725442"));
 }
 
 TEST_CASE("rational: gcd reduction avoids spurious overflow", "[rational]") {
@@ -141,10 +149,13 @@ TEST_CASE("rational: add/sub combine in 128 bits, representable results never th
     REQUIRE(Rational(-1, 2) - Rational(LLONG_MAX, 2) == Rational(LLONG_MIN / 2));
     REQUIRE(Rational(LLONG_MAX, 2) - Rational(LLONG_MAX, 2) == Rational(0));
     REQUIRE(Rational(LLONG_MAX, 2) + Rational(1, 2) == Rational(LLONG_MAX / 2 + 1));
-    // Truly unrepresentable results still throw.
-    REQUIRE_THROWS_AS(Rational(LLONG_MAX, 2) + Rational(LLONG_MAX, 2) + Rational(1),
-                      OverflowError);
-    REQUIRE_THROWS_AS(Rational(LLONG_MAX, 2) - Rational(LLONG_MIN, 2), OverflowError);
+    // Results past 64 bits are now exact.
+    REQUIRE((Rational(LLONG_MAX, 2) + Rational(LLONG_MAX, 2) + Rational(1)).num() ==
+            BigInt("9223372036854775808")); // 2^63
+    // (2^63-1)/2 - (-2^63)/2 = (2^64-1)/2, now exact.
+    const Rational d = Rational(LLONG_MAX, 2) - Rational(LLONG_MIN, 2);
+    REQUIRE(d.num() == BigInt("18446744073709551615"));
+    REQUIRE(d.den() == BigInt(2));
 }
 
 TEST_CASE("rational: division cross-cancels before assembling the quotient",
@@ -158,10 +169,12 @@ TEST_CASE("rational: division cross-cancels before assembling the quotient",
     REQUIRE(Rational(LLONG_MIN, 3) / Rational(2, 3) == Rational(LLONG_MIN / 2));
     REQUIRE(Rational(0) / Rational(LLONG_MIN) == Rational(0));
     REQUIRE(Rational(4, LLONG_MAX) / Rational(2, LLONG_MAX) == Rational(2));
-    // Results that genuinely do not fit still throw.
-    REQUIRE_THROWS_AS(Rational(1) / Rational(LLONG_MIN), OverflowError); // den 2^63
-    REQUIRE_THROWS_AS(Rational(LLONG_MIN) / Rational(-1), OverflowError); // 2^63
-    REQUIRE_THROWS_AS(Rational(LLONG_MAX) / Rational(1, LLONG_MAX), OverflowError);
+    // Results past 64 bits are now exact.
+    REQUIRE((Rational(1) / Rational(LLONG_MIN)).den() == BigInt("9223372036854775808"));
+    REQUIRE((Rational(LLONG_MIN) / Rational(-1)).num() == BigInt("9223372036854775808"));
+    // (2^63-1) / (1/(2^63-1)) = (2^63-1)^2, now exact.
+    REQUIRE((Rational(LLONG_MAX) / Rational(1, LLONG_MAX)).num() ==
+            BigInt("85070591730234615847396907784232501249"));
 }
 
 TEST_CASE("rational: comparison", "[rational]") {
@@ -202,10 +215,10 @@ TEST_CASE("rational: pow", "[rational]") {
         REQUIRE_THROWS_AS(Rational(0).pow(-1), DivisionByZeroError);
         REQUIRE_THROWS_AS(Rational(0).pow(-7), DivisionByZeroError);
     }
-    SECTION("overflow throws") {
-        REQUIRE_THROWS_AS(Rational(2).pow(63), OverflowError);
-        REQUIRE_THROWS_AS(Rational(10).pow(19), OverflowError);
-        REQUIRE_THROWS_AS(Rational(1, 2).pow(-63), OverflowError);
+    SECTION("large powers are exact") {
+        REQUIRE(Rational(2).pow(63).num() == BigInt("9223372036854775808"));   // 2^63
+        REQUIRE(Rational(10).pow(19).num() == BigInt("10000000000000000000")); // 10^19
+        REQUIRE(Rational(1, 2).pow(-63).num() == BigInt("9223372036854775808"));
         REQUIRE(Rational(2).pow(62) == Rational(1LL << 62));
     }
     SECTION("one and minus one never overflow") {
@@ -248,12 +261,17 @@ TEST_CASE("rational: from_decimal_string rejects malformed input", "[rational]")
     }
 }
 
-TEST_CASE("rational: from_decimal_string overflow", "[rational]") {
-    REQUIRE_THROWS_AS(Rational::from_decimal_string("99999999999999999999"), OverflowError);
-    REQUIRE_THROWS_AS(Rational::from_decimal_string("9223372036854775808"), OverflowError);
-    REQUIRE_THROWS_AS(Rational::from_decimal_string("-9223372036854775809"), OverflowError);
-    // Denominator 10^19 does not fit.
-    REQUIRE_THROWS_AS(Rational::from_decimal_string("0.0000000000000000001"), OverflowError);
+TEST_CASE("rational: from_decimal_string is exact beyond 64 bits", "[rational]") {
+    REQUIRE(Rational::from_decimal_string("99999999999999999999").num() ==
+            BigInt("99999999999999999999"));
+    REQUIRE(Rational::from_decimal_string("9223372036854775808").num() ==
+            BigInt("9223372036854775808")); // 2^63
+    REQUIRE(Rational::from_decimal_string("-9223372036854775809").num() ==
+            BigInt("-9223372036854775809"));
+    // Denominator 10^19 is now exact.
+    const Rational tiny = Rational::from_decimal_string("0.0000000000000000001");
+    REQUIRE(tiny.num() == BigInt(1));
+    REQUIRE(tiny.den() == BigInt("10000000000000000000")); // 10^19
 }
 
 TEST_CASE("rational: to_string", "[rational]") {

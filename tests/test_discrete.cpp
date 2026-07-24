@@ -233,10 +233,11 @@ TEST_CASE("sum review: ratio comparison at 1 is exact, not rounded") {
     CHECK(r.status != SumResult::Status::Diverges);
 }
 
-TEST_CASE("sum review: rational overflow is Unsolved, not an escape") {
-    // H(45) does not fit a 64-bit rational; the API must not throw.
+TEST_CASE("sum review: large-denominator telescoping sum is now exact") {
+    // Σ 1/(k(k+45)) = H(45)/45; H(45) does not fit a 64-bit rational but is now
+    // computed exactly (arbitrary precision).
     const SumResult r = sum_infinite(P("1/(k*(k+45))"), "k", P("1"));
-    CHECK(r.status == SumResult::Status::Unsolved);
+    CHECK(r.status == SumResult::Status::Exact);
 }
 
 TEST_CASE("rsolve review: fully cancelling coefficients error, not crash") {
@@ -275,8 +276,10 @@ TEST_CASE("integer functions: binomial and factorial fold through gamma") {
     CHECK(S("harmonic(1)") == "1");
     CHECK(S("harmonic(4)") == "25/12");
     CHECK(S("harmonic(0)") == "0");
-    // Past the exact 64-bit reach the symbolic form stays (numerics work).
-    CHECK(S("harmonic(100)") == "harmonic(100)");
+    // Now exact past the old 64-bit reach (arbitrary precision).
+    CHECK(S("harmonic(100)") ==
+          "14466636279520351160221518043104131447711/"
+          "2788815009188499086581352357412492142272");
     CHECK(std::abs(evaluate(parse_expression("harmonic(100)"), Bindings{}) -
                    5.187377517639621) < 1e-9);
     CHECK(std::abs(evaluate(parse_expression("fib(30)"), Bindings{}) -

@@ -531,8 +531,9 @@ TEST_CASE("parser: scientific notation literals") {
     check_parse("2e", make_mul({num(2), make_const(ConstantId::E)}));
     CHECK(structurally_equal(parse_expression("2e x"),
                              parse_expression("2*e*x")));
-    // Out-of-range literals are clean parse errors, not overflow crashes.
-    CHECK_THROWS_AS(parse_expression("1e300"), ParseError);
+    // Large scientific-notation literals are now exact (arbitrary precision).
+    CHECK(structurally_equal(parse_expression("1e300"),
+                             make_num(Rational(BigInt("1" + std::string(300, '0'))))));
 }
 
 TEST_CASE("parser: unicode math input") {

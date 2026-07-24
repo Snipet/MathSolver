@@ -81,18 +81,18 @@ Poly poly_rem(Poly a, const Poly& b) {
 /// denominators, divide out the integer content). Sign structure is preserved.
 void make_primitive(Poly& p) {
     if (p.empty()) return;
-    long long l = 1; // lcm of denominators
+    BigInt l(1); // lcm of denominators
     for (const Rational& c : p) {
-        const long long d = c.den();
-        l = l / std::gcd(l, d) * d;
+        const BigInt& d = c.den();
+        l = l / BigInt::gcd(l, d) * d;
     }
-    long long g = 0; // gcd of the cleared numerators
-    std::vector<long long> ints(p.size());
+    BigInt g(0); // gcd of the cleared numerators
+    std::vector<BigInt> ints(p.size());
     for (std::size_t i = 0; i < p.size(); ++i) {
         ints[i] = p[i].num() * (l / p[i].den());
-        g = std::gcd(g, std::llabs(ints[i]));
+        g = BigInt::gcd(g, ints[i].abs());
     }
-    if (g == 0) return;
+    if (g.is_zero()) return;
     for (std::size_t i = 0; i < p.size(); ++i) p[i] = Rational(ints[i] / g);
 }
 
@@ -260,12 +260,16 @@ void extract_rational_roots(Poly& p, std::vector<Rational>& exact) {
     if (degree(p) < 1) return;
 
     // Clear denominators to an integer polynomial for the p|a0, q|an test.
-    long long l = 1;
-    for (const Rational& c : p) l = l / std::gcd(l, c.den()) * c.den();
-    const long long a0 = std::llabs(p[0].num() * (l / p[0].den()));
-    const long long an = std::llabs(p[degree(p)].num() * (l / p[degree(p)].den()));
+    BigInt l(1);
+    for (const Rational& c : p) l = l / BigInt::gcd(l, c.den()) * c.den();
+    const BigInt a0b = (p[0].num() * (l / p[0].den())).abs();
+    const BigInt anb = (p[degree(p)].num() * (l / p[degree(p)].den())).abs();
     constexpr long long k_cap = 2'000'000; // keep divisor enumeration cheap
-    if (a0 == 0 || an == 0 || a0 > k_cap || an > k_cap) return;
+    // Coefficients beyond the divisor cap (or int64) skip this heuristic test.
+    if (a0b.is_zero() || anb.is_zero() || !a0b.fits_ll() || !anb.fits_ll()) return;
+    const long long a0 = a0b.to_ll();
+    const long long an = anb.to_ll();
+    if (a0 > k_cap || an > k_cap) return;
 
     for (long long num : divisors(a0)) {
         for (long long den : divisors(an)) {

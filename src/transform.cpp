@@ -136,8 +136,8 @@ Expr laplace_term(const Expr& term_in, const Expr& s, const std::string& t) {
         } else if (f->kind() == Kind::Pow && f->arg(0)->kind() == Kind::Symbol &&
                    f->arg(0)->symbol_name() == t) {
             const auto k = as_num(f->arg(1));
-            if (k && k->is_integer() && k->num() > 0) {
-                n += k->num();
+            if (k && k->is_integer() && k->num() > 0 && k->num().fits_ll()) {
+                n += k->num().to_ll();
             } else {
                 core.push_back(f);
             }
@@ -165,10 +165,10 @@ bool split_rational(const Expr& term, const std::string& s, Expr& numerator,
     for (const Expr& f : factors_of(term)) {
         if (!found && f->kind() == Kind::Pow) {
             const auto e = as_num(f->arg(1));
-            if (e && e->is_integer() && e->num() < 0 &&
+            if (e && e->is_integer() && e->num() < 0 && e->num().fits_ll() &&
                 contains_symbol(f->arg(0), s)) {
                 base = f->arg(0);
-                power = -e->num();
+                power = (-e->num()).to_ll();
                 found = true;
                 continue;
             }
