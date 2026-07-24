@@ -958,6 +958,54 @@ try {
     check("axis label restored after reload", reloadedVal === "time (s)", String(reloadedVal));
   }
 
+  // Copy image: the "Copy image" toolbar button writes the graph PNG to the
+  // clipboard via navigator.clipboard.write. We stub that API (unreliable in
+  // headless) to record the call, then assert the button wires to it and
+  // reports success.
+  {
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    // Install a recording stub for the async clipboard image write.
+    await page.evaluate(() => {
+      window.__clip = { called: false, type: null };
+      // A minimal ClipboardItem stand-in that remembers its payload's type.
+      window.ClipboardItem = class {
+        constructor(items) {
+          this.types = Object.keys(items);
+        }
+      };
+      navigator.clipboard = navigator.clipboard || {};
+      navigator.clipboard.write = async (items) => {
+        window.__clip.called = true;
+        window.__clip.type = items?.[0]?.types?.[0] ?? null;
+      };
+    });
+    const hasBtn = await page.evaluate(() => {
+      const b = [...document.querySelectorAll(".calc-toolbar .tool-btn")].find(
+        (el) => el.textContent.trim() === "Copy image",
+      );
+      if (b) b.click();
+      return !!b;
+    });
+    await new Promise((r) => setTimeout(r, 400));
+    const clip = await page.evaluate(() => window.__clip);
+    const label = await page.evaluate(
+      () =>
+        [...document.querySelectorAll(".calc-toolbar .tool-btn")]
+          .map((el) => el.textContent.trim())
+          .find((t) => /Image copied|Copy failed|Copy image/.test(t)) ?? null,
+    );
+    check("'Copy image' button is present", hasBtn, String(hasBtn));
+    check(
+      "clicking 'Copy image' writes a PNG to the clipboard",
+      clip.called && clip.type === "image/png",
+      JSON.stringify(clip),
+    );
+    check("'Copy image' reports success", label === "✓ Image copied", String(label));
+  }
+
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 } catch (e) {
