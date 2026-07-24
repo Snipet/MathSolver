@@ -7,6 +7,13 @@ per-feature specs are under docs/proposals/.
 
 ### Fixed
 
+- **Console — Cookbook no longer crashes on open.** Expanding the "Session
+  Variables & Notebooks" category (and any recipe that shows a command twice —
+  e.g. a value before and after a redefinition) threw a Svelte
+  `each_key_duplicate` and blanked the panel: the recipe/step lists were keyed
+  by their (non-unique) command text. They're now keyed by position, so
+  repeated commands render fine.
+
 - **Grapher — no more vertical lines through asymptotes.** A curve like `tan(x)`, `1/x`, or `sec(x)` no longer draws a spurious near-vertical connector straight through each pole: the sampler now breaks the polyline where two consecutive samples straddle zero, both sit well off-screen, and the jump dwarfs the visible span — the pen lifts at the asymptote instead. Applies to `y=f(x)` and `x=f(y)`.
 
 ### Added
