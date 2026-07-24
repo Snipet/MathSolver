@@ -351,6 +351,7 @@
     }
 
     drawTrace(ctx, v, w, h, label, bg);
+    drawKbTrace(ctx, v, w, h, label, bg);
     ctx.restore();
   }
 
@@ -548,6 +549,7 @@
     bg: string,
   ): void {
     lastTraceHit = null;
+    if (kbTrace) return; // keyboard trace takes over the marker
     if (!cursor || dragging || pointDrag || labelDrag) return;
     type Hit = { px: number; py: number; x: number; y: number; color: string; label?: string };
 
@@ -611,20 +613,34 @@
 
     const best = poi ?? curve ?? vertex;
     if (!best) return;
-    lastTraceHit = { px: best.px, py: best.py, text: best.label ?? `(${fmtCoord(best.x)}, ${fmtCoord(best.y)})` };
+    const txt = best.label ?? `(${fmtCoord(best.x)}, ${fmtCoord(best.y)})`;
+    lastTraceHit = { px: best.px, py: best.py, text: txt };
+    drawMarker(ctx, best.px, best.py, best.color, txt, w, label, bg);
+  }
+
+  /** Draw a filled trace dot + a pill-backed coordinate label, clamped on-screen. */
+  function drawMarker(
+    ctx: CanvasRenderingContext2D,
+    px: number,
+    py: number,
+    dot: string,
+    txt: string,
+    w: number,
+    label: string,
+    bg: string,
+  ): void {
     ctx.beginPath();
-    ctx.arc(best.px, best.py, 4.5, 0, 2 * Math.PI);
-    ctx.fillStyle = best.color;
+    ctx.arc(px, py, 4.5, 0, 2 * Math.PI);
+    ctx.fillStyle = dot;
     ctx.fill();
     ctx.lineWidth = 2;
     ctx.strokeStyle = bg;
     ctx.stroke();
-    const txt = best.label ?? `(${fmtCoord(best.x)}, ${fmtCoord(best.y)})`;
     ctx.font = "12px " + (cssColor(canvas!, "--font-mono", "") || "monospace");
     const tw = ctx.measureText(txt).width;
-    let lx = best.px + 10;
-    if (lx + tw + 10 > w) lx = best.px - tw - 18;
-    const ly = best.py - 14;
+    let lx = px + 10;
+    if (lx + tw + 10 > w) lx = px - tw - 18;
+    const ly = py - 14;
     ctx.fillStyle = color_mix(bg);
     roundRect(ctx, lx - 5, ly - 12, tw + 12, 20, 5);
     ctx.fill();
@@ -632,6 +648,26 @@
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillText(txt, lx + 1, ly - 1);
+  }
+
+  /** Keyboard trace: a marker at the current world-x on the active curve. */
+  function drawKbTrace(
+    ctx: CanvasRenderingContext2D,
+    v: View,
+    w: number,
+    h: number,
+    label: string,
+    bg: string,
+  ): void {
+    if (!kbTrace) return;
+    const y = traceY(kbTrace.si, kbTrace.x);
+    const s = series[kbTrace.si];
+    if (y === null || !s) return;
+    const px = xToPx(kbTrace.x, v, w);
+    const py = yToPx(y, v, h);
+    const txt = `(${fmtCoord(kbTrace.x)}, ${fmtCoord(y)})`;
+    lastTraceHit = { px, py, text: txt };
+    drawMarker(ctx, px, py, s.color, txt, w, label, bg);
   }
 
   function fmtCoord(v: number): string {
@@ -687,6 +723,11 @@
   // on it can copy the coordinate. Plain (non-reactive) — read on pointerup.
   let lastTraceHit: { px: number; py: number; text: string } | null = null;
   let clickHit: { px: number; py: number; text: string } | null = null; // captured at press
+  // Keyboard trace (accessibility): follow a y=f(x) curve by world-x with the
+  // arrow keys and announce the coordinate via an aria-live region. Tracing by
+  // world-x (not sample index) stays stable when the parent resamples on pan.
+  let kbTrace = $state<{ si: number; x: number } | null>(null);
+  let announce = $state(""); // aria-live text for screen readers
   // Brief "copied (x, y)" confirmation toast.
   let copiedToast = $state<string | null>(null);
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
@@ -960,12 +1001,135 @@
     zoomButton(1.6);
   }
 
+  // --- keyboard trace (accessibility) ---------------------------------------
+  /** Visible, x-monotonic "line" series — the curves traceable by world-x. */
+  function traceableSeries(): number[] {
+    const out: number[] = [];
+    series.forEach((s, i) => {
+      if (s.visible && s.kind === "line" && isXMonotonic(s.xs)) out.push(i);
+    });
+    return out;
+  }
+  function seriesName(si: number, order: number[]): string {
+    const s = series[si];
+    if (s?.tag) return s.tag;
+    return `curve ${order.indexOf(si) + 1}`;
+  }
+  /** y of series `si` at world-x, or null (outside the sampled range / a gap). */
+  function traceY(si: number, x: number): number | null {
+    const s = series[si];
+    if (!s) return null;
+    const y = interpolateAtX(s.xs, s.ys, x);
+    return y !== null && Number.isFinite(y) ? y : null;
+  }
+  function announceTrace(prefix: string): void {
+    if (!kbTrace) return;
+    const y = traceY(kbTrace.si, kbTrace.x);
+    announce =
+      y === null
+        ? `${prefix}x ${fmtCoord(kbTrace.x)}, no value`
+        : `${prefix}x ${fmtCoord(kbTrace.x)}, y ${fmtCoord(y)}`;
+  }
+  /** Pan minimally so world point (x, y) sits inside an 8% screen margin. */
+  function bringIntoView(x: number, y: number): void {
+    const [xlo, xhi] = xRange(view, width);
+    const [ylo, yhi] = yRange(view, H);
+    const mx = (xhi - xlo) * 0.08;
+    const my = (yhi - ylo) * 0.08;
+    let cx = view.cx;
+    let cy = view.cy;
+    if (x < xlo + mx) cx -= xlo + mx - x;
+    else if (x > xhi - mx) cx += x - (xhi - mx);
+    if (y < ylo + my) cy -= ylo + my - y;
+    else if (y > yhi - my) cy += y - (yhi - my);
+    if (cx !== view.cx || cy !== view.cy) view = { ...view, cx, cy };
+  }
+  function startTrace(): void {
+    const order = traceableSeries();
+    if (!order.length) {
+      announce = "no curve to trace";
+      return;
+    }
+    const si = order[0];
+    let x = view.cx; // start at the view center, snapped to where the curve exists
+    if (traceY(si, x) === null) {
+      const s = series[si];
+      for (let i = 0; i < s.xs.length; i++) {
+        const xi = s.xs[i];
+        if (xi !== null && Number.isFinite(xi) && traceY(si, xi) !== null) {
+          x = xi;
+          break;
+        }
+      }
+    }
+    kbTrace = { si, x };
+    const y = traceY(si, x);
+    if (y !== null) bringIntoView(x, y);
+    announceTrace(`tracing ${seriesName(si, order)}. `);
+  }
+  function stopTrace(): void {
+    if (!kbTrace) return;
+    kbTrace = null;
+    announce = "trace off";
+  }
+  function stepTrace(dir: -1 | 1, big: boolean): void {
+    if (!kbTrace) return;
+    const [xlo, xhi] = xRange(view, width);
+    const x = kbTrace.x + dir * (xhi - xlo) * (big ? 0.1 : 0.02);
+    kbTrace = { si: kbTrace.si, x };
+    const y = traceY(kbTrace.si, x);
+    if (y !== null) bringIntoView(x, y);
+    announceTrace("");
+  }
+  function cycleSeries(dir: -1 | 1): void {
+    if (!kbTrace) return;
+    const order = traceableSeries();
+    if (order.length < 2) return;
+    const si = order[(order.indexOf(kbTrace.si) + dir + order.length) % order.length];
+    kbTrace = { si, x: kbTrace.x };
+    const y = traceY(si, kbTrace.x);
+    if (y !== null) bringIntoView(kbTrace.x, y);
+    announceTrace(`tracing ${seriesName(si, order)}. `);
+  }
+
   // Keyboard navigation (Desmos-style) when the graph paper is focused: arrows
-  // pan, +/- zoom about the center, 0/Home reset. We only preventDefault for
-  // keys we actually handle, so Tab still moves focus out of the graph and
-  // browser shortcuts (Ctrl/Cmd/Alt combos) are left alone.
+  // pan, +/- zoom about the center, 0/Home reset. `t` toggles a keyboard trace
+  // where the arrows walk a curve and the coordinate is announced. We only
+  // preventDefault for keys we handle, so Tab still moves focus out of the
+  // graph and browser shortcuts (Ctrl/Cmd/Alt combos) are left alone.
   function onKeyDown(e: KeyboardEvent): void {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "t" || e.key === "T") {
+      if (kbTrace) stopTrace();
+      else startTrace();
+      e.preventDefault();
+      return;
+    }
+    if (kbTrace) {
+      // While tracing, the arrows walk the curve instead of panning.
+      switch (e.key) {
+        case "ArrowLeft":
+          stepTrace(-1, e.shiftKey);
+          e.preventDefault();
+          return;
+        case "ArrowRight":
+          stepTrace(1, e.shiftKey);
+          e.preventDefault();
+          return;
+        case "ArrowUp":
+          cycleSeries(-1);
+          e.preventDefault();
+          return;
+        case "ArrowDown":
+          cycleSeries(1);
+          e.preventDefault();
+          return;
+        case "Escape":
+          stopTrace();
+          e.preventDefault();
+          return;
+      }
+    }
     const next = viewForKey(view, e.key, width, H, { shift: e.shiftKey });
     if (!next) return; // leave unrecognised keys (Tab, etc.) to the browser
     view = next;
@@ -981,6 +1145,10 @@
   }
 
   const readout = $derived.by(() => {
+    if (kbTrace) {
+      const y = traceY(kbTrace.si, kbTrace.x);
+      return y === null ? null : { x: kbTrace.x, y };
+    }
     if (!cursor || dragging || pointDrag || labelDrag) return null;
     return { x: pxToX(cursor.x, view, width), y: pxToY(cursor.y, view, H) };
   });
@@ -991,7 +1159,7 @@
     bind:this={canvas}
     tabindex="0"
     style:cursor={cursorStyle}
-    aria-label="Interactive graph — drag or arrow keys to pan, scroll or +/- to zoom, 0 to reset, drag points to move them, click a traced point to copy its coordinate"
+    aria-label="Interactive graph — drag or arrow keys to pan, scroll or +/- to zoom, 0 to reset, drag points to move them, click a traced point to copy its coordinate. Press T then the left/right arrows to trace a curve and hear its coordinates; up/down switch curves; Escape ends the trace."
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
@@ -1022,6 +1190,9 @@
   {#if copiedToast}
     <div class="copied-toast" role="status">✓ copied {copiedToast}</div>
   {/if}
+
+  <!-- Keyboard-trace announcements for assistive tech (visually hidden). -->
+  <div class="sr-only" aria-live="polite" role="status">{announce}</div>
 </div>
 
 <style>
@@ -1085,6 +1256,17 @@
   }
   .zoom .home svg {
     display: block;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
   .readout {
     position: absolute;

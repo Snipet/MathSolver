@@ -30,6 +30,15 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — keyboard trace with spoken coordinates (accessibility).** Focus
+  the graph and press **T** to start a trace: the **left/right arrows** walk a
+  `y = f(x)` curve and each coordinate is announced through an `aria-live`
+  region, so screen-reader and keyboard-only users can read a curve's values
+  without a mouse. **Up/down** switch between curves, **Escape** (or T again)
+  ends the trace, and the view scrolls to keep the traced point on screen.
+  Tracing rides world-x, so it stays put as the plot resamples on pan/zoom;
+  outside the trace, the arrows pan as before.
+
 - **Console — `vandermonde` matrix of a node list.** `vandermonde x1, x2, …`
   builds the square Vandermonde matrix whose row *i* is `(1, xᵢ, xᵢ², …)` —
   the coefficient matrix of the polynomial-interpolation system `interp`
