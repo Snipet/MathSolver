@@ -296,6 +296,20 @@ TEST_CASE("cli: primorial") {
     CHECK(run_cli({"primorial", "53"}).exit_code != 0);
 }
 
+TEST_CASE("cli: motzkin numbers") {
+    const RunResult m6 = run_cli({"motzkin", "6"});
+    CHECK(m6.exit_code == 0);
+    CHECK(contains(m6.output, "51"));
+
+    const RunResult m20 = run_cli({"motzkin", "20"});
+    CHECK(m20.exit_code == 0);
+    CHECK(contains(m20.output, "50852019"));
+
+    // Negative arg is a usage error; M(45) overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"motzkin", "-1"}).exit_code == 2);
+    CHECK(run_cli({"motzkin", "45"}).exit_code != 0);
+}
+
 TEST_CASE("cli: trigexpand of sums and multiples") {
     const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
     INFO(sum.output);

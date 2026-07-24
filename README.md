@@ -677,8 +677,9 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   set partitions into k blocks), the Bell numbers `bell` (total set
   partitions), the derangement counts `derangement` (subfactorial !n,
   permutations with no fixed point), the Lucas numbers `lucas`
-  (companion to Fibonacci), and the primorial `primorial` (n#, the product
-  of primes ≤ n) — all exact, factoring via trial division + Pollard's rho:
+  (companion to Fibonacci), the primorial `primorial` (n#, the product
+  of primes ≤ n), and the Motzkin numbers `motzkin` (non-crossing chords) —
+  all exact, factoring via trial division + Pollard's rho:
 
   ```console
   $ mathsolver factor 360
@@ -707,6 +708,8 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   123
   $ mathsolver primorial 13
   30030
+  $ mathsolver motzkin 10
+  2188
   ```
 - **Modular arithmetic** — `mod`, `powmod` (modular exponentiation that
   handles huge exponents no plain evaluation could), `modinv` (modular

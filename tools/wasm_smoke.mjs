@@ -177,6 +177,12 @@ check("primorial 13#", ms.primorial("13"), (r) => r.ok && r.plain === "30030", "
 check("primorial 10# = 7#", ms.primorial("10"), (r) => r.ok && r.plain === "210", "no prime in (7,10]");
 check("primorial error negative", ms.primorial("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
 check("primorial error overflow", ms.primorial("53"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+// motzkin numbers M(n)
+check("motzkin M(6)", ms.motzkin("6"), (r) => r.ok && r.plain === "51", "M(6)=51");
+check("motzkin M(10)", ms.motzkin("10"), (r) => r.ok && r.plain === "2188", "M(10)=2188");
+check("motzkin M(20)", ms.motzkin("20"), (r) => r.ok && r.plain === "50852019", "M(20)");
+check("motzkin error negative", ms.motzkin("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("motzkin error overflow", ms.motzkin("45"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

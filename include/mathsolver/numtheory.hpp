@@ -91,6 +91,12 @@ long long lucas_number(long long n);
 /// the largest that fits, 53# overflows).
 long long primorial(long long n);
 
+/// The n-th Motzkin number M(n) for n >= 0: the number of ways to draw
+/// non-crossing chords between n points on a circle. M(0) = M(1) = 1, built by
+/// the exact recurrence (n+2)·M(n) = (2n+1)·M(n-1) + 3(n-1)·M(n-2); throws
+/// OverflowError past the 64-bit range (M(44) is the largest that fits).
+long long motzkin_number(long long n);
+
 /// Euclidean remainder: the r with 0 <= r < |m| and a == r (mod m). m = 0
 /// throws DivisionByZeroError.
 long long int_mod(long long a, long long m);
