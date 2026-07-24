@@ -10,6 +10,7 @@
 #include "mathsolver/derivative.hpp"
 #include "mathsolver/errors.hpp"
 #include "mathsolver/expr.hpp"
+#include "mathsolver/integrate.hpp"
 #include "mathsolver/printer.hpp"
 #include "mathsolver/rational.hpp"
 #include "mathsolver/simplify.hpp"
@@ -188,7 +189,90 @@ Expr rec(const Expr& e, std::string_view sym, std::vector<ExplainStep>& steps) {
     return make_num(0);
 }
 
+// ---------------------------------------------------------------------------
+// Integral steps (§8b): mirror the integrator's outermost structural choices
+// (linearity over a sum, pulling constant factors out) and let the real
+// `integrate` solve each leaf, tagging the step with the method it reports.
+// The recorder never changes the answer — every leaf is the engine's own.
+// ---------------------------------------------------------------------------
+
+/// Push a step "∫(before) d<sym> = <after>" in both renderings.
+void record_int(std::vector<ExplainStep>& steps, std::string rule, std::string_view sym,
+                const Expr& integrand, const Expr& anti) {
+    ExplainStep s;
+    s.rule = std::move(rule);
+    s.plain = std::format("∫ {1} d{0} = {2}", sym, to_string(integrand, PrintStyle::Plain),
+                          to_string(anti, PrintStyle::Plain));
+    s.latex = std::format("\\int {1}\\, d{0} = {2}", sym, to_string(integrand, PrintStyle::LaTeX),
+                          to_string(anti, PrintStyle::LaTeX));
+    steps.push_back(std::move(s));
+}
+
+/// The engine's antiderivative of `e` d`sym`, or throw when it has no
+/// elementary form — mirroring how the plain verb reports Unsolved.
+Expr must_integrate(const Expr& e, const std::string& sym, std::string* method) {
+    const IntegrateResult r = integrate(e, sym);
+    if (r.status != IntegrateResult::Status::Integrated) {
+        throw Error("steps: this integral has no elementary antiderivative");
+    }
+    if (method) *method = r.method;
+    return r.antiderivative;
+}
+
+/// Record steps for ∫ e d`sym`, innermost-first. Sums split by linearity and
+/// constant factors peel off; each remaining leaf is solved by `integrate` and
+/// labelled with its reported method. Throws when any piece is not integrable.
+void rec_integral(const Expr& e_in, const std::string& sym,
+                  std::vector<ExplainStep>& steps) {
+    const Expr e = simplify(e_in);
+
+    // ∫ c d<sym> = c*<sym> for a symbol-free integrand.
+    if (!contains_symbol(e, sym)) {
+        record_int(steps, "constant rule", sym, e,
+                   simplify(make_mul({e, make_sym(std::string(sym))})));
+        return;
+    }
+
+    // Linearity: ∫(f + g + ...) = ∫f + ∫g + ... — record each term, then the sum.
+    if (e->kind() == Kind::Add) {
+        for (const Expr& term : e->args()) rec_integral(term, sym, steps);
+        record_int(steps, "linearity", sym, e, must_integrate(e, sym, nullptr));
+        return;
+    }
+
+    // Constant multiple: ∫ c*f = c ∫ f — peel every symbol-free factor out.
+    if (e->kind() == Kind::Mul) {
+        std::vector<Expr> free_part;
+        std::vector<Expr> dep_part;
+        for (const Expr& f : e->args())
+            (contains_symbol(f, sym) ? dep_part : free_part).push_back(f);
+        if (!free_part.empty() && !dep_part.empty()) {
+            rec_integral(make_mul(std::move(dep_part)), sym, steps);
+            record_int(steps, "constant multiple", sym, e, must_integrate(e, sym, nullptr));
+            return;
+        }
+    }
+
+    // Leaf: the engine integrates it and names the technique it used.
+    std::string method;
+    const Expr anti = must_integrate(e, sym, &method);
+    record_int(steps, method.empty() ? "table" : method, sym, e, anti);
+}
+
 } // namespace
+
+Explanation explain_integral(const Expr& e, std::string_view symbol) {
+    const std::string sym(symbol);
+    // The verified whole-integral answer (throws if there is no elementary form).
+    const Expr F = must_integrate(e, sym, nullptr);
+    std::vector<ExplainStep> steps;
+    rec_integral(e, sym, steps);
+    Explanation ex;
+    ex.steps = std::move(steps);
+    ex.result_plain = to_string(F, PrintStyle::Plain);
+    ex.result_latex = to_string(F, PrintStyle::LaTeX);
+    return ex;
+}
 
 Explanation explain_derivative(const Expr& e, std::string_view symbol) {
     std::vector<ExplainStep> steps;

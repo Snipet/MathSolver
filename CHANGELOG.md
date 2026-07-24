@@ -56,6 +56,20 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **`steps integrate` — worked, rule-by-rule integrals.** The `steps` verb now
+  works integrals too: `steps integrate <expr>[, <var>]` shows the
+  antiderivative the way it's built — linearity splits a sum into a step per
+  term, a constant factor peels off (`∫ 3·x² dx = 3 ∫ x² dx`), and each leaf
+  integral is tagged with the technique the engine actually used (table, power
+  rule, u-substitution, integration by parts, partial fractions, …), innermost
+  first, closing on the answer (`+ C`). The result always matches plain
+  `integrate`. The `steps` verb takes an optional leading operation word —
+  `steps <expr>` (or `steps diff <expr>`) still works the derivative; `steps
+  integrate <expr>` works the integral. Second phase of the step-by-step
+  feature (docs/proposals/step-by-step.md); CLI now, console next. A
+  non-elementary integrand (e.g. `e^(x^2)`) reports no elementary form, exactly
+  as the plain verb does.
+
 - **`steps` — worked, rule-by-rule derivatives.** `steps <expr>[, <var>]`
   shows the derivative as a student would work it: one numbered line per rule
   applied (power, product, chain, exponential, sum, …), innermost first, then

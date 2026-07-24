@@ -31,4 +31,14 @@ struct Explanation {
 /// Throws the same errors as `differentiate` for non-differentiable inputs.
 Explanation explain_derivative(const Expr& e, std::string_view symbol);
 
+/// Worked steps for the indefinite integral of `e` d(symbol): mirrors the
+/// integrator's outermost structural decisions — linearity over a sum, pulling
+/// constant factors out — recording one step per node (innermost-first). Each
+/// leaf integral is solved by the real `integrate` and tagged with the method
+/// it reports (table, power rule, u-substitution, integration by parts, partial
+/// fractions, ...). `result_*` is the verified antiderivative (the implicit
+/// "+ C" is not shown). Throws `Error` when the integral has no elementary
+/// antiderivative, exactly as the plain verb reports Unsolved.
+Explanation explain_integral(const Expr& e, std::string_view symbol);
+
 } // namespace mathsolver
