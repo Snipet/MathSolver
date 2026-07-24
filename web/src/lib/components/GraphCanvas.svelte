@@ -30,23 +30,29 @@
     series?: DrawSeries[];
     /** Draggable point handles, keyed by points-series id (aligned with xs/ys). */
     handles?: Record<string, PointHandle[]>;
+    /** Per-row label pixel offsets (from dragging), keyed by String(rowId). */
+    labelOffsets?: Record<string, { dx: number; dy: number }>;
     /** Console/compact mode uses a shorter graph. */
     height?: number;
     onPointDragStart?: () => void;
     onPointDrag?: (rowId: number, coordIndex: number, wx: number, wy: number) => void;
     onPointCommit?: (rowId: number, coordIndex: number, wx: number, wy: number) => void;
     onPointDragCancel?: () => void;
+    /** Commit a dragged label's new pixel offset. */
+    onLabelMove?: (rowId: number, dx: number, dy: number) => void;
   }
 
   let {
     view = $bindable(),
     series = [],
     handles = {},
+    labelOffsets = {},
     height = 0,
     onPointDragStart,
     onPointDrag,
     onPointCommit,
     onPointDragCancel,
+    onLabelMove,
   }: Props = $props();
 
   let host: HTMLDivElement | undefined = $state();
@@ -96,6 +102,8 @@
     void dragging; // redraw the trace when a drag ends
     void pointDrag; // and while dragging a point
     void ghost;
+    void labelDrag; // redraw the moving label live
+    void labelOffsets; // and when a committed offset changes
     const c = canvas;
     const w = width;
     const h = H;
@@ -309,9 +317,17 @@
     }
 
     // Row labels ("tags"): user-set text drawn at each point (point rows) or at
-    // the last on-screen sample of a curve (function rows).
+    // the last on-screen sample of a curve (function rows), shifted by the row's
+    // drag offset. Each drawn rect is recorded so the label can be grabbed.
+    labelHits = [];
     for (const s of series) {
       if (!s.visible || !s.tag) continue;
+      const rowId = Number(s.id);
+      // The active drag shows its live offset; otherwise use the stored one.
+      const off =
+        labelDrag && labelDrag.rowId === rowId
+          ? { dx: labelDrag.curDx, dy: labelDrag.curDy }
+          : labelOffsets[s.id] ?? { dx: 0, dy: 0 };
       const ok = (i: number) => {
         const x = s.xs[i];
         const y = s.ys[i];
@@ -320,7 +336,7 @@
       if (s.kind === "points") {
         for (let i = 0; i < s.xs.length; i++) {
           if (!ok(i)) continue;
-          drawTag(ctx, xToPx(s.xs[i] as number, v, w) + 8, yToPx(s.ys[i] as number, v, h) - 9, s.tag, s.color, bg);
+          drawTag(ctx, xToPx(s.xs[i] as number, v, w) + 8 + off.dx, yToPx(s.ys[i] as number, v, h) - 9 + off.dy, s.tag, s.color, bg, rowId);
         }
       } else if (s.kind === "line") {
         let ai = -1;
@@ -330,7 +346,7 @@
           const py = yToPx(s.ys[i] as number, v, h);
           if (px >= 0 && px <= w && py >= 0 && py <= h) ai = i;
         }
-        if (ai >= 0) drawTag(ctx, xToPx(s.xs[ai] as number, v, w) + 6, yToPx(s.ys[ai] as number, v, h) - 9, s.tag, s.color, bg);
+        if (ai >= 0) drawTag(ctx, xToPx(s.xs[ai] as number, v, w) + 6 + off.dx, yToPx(s.ys[ai] as number, v, h) - 9 + off.dy, s.tag, s.color, bg, rowId);
       }
     }
 
@@ -338,7 +354,8 @@
     ctx.restore();
   }
 
-  // A small pill-backed text label in the series color, clamped on-screen.
+  // A small pill-backed text label in the series color, clamped on-screen. The
+  // drawn rect is recorded (with its rowId) so the label can be grabbed + moved.
   function drawTag(
     ctx: CanvasRenderingContext2D,
     px: number,
@@ -346,6 +363,7 @@
     text: string,
     color: string,
     bg: string,
+    rowId: number,
   ): void {
     ctx.font = "12px " + (cssColor(canvas!, "--font-sans", "") || "system-ui, sans-serif");
     ctx.textAlign = "left";
@@ -361,6 +379,16 @@
     ctx.globalAlpha = 1;
     ctx.fillStyle = color;
     ctx.fillText(text, x + 1, y);
+    labelHits.push({ rowId, x0: x - 3, y0: y - 9, x1: x - 3 + tw + 8, y1: y - 9 + 18 });
+  }
+
+  // The rowId of the topmost label whose rect contains p, or null.
+  function hitLabel(p: { x: number; y: number }): number | null {
+    for (let i = labelHits.length - 1; i >= 0; i--) {
+      const r = labelHits[i];
+      if (p.x >= r.x0 && p.x <= r.x1 && p.y >= r.y0 && p.y <= r.y1) return r.rowId;
+    }
+    return null;
   }
 
   function drawPointDot(
@@ -519,7 +547,7 @@
     label: string,
     bg: string,
   ): void {
-    if (!cursor || dragging || pointDrag) return;
+    if (!cursor || dragging || pointDrag || labelDrag) return;
     type Hit = { px: number; py: number; x: number; y: number; color: string; label?: string };
 
     // 1) Points of interest snap to the nearest marker (exact coordinate label).
@@ -663,8 +691,25 @@
   let ghost = $state<null | { sid: string; ci: number; x: number; y: number }>(null);
   let grabMoved = false;
   let hoverPoint = $state(false); // cursor hint: hovering a draggable point
+
+  // Draggable row labels ("tags"): each drawn label's on-screen rect (populated
+  // during the tag pass, most-recent last), and the active drag — a live pixel
+  // offset shown immediately and committed to the store once on release.
+  let labelHits: { rowId: number; x0: number; y0: number; x1: number; y1: number }[] = [];
+  let labelDrag = $state<null | {
+    rowId: number;
+    startDx: number;
+    startDy: number;
+    curDx: number;
+    curDy: number;
+    startX: number;
+    startY: number;
+    pointerId: number;
+  }>(null);
+  let hoverLabel = $state(false); // cursor hint: hovering a draggable label
+
   const cursorStyle = $derived(
-    pointDrag || dragging ? "grabbing" : hoverPoint ? "grab" : "crosshair",
+    pointDrag || labelDrag || dragging ? "grabbing" : hoverPoint || hoverLabel ? "grab" : "crosshair",
   );
 
   function localXY(e: PointerEvent): { x: number; y: number } {
@@ -738,7 +783,7 @@
   function onPointerDown(e: PointerEvent): void {
     canvas!.setPointerCapture(e.pointerId);
     const p = localXY(e);
-    if (pointDrag) return; // ignore extra fingers while dragging a point
+    if (pointDrag || labelDrag) return; // ignore extra fingers mid-drag
     pointers.set(e.pointerId, p);
     if (pointers.size === 1) {
       const hit = hitPoint(p);
@@ -753,6 +798,22 @@
           return; // do NOT arm pan
         }
       }
+      // A row label under the cursor starts a label drag (grabs its offset).
+      const labelRow = hitLabel(p);
+      if (labelRow !== null) {
+        const off = labelOffsets[String(labelRow)] ?? { dx: 0, dy: 0 };
+        labelDrag = {
+          rowId: labelRow,
+          startDx: off.dx,
+          startDy: off.dy,
+          curDx: off.dx,
+          curDy: off.dy,
+          startX: p.x,
+          startY: p.y,
+          pointerId: e.pointerId,
+        };
+        return; // do NOT arm pan
+      }
       dragging = true;
       lastX = p.x;
       lastY = p.y;
@@ -763,11 +824,21 @@
   }
 
   function onPointerMove(e: PointerEvent): void {
-    // While dragging a point, ignore every other pointer's moves.
+    // While dragging a point or label, ignore every other pointer's moves.
     if (pointDrag && e.pointerId !== pointDrag.pointerId) return;
+    if (labelDrag && e.pointerId !== labelDrag.pointerId) return;
     const p = localXY(e);
     if (pointers.has(e.pointerId)) pointers.set(e.pointerId, p);
     cursor = { x: p.x, y: p.y };
+
+    if (labelDrag) {
+      labelDrag = {
+        ...labelDrag,
+        curDx: labelDrag.startDx + (p.x - labelDrag.startX),
+        curDy: labelDrag.startDy + (p.y - labelDrag.startY),
+      };
+      return;
+    }
 
     if (pointDrag) {
       const h = pointDrag.h;
@@ -797,6 +868,7 @@
     }
     if (!dragging) {
       hoverPoint = !!hitPoint(p); // grab-cursor hint when over a draggable point
+      hoverLabel = !hoverPoint && hitLabel(p) !== null; // or over a draggable label
       return;
     }
     view = panned(view, p.x - lastX, p.y - lastY);
@@ -809,6 +881,11 @@
     // Only the pointer that started the drag can finish it — a stray second
     // finger lifting must not commit/cancel the gesture.
     if (pointDrag && pointDrag.pointerId === e.pointerId) finishPointDrag(e.type === "pointercancel");
+    if (labelDrag && labelDrag.pointerId === e.pointerId) {
+      // Commit the label's final offset once (a cancel keeps the live value).
+      onLabelMove?.(labelDrag.rowId, labelDrag.curDx, labelDrag.curDy);
+      labelDrag = null;
+    }
     if (pointers.size < 2) pinchDist = 0;
     if (pointers.size === 1) {
       // Lifting one finger of a pinch: reseat the pan anchor to the remaining
@@ -856,7 +933,7 @@
   }
 
   const readout = $derived.by(() => {
-    if (!cursor || dragging || pointDrag) return null;
+    if (!cursor || dragging || pointDrag || labelDrag) return null;
     return { x: pxToX(cursor.x, view, width), y: pxToY(cursor.y, view, H) };
   });
 </script>
