@@ -44,6 +44,7 @@ else()
 endif()
 
 add_library(mathsolver_core STATIC
+    src/bigint.cpp
     src/rational.cpp
     src/expr.cpp
     src/parser.cpp

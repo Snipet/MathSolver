@@ -11,6 +11,7 @@ include(Catch)
 
 add_executable(mathsolver_tests
     test_smoke.cpp
+    test_bigint.cpp
     test_rational.cpp
     test_expr.cpp
     test_parser.cpp
