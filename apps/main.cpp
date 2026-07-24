@@ -9,10 +9,11 @@
 //
 // The REPL additionally keeps a session environment of `name := value`
 // assignments (docs/proposals/variable-assignment.md; contract condensed in
-// DESIGN.md §10). The environment is pure application state: the engine and
-// the one-shot subcommands know nothing about it, and applying it means
-// composing the existing substitute() primitive over each computing verb's
-// input.
+// DESIGN.md §10). The environment is not part of the engine: it lives in the
+// script layer (include/mathsolver/script/, DESIGN.md §13), which links the
+// engine and is never linked back. Applying it means composing the existing
+// substitute() primitive over each computing verb's input, so the one-shot
+// subcommands stay stateless by construction.
 
 #include <algorithm>
 #include <cctype>
@@ -28,10 +29,12 @@
 #include <vector>
 
 #include "mathsolver/mathsolver.hpp"
+#include "mathsolver/script/script.hpp"
 
 namespace {
 
 using namespace mathsolver;
+using namespace mathsolver::script;
 
 constexpr int k_exit_ok = 0;
 constexpr int k_exit_error = 1;  // parse/math errors
@@ -41,10 +44,9 @@ constexpr int k_exit_usage = 2;  // usage errors
 // Small helpers
 // ---------------------------------------------------------------------------
 
-/// Usage problem (bad flags, malformed bindings, ambiguous variable, ...).
-struct UsageError {
-    std::string message;
-};
+// UsageError (bad flags, malformed bindings, ambiguous variable, ...) and
+// trim() come from the script layer, which both this CLI and every other
+// surface share.
 
 /// A ParseError together with the exact source string it points into, so the
 /// caret diagnostic can be rendered at any catch site.
@@ -52,18 +54,6 @@ struct DiagnosedParseError {
     std::string source;
     ParseError error;
 };
-
-std::string trim(std::string_view s) {
-    std::size_t b = 0;
-    std::size_t e = s.size();
-    while (b < e && std::isspace(static_cast<unsigned char>(s[b])) != 0) {
-        ++b;
-    }
-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1])) != 0) {
-        --e;
-    }
-    return std::string(s.substr(b, e - b));
-}
 
 /// Render the §4 caret diagnostic:
 ///     error: unknown command '\fraq'
@@ -234,11 +224,7 @@ std::string choose_variable(const std::string& explicit_var,
         what, symbols.size(), list)};
 }
 
-std::set<std::string> equation_symbols(const Equation& eq) {
-    std::set<std::string> syms = free_symbols(eq.lhs);
-    syms.merge(free_symbols(eq.rhs));
-    return syms;
-}
+// equation_symbols() comes from the script layer (script/value.hpp).
 
 // ---------------------------------------------------------------------------
 // Command implementations (shared between one-shot mode and the REPL)
@@ -2246,7 +2232,7 @@ int run_one_shot(const std::vector<std::string>& args) {
         return k_exit_ok;
     } catch (const UsageError& e) {
         std::fflush(stdout);
-        std::println(stderr, "usage error: {}", e.message);
+        std::println(stderr, "usage error: {}", e.message());
         return k_exit_usage;
     } catch (const DiagnosedParseError& e) {
         std::fflush(stdout);
@@ -2384,284 +2370,41 @@ bool is_repl_command(std::string_view word) {
 // ---------------------------------------------------------------------------
 // Session environment (variable assignment): `name := value` bindings,
 // REPL-only. Spec: docs/proposals/variable-assignment.md; condensed contract
-// in DESIGN.md §10. Values are stored as parsed ASTs and resolve lazily at
-// each use (§5 of the spec); the dependency graph over defined names is kept
-// acyclic at definition time (§5.2).
+// in DESIGN.md §10.
+//
+// The environment itself — Binding, Environment, binding_text(), the §5
+// resolve() ordering, the §2.3 target validation — lives in the script layer
+// (include/mathsolver/script/environment.hpp), which every surface shares.
+// What stays here is only the CLI's use of it: the free functions below give
+// the ~60 existing call sites their familiar spelling, and each is a
+// one-liner onto the library so there is nowhere for a second implementation
+// to grow back.
 // ---------------------------------------------------------------------------
 
-struct Binding {
-    std::string name;
-    std::variant<Expr, Equation> value;
-};
-
-/// Insertion-ordered so `vars` lists in definition order; lookups are linear
-/// over a handful of entries.
-using Environment = std::vector<Binding>;
-
 const Binding* find_binding(const Environment& env, std::string_view name) {
-    for (const Binding& b : env) {
-        if (b.name == name) {
-            return &b;
-        }
-    }
-    return nullptr;
-}
-
-std::set<std::string> binding_free_symbols(const Binding& b) {
-    if (const Expr* e = std::get_if<Expr>(&b.value)) {
-        return free_symbols(*e);
-    }
-    return equation_symbols(std::get<Equation>(b.value));
-}
-
-/// Canonical plain print of a binding: `a := 2`, `E_1 := x + y = 3`. The
-/// name goes through the printer so it echoes in its re-parseable spelling
-/// (`x_{max}`, not the bare symbol name `x_max`).
-std::string binding_text(const Binding& b) {
-    const std::string name = to_string(make_sym(b.name), PrintStyle::Plain);
-    if (const Expr* e = std::get_if<Expr>(&b.value)) {
-        return std::format("{} := {}", name, to_string(*e, PrintStyle::Plain));
-    }
-    return std::format("{} := {}", name,
-                       to_string(std::get<Equation>(b.value), PrintStyle::Plain));
-}
-
-/// The §5 resolve() ordering: the environment entries reachable from `roots`
-/// through bound values (transitively), minus `excluded`, ordered
-/// parents-first — a binding precedes every binding its value references —
-/// so one sequential substitute() pass fully resolves chains and the result
-/// is independent of definition order. A name bound to an Equation can never
-/// be substituted into an expression; reaching one here is the §4 placement
-/// error.
-std::vector<const Binding*> active_bindings(const std::set<std::string>& roots,
-                                            const Environment& env,
-                                            const std::set<std::string>& excluded) {
-    std::vector<const Binding*> active;
-    std::set<std::string> seen;
-    std::vector<std::string> frontier(roots.begin(), roots.end());
-    while (!frontier.empty()) {
-        const std::string name = std::move(frontier.back());
-        frontier.pop_back();
-        if (excluded.contains(name) || !seen.insert(name).second) {
-            continue;
-        }
-        const Binding* b = find_binding(env, name);
-        if (b == nullptr) {
-            continue;
-        }
-        if (std::holds_alternative<Equation>(b->value)) {
-            throw UsageError{std::format(
-                "'{}' names an equation and cannot be used inside an expression",
-                name)};
-        }
-        active.push_back(b);
-        for (const std::string& s : free_symbols(std::get<Expr>(b->value))) {
-            frontier.push_back(s);
-        }
-    }
-
-    // Parents-first topological order (DFS post-order, reversed). The
-    // definition-time cycle check keeps the graph acyclic; the visiting set
-    // and the depth bound are belt-and-braces only. The bound is the active
-    // set's size — a simple path cannot visit more bindings than exist — so
-    // it can never fire on legal acyclic input, however deep the chain
-    // (a fixed constant here once misdiagnosed a 66-deep chain as a cycle).
-    std::vector<const Binding*> ordered;
-    std::set<std::string> done;
-    std::set<std::string> visiting;
-    const int max_depth = static_cast<int>(active.size());
-    auto visit = [&](auto&& self, const Binding* b, int depth) -> void {
-        if (depth > max_depth || visiting.contains(b->name)) {
-            throw Error{"internal error: assignment cycle detected"};
-        }
-        if (done.contains(b->name)) {
-            return;
-        }
-        visiting.insert(b->name);
-        for (const Binding* dep : active) {
-            if (dep != b && contains_symbol(std::get<Expr>(b->value), dep->name)) {
-                self(self, dep, depth + 1);
-            }
-        }
-        visiting.erase(b->name);
-        done.insert(b->name);
-        ordered.push_back(b);
-    };
-    for (const Binding* b : active) {
-        visit(visit, b, 0);
-    }
-    std::reverse(ordered.begin(), ordered.end());
-    return ordered;
+    return env.find(name);
 }
 
 Expr resolve_expr(const Expr& e, const Environment& env,
                   const std::set<std::string>& excluded = {}) {
-    Expr r = e;
-    for (const Binding* b : active_bindings(free_symbols(e), env, excluded)) {
-        r = substitute(r, b->name, std::get<Expr>(b->value));
-    }
-    return r;
+    return env.resolve(e, excluded);
 }
 
 Equation resolve_equation(const Equation& eq, const Environment& env,
                           const std::set<std::string>& excluded = {}) {
-    Equation r = eq;
-    for (const Binding* b : active_bindings(equation_symbols(eq), env, excluded)) {
-        const Expr& v = std::get<Expr>(b->value);
-        r.lhs = substitute(r.lhs, b->name, v);
-        r.rhs = substitute(r.rhs, b->name, v);
-    }
-    return r;
+    return env.resolve(eq, excluded);
 }
 
 /// Resolve a whole parsed input to plain text (round-trip-guaranteed), ready
 /// to feed an existing run_* verb.
 std::string resolve_input_text(const std::string& input, const Environment& env,
                                const std::set<std::string>& excluded = {}) {
-    const auto parsed = parse_input_diag(input);
-    if (const Expr* e = std::get_if<Expr>(&parsed)) {
-        return to_string(resolve_expr(*e, env, excluded), PrintStyle::Plain);
-    }
-    return to_string(resolve_equation(std::get<Equation>(parsed), env, excluded),
-                     PrintStyle::Plain);
-}
-
-constexpr std::string_view k_assign_target_error =
-    "assignment target must be a single variable name (e.g. x, alpha, E_1)";
-
-/// Names the lexer reads as functions (docs/GRAMMAR.md): never assignable.
-bool is_function_word(std::string_view s) {
-    static constexpr std::string_view names[] = {
-        "sin",  "cos",  "tan", "asin", "acos", "atan", "arcsin",
-        "arccos", "arctan", "sinh", "cosh", "tanh", "sec", "csc",
-        "cot",  "exp",  "ln",  "log",  "sqrt", "abs"};
-    return std::ranges::find(names, s) != std::ranges::end(names);
-}
-
-/// `x_{max}` and `\alpha` lex to the symbols x_max / alpha; normalize the
-/// typed target so it can be compared against the parsed symbol's name.
-std::string normalize_target_text(std::string_view s) {
-    std::string out{s};
-    if (!out.empty() && out.front() == '\\') {
-        out.erase(0, 1);
-    }
-    const std::size_t sub = out.find("_{");
-    if (sub != std::string::npos && !out.empty() && out.back() == '}') {
-        out = out.substr(0, sub + 1) + out.substr(sub + 2, out.size() - sub - 3);
-    }
-    return out;
-}
-
-/// Validate the left side of `name := value` (spec §2.3) and return the
-/// canonical symbol name it binds.
-std::string validate_assignment_target(const std::string& target) {
-    if (is_function_word(target)) {
-        throw UsageError{
-            std::format("cannot assign to the function name '{}'", target)};
-    }
-    Expr parsed;
-    try {
-        parsed = parse_expression(target);
-    } catch (const ParseError&) {
-        parsed = nullptr;
-    }
-    const std::string normalized = normalize_target_text(target);
-    if (parsed && parsed->kind() == Kind::Constant &&
-        (normalized == "pi" || normalized == "e")) {
-        throw UsageError{std::format("cannot assign to the constant '{}'", target)};
-    }
-    if (parsed && parsed->kind() == Kind::Symbol &&
-        parsed->symbol_name() == normalized) {
-        return normalized;
-    }
-
-    // 'E1' lexes as E*1 — suggest the subscript spelling.
-    std::size_t letters_end = 0;
-    while (letters_end < target.size() &&
-           std::isalpha(static_cast<unsigned char>(target[letters_end])) != 0) {
-        ++letters_end;
-    }
-    const std::string letters = target.substr(0, letters_end);
-    const std::string digits = target.substr(letters_end);
-    const bool all_digits =
-        !digits.empty() && std::ranges::all_of(digits, [](char c) {
-            return std::isdigit(static_cast<unsigned char>(c)) != 0;
-        });
-    if (!letters.empty() && all_digits) {
-        Expr letter_expr;
-        try {
-            letter_expr = parse_expression(letters);
-        } catch (const ParseError&) {
-            letter_expr = nullptr;
-        }
-        if (letter_expr && letter_expr->kind() == Kind::Symbol &&
-            letter_expr->symbol_name() == letters) {
-            throw UsageError{std::format(
-                "{} — '{}' reads as {}*{}; did you mean {}_{}?",
-                k_assign_target_error, target, letters, digits, letters, digits)};
-        }
-    }
-    if (!parsed) {
-        // A multi-letter word (the v0.4 word guard) or any other lex error:
-        // reuse the guard's rule text plus assignment-specific guidance
-        // (spec §6).
-        throw UsageError{std::format(
-            "{} — variables are single letters (a-z), Greek names, or "
-            "subscripted (v_1); assignment targets follow the same rule — try "
-            "a subscripted name like s_max := 5",
-            k_assign_target_error)};
-    }
-    throw UsageError{std::string{k_assign_target_error}};
-}
-
-/// Depth-first search for a dependency path from any of `starts` back to
-/// `name` through the defined bindings; returns the path (start .. name) or
-/// empty when none exists.
-std::vector<std::string> find_cycle_path(const std::string& name,
-                                         const std::set<std::string>& starts,
-                                         const Environment& env) {
-    std::vector<std::string> path;
-    std::set<std::string> seen;
-    auto dfs = [&](auto&& self, const std::string& cur) -> bool {
-        if (cur == name) {
-            path.push_back(cur);
-            return true;
-        }
-        if (!seen.insert(cur).second) {
-            return false;
-        }
-        const Binding* b = find_binding(env, cur);
-        if (b == nullptr) {
-            return false;
-        }
-        path.push_back(cur);
-        for (const std::string& next : binding_free_symbols(*b)) {
-            if (self(self, next)) {
-                return true;
-            }
-        }
-        path.pop_back();
-        return false;
-    };
-    for (const std::string& s : starts) {
-        if (dfs(dfs, s)) {
-            return path;
-        }
-    }
-    return {};
-}
-
-/// An input line whose first `:=` splits it into a non-empty left part is an
-/// assignment; a ':' not followed by '=' falls through to the parser and
-/// keeps its existing lex error.
-bool is_assignment_line(const std::string& line) {
-    const std::size_t pos = line.find(":=");
-    return pos != std::string::npos && !trim(line.substr(0, pos)).empty();
+    return env.resolve(Value{parse_input_diag(input)}, excluded).to_plain();
 }
 
 /// `name := value` (spec §2): validate the target, parse the value now
-/// (caret diagnostics at definition time), reject cycles (§5.2), store, and
-/// echo the binding in canonical plain form.
+/// (caret diagnostics at definition time), store — define() rejects
+/// self-reference and cycles (§5.2) — and echo in canonical plain form.
 void repl_assign(const std::string& line, Environment& env) {
     const std::size_t pos = line.find(":=");
     const std::string target = trim(line.substr(0, pos));
@@ -2670,31 +2413,8 @@ void repl_assign(const std::string& line, Environment& env) {
     if (value_text.empty()) {
         throw UsageError{"assignment needs a value (e.g. x := 2)"};
     }
-    Binding binding{name, parse_input_diag(value_text)};
-
-    const std::set<std::string> value_syms = binding_free_symbols(binding);
-    if (value_syms.contains(name)) {
-        throw UsageError{
-            std::format("'{}' cannot be defined in terms of itself", name)};
-    }
-    const std::vector<std::string> cycle = find_cycle_path(name, value_syms, env);
-    if (!cycle.empty()) {
-        std::string msg = std::format("assignment would create a cycle: {}", name);
-        for (const std::string& n : cycle) {
-            msg += " -> " + n;
-        }
-        throw UsageError{msg};
-    }
-
-    // Redefinition replaces in place (keeps definition order for `vars`).
-    const auto it = std::ranges::find(env, name, &Binding::name);
-    if (it != env.end()) {
-        *it = std::move(binding);
-        std::println("{}", binding_text(*it));
-    } else {
-        env.push_back(std::move(binding));
-        std::println("{}", binding_text(env.back()));
-    }
+    std::println("{}",
+                 binding_text(env.define(name, Value{parse_input_diag(value_text)})));
 }
 
 /// Spec §7: solving (or diff/integrate/collect) for an assigned variable
@@ -2746,8 +2466,8 @@ void repl_solve(const std::string& input, std::vector<std::string> vars,
     const auto segment_equation = [&](const std::string& segment) -> Equation {
         // An equation-valued name may stand as a whole segment (spec §4).
         if (const Binding* b = find_binding(env, segment);
-            b != nullptr && std::holds_alternative<Equation>(b->value)) {
-            return std::get<Equation>(b->value);
+            b != nullptr && b->value.is_equation()) {
+            return b->value.equation();
         }
         return parse_equation_diag(segment);
     };
@@ -3367,19 +3087,12 @@ void repl_line(const std::string& line, Environment& env) {
     // A leading known command word (followed by whitespace or end of line)
     // selects command mode; anything else is a bare expression/equation. The
     // word must start with a letter but may carry trailing digits (e.g.
-    // `stirling2`), so a numeric line is never mistaken for a command.
-    std::size_t word_end = 0;
-    if (!line.empty() && std::isalpha(static_cast<unsigned char>(line[0])) != 0) {
-        ++word_end;
-        while (word_end < line.size() &&
-               std::isalnum(static_cast<unsigned char>(line[word_end])) != 0) {
-            ++word_end;
-        }
-    }
-    const std::string word = line.substr(0, word_end);
-    const bool word_terminated =
-        word_end == line.size() ||
-        std::isspace(static_cast<unsigned char>(line[word_end])) != 0;
+    // `stirling2`), so a numeric line is never mistaken for a command — see
+    // script::leading_word(), which every surface lexes the head with.
+    const LeadingWord head = leading_word(line);
+    const std::string& word = head.word;
+    const bool word_terminated = head.terminated;
+    const std::size_t word_end = head.end;
 
     // Environment management (spec §7.1). As bare inputs all three words are
     // word-guard parse errors today, so claiming them changes no working
@@ -3406,12 +3119,8 @@ void repl_line(const std::string& line, Environment& env) {
         // Accept both spellings of a name, exactly like the assignment side:
         // `vars` displays `x_{max}`, the stored symbol is `x_max` — copy/
         // pasting the displayed name must work.
-        const std::string name = normalize_target_text(typed);
-        const auto it = std::ranges::find(env, name, &Binding::name);
-        if (it == env.end()) {
+        if (!env.erase(normalize_name(typed))) {
             std::println("note: '{}' is not defined", typed);
-        } else {
-            env.erase(it);
         }
         return;
     }
@@ -3428,8 +3137,8 @@ void repl_line(const std::string& line, Environment& env) {
         // (spec §4): it denotes the stored equation.
         if (e->kind() == Kind::Symbol) {
             if (const Binding* b = find_binding(env, e->symbol_name());
-                b != nullptr && std::holds_alternative<Equation>(b->value)) {
-                repl_bare_equation(std::get<Equation>(b->value), env);
+                b != nullptr && b->value.is_equation()) {
+                repl_bare_equation(b->value.equation(), env);
                 return;
             }
         }
@@ -3466,7 +3175,7 @@ int run_repl() {
             repl_line(input, env);
         } catch (const UsageError& e) {
             std::fflush(stdout);
-            std::println(stderr, "error: {}", e.message);
+            std::println(stderr, "error: {}", e.message());
         } catch (const DiagnosedParseError& e) {
             std::fflush(stdout);
             std::println(stderr, "{}", caret_diagnostic(e.source, e.error));
