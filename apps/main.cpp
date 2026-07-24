@@ -468,6 +468,17 @@ void run_fit(const std::string& input, const std::string& model_text,
     std::println("R^2: {:.6g}", r.r2);
 }
 
+/// `interp`: exact polynomial interpolation of "x,y; x,y; ..." data — the
+/// unique polynomial through the points (degree ≤ n−1), exact over the
+/// rationals. Prints the polynomial, then a `degree:` note.
+void run_interp(const std::string& input, PrintStyle style) {
+    auto [xs, ys] = parse_point_data(input);
+    const InterpResult r = interp(xs, ys, "x");
+    if (r.status != InterpResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", to_string(r.expr, style));
+    std::println("degree: {}{}", r.degree, r.exact ? " (exact)" : "");
+}
+
 /// `stats`: exact summary statistics of a data list (mean, median, quartiles,
 /// spread). Each statistic prints as `label = value`; values are exact
 /// (fractions / radicals) when the data are rational.
@@ -1574,7 +1585,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
            s == "rsolve" || s == "mlimit" || s == "stirling" ||
-           s == "seq" || s == "fit" || s == "regress" || s == "stats" ||
+           s == "seq" || s == "fit" || s == "regress" || s == "interp" || s == "stats" ||
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
            s == "divisors" || s == "totient" || s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
@@ -1764,6 +1775,14 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_fit(input, positionals.size() > 1 ? positionals[1] : "",
                     positionals.size() > 2 ? positionals[2] : "", style);
+        } else if (sub == "interp") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the data in one quoted "
+                    "\"x,y; x,y; ...\" list)",
+                    positionals[1])};
+            }
+            run_interp(input, style);
         } else if (sub == "stats") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -1938,6 +1957,7 @@ void print_repl_help() {
         "  polygcd <a>, <b>[, <var>]   polylcm <a>, <b>[, <var>]   monic gcd/lcm\n"
         "  resultant <a>, <b>[, <var>]            0 iff a shared root\n"
         "  fit <x,y; x,y; ...> [| <model> [<degree>]]  least-squares regression\n"
+        "  interp <x,y; x,y; ...>                 exact polynomial through the points\n"
         "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
         "  stats <v1, v2, v3, ...>                exact summary statistics\n"
         "  stirling [<var>[, <terms>]]            ln Gamma asymptotics\n"

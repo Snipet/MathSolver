@@ -706,6 +706,19 @@ std::string ms_fit(std::string data, std::string model, std::string degree) {
     });
 }
 
+/// interp(data): exact polynomial interpolation of "x,y; x,y; ..." data — the
+/// unique polynomial through the points, exact over the rationals.
+std::string ms_interp(std::string data) {
+    return guarded([&]() -> std::string {
+        auto [xs, ys] = parse_point_data(data);
+        const InterpResult r = interp(xs, ys, "x");
+        if (r.status != InterpResult::Status::Ok) return err_json(r.message);
+        return std::format(
+            "{{\"ok\":true,{},\"exact\":{},\"degree\":{},\"n\":{}}}",
+            rendered_fields(r.expr), r.exact ? "true" : "false", r.degree, r.n);
+    });
+}
+
 /// stats(data): exact summary statistics of a data list. Returns an ordered
 /// `items` array of {label, plain, latex} plus the exact flag and count.
 std::string ms_stats(std::string data) {
@@ -1546,6 +1559,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("derivative", &ms_derivative);
     emscripten::function("apart", &ms_apart);
     emscripten::function("fit", &ms_fit);
+    emscripten::function("interp", &ms_interp);
     emscripten::function("stats", &ms_stats);
     emscripten::function("dsolve", &ms_dsolve);
     emscripten::function("series", &ms_series);

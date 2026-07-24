@@ -49,6 +49,19 @@ export type FitResult =
     } & Rendered)
   | EngineError;
 
+/** Exact polynomial interpolation: the polynomial through the points. */
+export type InterpResult =
+  | ({
+      ok: true;
+      /** True when solved exactly over the rationals. */
+      exact: boolean;
+      /** Degree of the interpolating polynomial (≤ n−1). */
+      degree: number;
+      /** Number of data points. */
+      n: number;
+    } & Rendered)
+  | EngineError;
+
 export type SeqCallResult =
   | ({
       ok: true;
@@ -258,6 +271,7 @@ export interface EngineApi {
   collect: [[input: string, variable: string], TransformResult];
   apart: [[input: string, variable: string], TransformResult];
   fit: [[data: string, model: string, degree: string], FitResult];
+  interp: [[data: string], InterpResult];
   stats: [[data: string], StatsResult];
   dsolve: [[ode: string, conditionsCsv: string], DsolveResult];
   series: [

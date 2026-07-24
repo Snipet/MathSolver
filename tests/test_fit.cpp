@@ -5,6 +5,7 @@
 // coefficients); the transcendental models are checked numerically (the fitted
 // curve reproduces the data). Error paths assert Status::Error with a message.
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
@@ -135,4 +136,62 @@ TEST_CASE("model and data parsing helpers") {
     REQUIRE(ys.size() == 3);
     CHECK(xs[1] == "2");
     CHECK(ys[2] == "5");
+}
+
+TEST_CASE("interp is the exact polynomial through the points") {
+    // Through (1,1),(2,4),(3,9) → x^2, exactly.
+    const InterpResult sq = interp({"1", "2", "3"}, {"1", "4", "9"}, "x");
+    REQUIRE(sq.status == InterpResult::Status::Ok);
+    CHECK(sq.exact);
+    CHECK(sq.degree == 2);
+    CHECK(structurally_equal(sq.expr, P("x^2")));
+
+    // Collinear data collapses to a line (degree < n-1 detected).
+    const InterpResult line = interp({"0", "1", "2"}, {"1", "3", "5"}, "x");
+    REQUIRE(line.status == InterpResult::Status::Ok);
+    CHECK(line.degree == 1);
+    CHECK(structurally_equal(line.expr, P("2*x + 1")));
+
+    // Exact rational coefficients: (0,0),(1,1),(2,1) → -x^2/2 + 3x/2.
+    const InterpResult frac = interp({"0", "1", "2"}, {"0", "1", "1"}, "x");
+    REQUIRE(frac.status == InterpResult::Status::Ok);
+    CHECK(frac.exact);
+    CHECK(structurally_equal(frac.expr, P("-x^2/2 + 3*x/2")));
+
+    // The polynomial passes through every data point exactly.
+    const std::vector<std::string> xs{"-2", "0", "1", "3"};
+    const std::vector<std::string> ys{"5", "1", "0", "10"};
+    const InterpResult r = interp(xs, ys, "x");
+    REQUIRE(r.status == InterpResult::Status::Ok);
+    CHECK(r.exact);
+    for (std::size_t i = 0; i < xs.size(); ++i)
+        CHECK(at(r.expr, std::stod(xs[i])) == Catch::Approx(std::stod(ys[i])).margin(1e-9));
+
+    // A single point is the constant polynomial.
+    const InterpResult one = interp({"5"}, {"7"}, "x");
+    REQUIRE(one.status == InterpResult::Status::Ok);
+    CHECK(one.degree == 0);
+    CHECK(structurally_equal(one.expr, P("7")));
+
+    // A named variable other than x.
+    const InterpResult t = interp({"0", "1"}, {"1", "4"}, "t");
+    REQUIRE(t.status == InterpResult::Status::Ok);
+    CHECK(structurally_equal(t.expr, P("3*t + 1")));
+}
+
+TEST_CASE("interp numeric fallback for non-rational data still passes through") {
+    // sqrt(2) is not a rational number → the double path; the line still hits
+    // both points to numeric precision.
+    const InterpResult r = interp({"0", "1"}, {"0", "sqrt(2)"}, "x");
+    REQUIRE(r.status == InterpResult::Status::Ok);
+    CHECK_FALSE(r.exact);
+    CHECK(at(r.expr, 0.0) == Catch::Approx(0.0));
+    CHECK(at(r.expr, 1.0) == Catch::Approx(std::sqrt(2.0)));
+}
+
+TEST_CASE("interp error paths") {
+    CHECK(interp({"1", "1"}, {"2", "3"}, "x").status == InterpResult::Status::Error); // dup x
+    CHECK(interp({"1", "2"}, {"3"}, "x").status == InterpResult::Status::Error);       // length
+    CHECK(interp({}, {}, "x").status == InterpResult::Status::Error);                   // empty
+    CHECK(interp({"1", "2"}, {"x", "3"}, "x").status == InterpResult::Status::Error);   // non-const y
 }

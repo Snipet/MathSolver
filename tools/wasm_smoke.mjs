@@ -97,6 +97,12 @@ check("fit exact fractions", ms.fit("0,1; 1,2; 2,2; 3,4", "linear", ""), (r) => 
 check("fit exponential", ms.fit("0,1; 1,2.71828; 2,7.38906", "exp", ""), (r) => r.ok && r.model === "exponential" && r.r2 > 0.999, "a*e^(bx)");
 check("fit error few points", ms.fit("0,0", "linear", ""), (r) => !r.ok && r.error.includes("at least 2"), "needs 2 points");
 check("fit error bad model", ms.fit("0,0; 1,1", "wiggle", ""), (r) => !r.ok && r.error.includes("unknown fit model"), "unknown model rejected");
+// interp — exact polynomial through the points
+check("interp exact quadratic", ms.interp("1,1; 2,4; 3,9"), (r) => r.ok && r.plain === "x^2" && r.exact === true && r.degree === 2 && r.n === 3, "x^2 through 3 points");
+check("interp collinear collapses", ms.interp("0,1; 1,3; 2,5"), (r) => r.ok && r.plain === "2*x + 1" && r.degree === 1, "degree drops to 1");
+check("interp exact fractions", ms.interp("0,0; 1,1; 2,1"), (r) => r.ok && r.exact === true && r.degree === 2, "rational coefficients");
+check("interp single point", ms.interp("5,7"), (r) => r.ok && r.plain === "7" && r.degree === 0 && r.n === 1, "constant polynomial");
+check("interp error dup x", ms.interp("1,2; 1,3"), (r) => !r.ok && r.error.includes("distinct"), "duplicate x rejected");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

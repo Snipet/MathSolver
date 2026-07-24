@@ -11,6 +11,14 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `interp` exact polynomial interpolation.** `interp 1,1; 2,4; 3,9`
+  returns the unique polynomial through the points — solved exactly over the
+  rationals (Vandermonde system), so `x^2` comes back as `x^2`, not a float
+  approximation. Collinear or otherwise degenerate data collapses to the true
+  lower degree, fractional data stays exact, and non-rational data (e.g. a
+  `sqrt(2)` ordinate) falls back to a numeric solve that still passes through
+  every point. Also available as `interp` in the CLI.
+
 - **Grapher — point & curve labels.** Each row's style popover now has a
   **label** field; the text is drawn on the graph — next to every point of a
   point/scatter row, or at the end of the curve for a function row — in the
