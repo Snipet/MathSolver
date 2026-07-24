@@ -171,6 +171,12 @@ check("lucas L(10)", ms.lucas("10"), (r) => r.ok && r.plain === "123", "L(10)=12
 check("lucas L(20)", ms.lucas("20"), (r) => r.ok && r.plain === "15127", "L(20)=15127");
 check("lucas error negative", ms.lucas("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
 check("lucas error overflow", ms.lucas("91"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+// primorial n# (product of primes ≤ n)
+check("primorial 7#", ms.primorial("7"), (r) => r.ok && r.plain === "210", "7#=210");
+check("primorial 13#", ms.primorial("13"), (r) => r.ok && r.plain === "30030", "13#=30030");
+check("primorial 10# = 7#", ms.primorial("10"), (r) => r.ok && r.plain === "210", "no prime in (7,10]");
+check("primorial error negative", ms.primorial("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("primorial error overflow", ms.primorial("53"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

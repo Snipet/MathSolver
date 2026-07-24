@@ -206,6 +206,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "lucas 10",
       },
       {
+        insert: "primorial",
+        usage: "primorial <n>",
+        hint: "The primorial n#: the product of all primes ≤ n",
+        example: "primorial 13",
+      },
+      {
         insert: "cfrac",
         usage: "cfrac <rational | sqrt(n) | real>",
         hint: "Continued fraction + convergents (best rational approximations)",

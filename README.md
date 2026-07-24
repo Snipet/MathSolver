@@ -676,9 +676,9 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   B₁ = −1/2), the Stirling numbers of the second kind `stirling2` (S(n, k),
   set partitions into k blocks), the Bell numbers `bell` (total set
   partitions), the derangement counts `derangement` (subfactorial !n,
-  permutations with no fixed point), and the Lucas numbers `lucas`
-  (companion to Fibonacci) — all exact, factoring via trial division +
-  Pollard's rho:
+  permutations with no fixed point), the Lucas numbers `lucas`
+  (companion to Fibonacci), and the primorial `primorial` (n#, the product
+  of primes ≤ n) — all exact, factoring via trial division + Pollard's rho:
 
   ```console
   $ mathsolver factor 360
@@ -705,6 +705,8 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   1334961
   $ mathsolver lucas 10
   123
+  $ mathsolver primorial 13
+  30030
   ```
 - **Modular arithmetic** — `mod`, `powmod` (modular exponentiation that
   handles huge exponents no plain evaluation could), `modinv` (modular
