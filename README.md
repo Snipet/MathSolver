@@ -609,7 +609,9 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   plus Bézout cofactors `s`, `t` with `s·a + t·b = gcd`, e.g.
   `bezout x^2 - 1, x^3 - 1` → gcd `x - 1`, `s = -x`, `t = 1`), and `companion`
   (the companion matrix of a polynomial, whose eigenvalues are its roots —
-  `companion x^2 - 3x + 2` → `[3, -2; 1, 0]`). **`trigexpand`** expands trig of sums
+  `companion x^2 - 3x + 2` → `[3, -2; 1, 0]`), and `vandermonde` (the
+  Vandermonde matrix of a node list — the interpolation system's matrix,
+  `vandermonde 1, 2, 3` → `[1, 1, 1; 1, 2, 4; 1, 3, 9]`). **`trigexpand`** expands trig of sums
   and multiples into single angles (`sin(a+b)` → `sin(a)cos(b) + cos(a)sin(b)`,
   `cos(2x)` → `cos(x)² - sin(x)²`); **`trigreduce`** inverts it, turning
   products and powers back into multiple angles (`sin(x)²` → `1/2 - cos(2x)/2`,

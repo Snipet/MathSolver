@@ -121,6 +121,11 @@ check("companion cubic subdiagonal", ms.companion("x^3 - 1", "x"), (r) => r.ok &
 check("companion infers single variable", ms.companion("t^2 - 5t + 6", ""), (r) => r.ok && r.plain === "[5, -6; 1, 0]", "var inferred");
 check("companion error degree 0", ms.companion("7", "x"), (r) => !r.ok && r.error.includes("degree"), "constant rejected");
 check("companion error non-poly", ms.companion("sin(x)", "x"), (r) => !r.ok && r.error.includes("polynomial"), "non-polynomial rejected");
+// vandermonde — Vandermonde matrix of a node list
+check("vandermonde numeric nodes", ms.vandermonde("1, 2, 3"), (r) => r.ok && r.plain === "[1, 1, 1; 1, 2, 4; 1, 3, 9]" && r.latex.includes("pmatrix"), "[1,1,1;1,2,4;1,3,9]");
+check("vandermonde symbolic nodes", ms.vandermonde("a, b"), (r) => r.ok && r.plain === "[1, a; 1, b]", "symbolic stays symbolic");
+check("vandermonde zero node", ms.vandermonde("0, 5"), (r) => r.ok && r.plain === "[1, 0; 1, 5]", "x^0 = 1");
+check("vandermonde error empty", ms.vandermonde(""), (r) => !r.ok && r.error.includes("node"), "empty rejected");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

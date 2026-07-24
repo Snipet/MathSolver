@@ -81,4 +81,18 @@ std::optional<std::pair<FitModel, int>> parse_fit_model(std::string_view name);
 std::pair<std::vector<std::string>, std::vector<std::string>> parse_point_data(
     std::string_view data);
 
+/// The square Vandermonde matrix of a node list x_0, …, x_{n-1}: the n×n matrix
+/// whose row i is (1, x_i, x_i², …, x_i^{n-1}). It is the coefficient matrix of
+/// the polynomial-interpolation linear system (`interp` solves V·c = y), and its
+/// determinant is ∏_{i<j}(x_j − x_i). Exact over the rationals; symbolic nodes
+/// are kept symbolic. Requires ≥ 1 node.
+struct VandermondeResult {
+    enum class Status { Ok, Empty };
+    Status status = Status::Empty;
+    std::vector<std::vector<Expr>> matrix;  ///< n×n, row-major
+    std::string message;
+};
+
+VandermondeResult vandermonde_matrix(const std::vector<Expr>& nodes);
+
 } // namespace mathsolver

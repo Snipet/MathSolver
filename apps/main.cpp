@@ -511,6 +511,30 @@ void run_stats(const std::string& input, PrintStyle style) {
     }
 }
 
+/// `vandermonde`: the square Vandermonde matrix of a comma-separated node list.
+void run_vandermonde(const std::string& input, PrintStyle style) {
+    // Split on top-level commas/semicolons (respecting parens) so a node may be
+    // any scalar expression, e.g. `1/2, a + 1, x^2`.
+    std::vector<Expr> nodes;
+    std::string cur;
+    int depth = 0;
+    auto flush = [&]() {
+        const std::string t = trim(cur);
+        if (!t.empty()) nodes.push_back(parse_expression_diag(t));
+        cur.clear();
+    };
+    for (char ch : input) {
+        if (ch == '(' || ch == '[' || ch == '{') depth++;
+        else if (ch == ')' || ch == ']' || ch == '}') depth = depth > 0 ? depth - 1 : 0;
+        if ((ch == ',' || ch == ';') && depth == 0) flush();
+        else cur.push_back(ch);
+    }
+    flush();
+    const VandermondeResult r = vandermonde_matrix(nodes);
+    if (r.status != VandermondeResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", mat_to_string(r.matrix, style));
+}
+
 /// `polydiv`: polynomial long division, printing the quotient and remainder.
 void run_polydiv(const std::string& dividend, const std::string& divisor,
                  const std::string& explicit_var, PrintStyle style) {
@@ -1632,7 +1656,8 @@ bool is_known_subcommand(std::string_view s) {
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
            s == "rsolve" || s == "mlimit" || s == "stirling" ||
-           s == "seq" || s == "fit" || s == "regress" || s == "interp" || s == "stats" ||
+           s == "seq" || s == "fit" || s == "regress" || s == "interp" ||
+           s == "vandermonde" || s == "stats" ||
            s == "chebyshev" || s == "chebyu" || s == "legendre" ||
            s == "hermite" || s == "laguerre" ||
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
@@ -1833,6 +1858,14 @@ int run_one_shot(const std::vector<std::string>& args) {
                     positionals[1])};
             }
             run_interp(input, style);
+        } else if (sub == "vandermonde") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the nodes in one quoted "
+                    "argument: mathsolver vandermonde \"1, 2, 3\")",
+                    positionals[1])};
+            }
+            run_vandermonde(input, style);
         } else if (sub == "chebyshev" || sub == "chebyu" || sub == "legendre" ||
                    sub == "hermite" || sub == "laguerre") {
             if (positionals.size() > 2) {
@@ -2039,6 +2072,7 @@ void print_repl_help() {
         "  companion <polynomial>[, <var>]        companion matrix (roots = eigenvalues)\n"
         "  fit <x,y; x,y; ...> [| <model> [<degree>]]  least-squares regression\n"
         "  interp <x,y; x,y; ...>                 exact polynomial through the points\n"
+        "  vandermonde <x1, x2, x3, ...>          Vandermonde matrix of the nodes\n"
         "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
         "  stats <v1, v2, v3, ...>                exact summary statistics\n"
         "  chebyshev/chebyu/legendre/hermite/laguerre <n> [var]\n"
@@ -2098,7 +2132,7 @@ bool is_repl_command(std::string_view word) {
            word == "hessian" || word == "limit" || word == "sum" ||
            word == "product" || word == "rsolve" || word == "mlimit" ||
            word == "stirling" || word == "seq" || word == "fit" ||
-           word == "regress" || word == "stats" || word == "gcd" ||
+           word == "regress" || word == "stats" || word == "vandermonde" || word == "gcd" ||
            word == "lcm" || word == "isprime" || word == "nextprime" ||
            word == "divisors" || word == "totient" || word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
@@ -2675,6 +2709,12 @@ void repl_command(const std::string& command, const std::string& rest,
         // The whole line is the data list (commas / semicolons / spaces).
         if (trim(rest).empty()) throw UsageError{"usage: stats <v1, v2, v3, ...>"};
         run_stats(rest, PrintStyle::Plain);
+        return;
+    }
+    if (command == "vandermonde") {
+        // The whole line is the node list (comma-separated).
+        if (trim(rest).empty()) throw UsageError{"usage: vandermonde <x1, x2, x3, ...>"};
+        run_vandermonde(rest, PrintStyle::Plain);
         return;
     }
     // Number theory over the integers: the whole line is the integer list (for

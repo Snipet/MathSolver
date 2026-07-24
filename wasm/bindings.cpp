@@ -530,6 +530,41 @@ std::string ms_bezout(std::string a, std::string b, std::string var) {
     });
 }
 
+/// vandermonde(nodes): the square Vandermonde matrix of a comma-separated node
+/// list (row i = 1, x_i, x_i², …). Returns it rendered plain and LaTeX.
+std::string ms_vandermonde(std::string nodes) {
+    return guarded([&]() -> std::string {
+        // Split on top-level commas/semicolons (respecting brackets) so a node
+        // may be any scalar expression.
+        std::vector<Expr> xs;
+        std::string cur;
+        int depth = 0;
+        auto flush = [&]() {
+            const std::string t = trim(cur);
+            if (!t.empty()) xs.push_back(parse_expression(t));
+            cur.clear();
+        };
+        for (char ch : nodes) {
+            if (ch == '(' || ch == '[' || ch == '{') depth++;
+            else if (ch == ')' || ch == ']' || ch == '}') depth = depth > 0 ? depth - 1 : 0;
+            if ((ch == ',' || ch == ';') && depth == 0) flush();
+            else cur.push_back(ch);
+        }
+        flush();
+        const VandermondeResult r = vandermonde_matrix(xs);
+        if (r.status != VandermondeResult::Status::Ok) return err_json(r.message);
+        const int n = static_cast<int>(r.matrix.size());
+        const std::vector<std::string> notes = {
+            std::format("{}×{} Vandermonde matrix; det = ∏(x_j − x_i), the "
+                        "interpolation system's coefficient matrix",
+                        n, n)};
+        return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{},\"notes\":{}}}",
+                           jstr(mat_to_string(r.matrix, PrintStyle::Plain)),
+                           jstr(mat_to_string(r.matrix, PrintStyle::LaTeX)),
+                           jarr_str(notes));
+    });
+}
+
 /// companion(input, variable): the companion matrix of a univariate polynomial
 /// (MATLAB `compan` orientation), whose eigenvalues are the polynomial's roots.
 /// Returns the matrix rendered plain ("[a, b; c, d]") and LaTeX (pmatrix).
@@ -1653,6 +1688,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("resultant", &ms_resultant);
     emscripten::function("bezout", &ms_bezout);
     emscripten::function("companion", &ms_companion);
+    emscripten::function("vandermonde", &ms_vandermonde);
     emscripten::function("solveIneq", &ms_solve_ineq);
     emscripten::function("mod", &ms_mod);
     emscripten::function("powmod", &ms_powmod);
