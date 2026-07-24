@@ -168,6 +168,32 @@ TEST_CASE("Mobius function") {
     CHECK_THROWS_AS(mobius(0), EvalError);
 }
 
+TEST_CASE("integer partition function p(n)") {
+    CHECK(partition_count(0) == 1);
+    CHECK(partition_count(1) == 1);
+    CHECK(partition_count(2) == 2);   // 2, 1+1
+    CHECK(partition_count(4) == 5);   // 4, 3+1, 2+2, 2+1+1, 1+1+1+1
+    CHECK(partition_count(5) == 7);
+    CHECK(partition_count(10) == 42);
+    CHECK(partition_count(100) == 190569292);
+    CHECK_THROWS_AS(partition_count(-1), EvalError);
+    CHECK_THROWS_AS(partition_count(1000000), OverflowError); // beyond int64
+}
+
+TEST_CASE("Catalan numbers") {
+    CHECK(catalan_number(0) == 1);
+    CHECK(catalan_number(1) == 1);
+    CHECK(catalan_number(2) == 2);
+    CHECK(catalan_number(3) == 5);
+    CHECK(catalan_number(4) == 14);
+    CHECK(catalan_number(5) == 42);
+    CHECK(catalan_number(10) == 16796);
+    // C(35) is the largest Catalan number fitting in a signed 64-bit integer.
+    CHECK(catalan_number(35) == 3116285494907301262LL);
+    CHECK_THROWS_AS(catalan_number(-1), EvalError);
+    CHECK_THROWS_AS(catalan_number(40), OverflowError);
+}
+
 TEST_CASE("next/prev prime and Euclidean mod") {
     CHECK(next_prime(0) == 2);
     CHECK(next_prime(7) == 11);

@@ -36,6 +36,13 @@ per-feature specs are under docs/proposals/.
   more clicking each colour dot in turn. The label flips to "Show all"
   whenever anything is hidden, and the state persists with the document.
 
+- **Console — `partitions` and `catalan` combinatorial counts.** `partitions n`
+  is the integer partition function p(n) — the number of ways to write *n* as
+  a sum of positive integers (`partitions 10` → 42), computed exactly via
+  Euler's pentagonal recurrence. `catalan n` is the n-th Catalan number
+  C(n) = binomial(2n, n)/(n + 1) (`catalan 10` → 16796), built by an exact
+  product. Both are exact over the 64-bit range and error cleanly past it.
+
 - **Console — `sigma` and `mobius` divisor functions.** Two classic
   multiplicative number-theory functions joining `totient` / `divisors`.
   `sigma n` sums the divisors of *n* (`sigma 12` → 28); an optional exponent

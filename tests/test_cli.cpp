@@ -191,6 +191,25 @@ TEST_CASE("cli: sigma (divisor function) and mobius") {
     CHECK(run_cli({"mobius", "x"}).exit_code == 2);
 }
 
+TEST_CASE("cli: partitions and catalan numbers") {
+    const RunResult p = run_cli({"partitions", "10"});
+    CHECK(p.exit_code == 0);
+    CHECK(contains(p.output, "42"));
+
+    const RunResult p100 = run_cli({"partitions", "100"});
+    CHECK(p100.exit_code == 0);
+    CHECK(contains(p100.output, "190569292"));
+
+    const RunResult c = run_cli({"catalan", "10"});
+    CHECK(c.exit_code == 0);
+    CHECK(contains(c.output, "16796"));
+
+    // n < 0 is a usage error (exit 2); an out-of-range value is a runtime
+    // overflow error (nonzero exit). Both fail cleanly rather than wrapping.
+    CHECK(run_cli({"partitions", "-1"}).exit_code == 2);
+    CHECK(run_cli({"catalan", "40"}).exit_code != 0); // overflows int64
+}
+
 TEST_CASE("cli: trigexpand of sums and multiples") {
     const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
     INFO(sum.output);

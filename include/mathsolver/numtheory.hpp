@@ -53,6 +53,17 @@ long long divisor_sigma(long long n, int k = 1);
 /// otherwise (-1)^(number of distinct prime factors). μ(1) = 1. Requires n>=1.
 int mobius(long long n);
 
+/// The integer partition function p(n) for n >= 0: the number of ways to write
+/// n as a sum of positive integers (order-independent). p(0) = 1. Computed
+/// exactly via Euler's pentagonal-number recurrence; throws OverflowError once
+/// p(n) leaves the 64-bit range (around n = 416).
+long long partition_count(long long n);
+
+/// The n-th Catalan number C(n) = binomial(2n, n) / (n + 1) for n >= 0.
+/// C(0) = 1. Built by an exact product so it never forms the huge factorials;
+/// throws OverflowError past the 64-bit range (around n = 37).
+long long catalan_number(long long n);
+
 /// Euclidean remainder: the r with 0 <= r < |m| and a == r (mod m). m = 0
 /// throws DivisionByZeroError.
 long long int_mod(long long a, long long m);

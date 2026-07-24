@@ -217,6 +217,51 @@ int mobius(long long n) {
     return (f.size() % 2 == 0) ? 1 : -1;
 }
 
+long long partition_count(long long n) {
+    if (n < 0) throw EvalError{"partitions is defined for n >= 0"};
+    // p(n) already leaves the 64-bit range near n = 416; reject absurd n up
+    // front so we never attempt a giant allocation for a value that overflows.
+    if (n > 20000) throw OverflowError{"partitions overflows the 64-bit range"};
+    // Euler's pentagonal-number recurrence:
+    //   p(n) = Σ_{k>=1} (-1)^(k-1) [ p(n - g_k) + p(n - g'_k) ],
+    // with generalized pentagonal numbers g_k = k(3k-1)/2, g'_k = k(3k+1)/2.
+    std::vector<long long> p(static_cast<std::size_t>(n) + 1, 0);
+    p[0] = 1;
+    for (long long m = 1; m <= n; ++m) {
+        long long sum = 0;
+        for (long long k = 1;; ++k) {
+            const long long g1 = k * (3 * k - 1) / 2;
+            if (g1 > m) break;
+            const long long g2 = k * (3 * k + 1) / 2;
+            const long long sign = (k % 2 == 1) ? 1 : -1;
+            long long term = p[static_cast<std::size_t>(m - g1)];
+            if (g2 <= m &&
+                __builtin_add_overflow(term, p[static_cast<std::size_t>(m - g2)], &term))
+                throw OverflowError{"partitions overflows the 64-bit range"};
+            if (__builtin_add_overflow(sum, sign * term, &sum))
+                throw OverflowError{"partitions overflows the 64-bit range"};
+        }
+        p[static_cast<std::size_t>(m)] = sum;
+    }
+    return p[static_cast<std::size_t>(n)];
+}
+
+long long catalan_number(long long n) {
+    if (n < 0) throw EvalError{"catalan is defined for n >= 0"};
+    // Iterate C(k+1) = C(k)·2(2k+1)/(k+2) — an exact division at every step
+    // (each Catalan number is integral). A 128-bit intermediate keeps the
+    // product from overflowing before the divide; the final value is then
+    // range-checked so we throw rather than wrap.
+    unsigned __int128 c = 1;
+    for (long long k = 0; k < n; ++k) {
+        c = c * static_cast<unsigned long long>(2 * (2 * k + 1)) /
+            static_cast<unsigned long long>(k + 2);
+        if (c > static_cast<unsigned long long>(INT64_MAX))
+            throw OverflowError{"catalan overflows the 64-bit range"};
+    }
+    return static_cast<long long>(c);
+}
+
 long long int_mod(long long a, long long m) {
     if (m == 0) throw DivisionByZeroError{"mod by zero"};
     long long r = a % m;

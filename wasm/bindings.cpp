@@ -349,6 +349,24 @@ std::string ms_mobius(std::string arg) {
         return nt_json(s, s, {std::format("mu({})", *n)});
     });
 }
+std::string ms_partitions(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("partitions: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("partitions is defined for n >= 0");
+        const std::string s = std::to_string(partition_count(*n));
+        return nt_json(s, s, {std::format("p({})", *n)});
+    });
+}
+std::string ms_catalan(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("catalan: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("catalan is defined for n >= 0");
+        const std::string s = std::to_string(catalan_number(*n));
+        return nt_json(s, s, {std::format("C({})", *n)});
+    });
+}
 std::string ms_divisors(std::string arg) {
     return guarded([&]() -> std::string {
         const auto n = nt_int(arg);
@@ -1727,6 +1745,8 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("totient", &ms_totient);
     emscripten::function("sigma", &ms_sigma);
     emscripten::function("mobius", &ms_mobius);
+    emscripten::function("partitions", &ms_partitions);
+    emscripten::function("catalan", &ms_catalan);
     emscripten::function("cfrac", &ms_cfrac);
     emscripten::function("discriminant", &ms_discriminant);
     emscripten::function("polydiv", &ms_polydiv);
