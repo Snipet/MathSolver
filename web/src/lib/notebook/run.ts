@@ -81,6 +81,7 @@ export const MATH_VERBS = new Set([
   "polygcd",
   "polylcm",
   "resultant",
+  "bezout",
   "sum",
   "product",
   "rsolve",
@@ -616,7 +617,8 @@ async function runVerb(
     }
     case "polygcd":
     case "polylcm":
-    case "resultant": {
+    case "resultant":
+    case "bezout": {
       if (args.length < 2 || args.length > 3)
         return usage(`usage: ${verb} <a>, <b>[, <var>]`);
       const v = args[2] ?? "";

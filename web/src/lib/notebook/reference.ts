@@ -271,6 +271,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "resultant x^2 - 1, x - 2",
       },
       {
+        insert: "bezout",
+        usage: "bezout <a>, <b>[, <var>]",
+        hint: "Extended gcd: monic gcd + cofactors s, t with s·a + t·b = gcd",
+        example: "bezout x^2 - 1, x^3 - 1",
+      },
+      {
         insert: "limit",
         usage: "limit <expr>, <var>, <point>[, left|right]",
         hint: "Limit at a point or ±inf (exact where possible)",

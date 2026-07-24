@@ -11,6 +11,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `bezout` extended polynomial GCD.** `bezout a, b` returns the
+  monic gcd of two polynomials *and* the Bézout cofactors `s`, `t` satisfying
+  `s·a + t·b = gcd`, computed exactly over the rationals via the extended
+  Euclidean algorithm — so `bezout x^2 - 1, x^3 - 1` gives gcd `x - 1` with
+  `s = -x`, `t = 1`. Available in the CLI too. Useful for polynomial
+  Diophantine equations and partial-fraction/CRT constructions.
+
 - **Grapher — continuous curve trace.** The hover readout now *follows* a
   `y=f(x)` curve at the cursor's x — interpolating between samples — instead of
   only snapping to the nearest sampled vertex when the pointer happened to be

@@ -604,8 +604,10 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   power and exp/ln rules, trig special values and identities; plus `expand`,
   `collect`, best-effort `factor`, `polydiv` (polynomial long division →
   quotient and remainder, e.g. `polydiv x^3 - 1, x - 1` → `x² + x + 1`), and
-  `polygcd`/`polylcm` (monic polynomial GCD/LCM), and `resultant` (zero iff two
-  polynomials share a root). **`trigexpand`** expands trig of sums
+  `polygcd`/`polylcm` (monic polynomial GCD/LCM), `resultant` (zero iff two
+  polynomials share a root), and `bezout` (the extended GCD — the monic gcd
+  plus Bézout cofactors `s`, `t` with `s·a + t·b = gcd`, e.g.
+  `bezout x^2 - 1, x^3 - 1` → gcd `x - 1`, `s = -x`, `t = 1`). **`trigexpand`** expands trig of sums
   and multiples into single angles (`sin(a+b)` → `sin(a)cos(b) + cos(a)sin(b)`,
   `cos(2x)` → `cos(x)² - sin(x)²`); **`trigreduce`** inverts it, turning
   products and powers back into multiple angles (`sin(x)²` → `1/2 - cos(2x)/2`,

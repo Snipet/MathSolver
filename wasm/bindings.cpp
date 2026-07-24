@@ -506,6 +506,30 @@ std::string ms_resultant(std::string a, std::string b, std::string var) {
     });
 }
 
+/// bezout(a, b, var): extended gcd. The monic gcd is the rendered result; the
+/// Bézout cofactors s, t (with s·a + t·b = gcd) ride along as notes.
+std::string ms_bezout(std::string a, std::string b, std::string var) {
+    return guarded([&]() -> std::string {
+        const Expr ea = parse_expression(a);
+        const Expr eb = parse_expression(b);
+        std::string v = trim(var);
+        if (v.empty()) {
+            std::set<std::string> syms = free_symbols(ea);
+            for (const std::string& s : free_symbols(eb)) syms.insert(s);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json("bezout: name the variable, e.g. "
+                                 "bezout x^2 - 1, x^3 - 1, x");
+        }
+        const PolyBezoutResult r = polynomial_bezout(ea, eb, v);
+        if (r.status != PolyBezoutResult::Status::Ok) return err_json(r.message);
+        const std::vector<std::string> notes = {
+            "s = " + to_string(r.s, PrintStyle::Plain),
+            "t = " + to_string(r.t, PrintStyle::Plain)};
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}",
+                           rendered_fields(r.gcd), jarr_str(notes));
+    });
+}
+
 /// solveIneq(lhs, rhs, op, var): solve the inequality `lhs <op> rhs` for its
 /// variable (op is one of "<", "<=", ">", ">="; var may be empty to infer).
 std::string ms_solve_ineq(std::string lhs, std::string rhs, std::string op,
@@ -1600,6 +1624,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("polygcd", &ms_polygcd);
     emscripten::function("polylcm", &ms_polylcm);
     emscripten::function("resultant", &ms_resultant);
+    emscripten::function("bezout", &ms_bezout);
     emscripten::function("solveIneq", &ms_solve_ineq);
     emscripten::function("mod", &ms_mod);
     emscripten::function("powmod", &ms_powmod);
