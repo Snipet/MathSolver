@@ -26,6 +26,7 @@ export const GRAPH_REFERENCE: GraphRefGroup[] = [
       { code: "f = x^2", desc: "A reusable named value" },
       { code: "diff(f)", desc: "Plot the derivative" },
       { code: "integral(f)", desc: "Plot the antiderivative" },
+      { code: "f'(x)", desc: "Derivative of a named value too" },
     ],
   },
   {

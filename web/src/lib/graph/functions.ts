@@ -198,6 +198,64 @@ export function findInnermostAppl(text: string, fnNames: readonly string[]): Any
   return null;
 }
 
+/** Is there a prime-notation call `name'(…)` for one of `names` in `text`? */
+function containsScalarPrime(text: string, names: readonly string[]): boolean {
+  for (let i = 0; i < text.length; i++) {
+    for (const n of names) {
+      const m = callAt(text, i, n, true);
+      if (m && m.primes > 0) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * The innermost prime-notation call `name'(arg)` whose `name` is a SCALAR
+ * define — a `name = expr` row with no parameters, e.g. `f = x` — rather than a
+ * registered function. Such a name is absent from fnNames(), so findInnermostAny
+ * never sees it and the trailing apostrophe would otherwise reach the core
+ * parser, which rejects it ("unexpected character '''"). The grapher rewrites
+ * these to the derivative of the define's resolved body. Only names carrying at
+ * least one prime match; a bare `f(x)` on a scalar define is left untouched
+ * (implicit multiplication, as before). Innermost-first: the chosen call's
+ * argument contains no further scalar-prime call.
+ */
+export function findScalarPrimeCall(
+  text: string,
+  scalarNames: readonly string[],
+): AnyCall | null {
+  for (let i = 0; i < text.length; i++) {
+    for (const n of scalarNames) {
+      const m = callAt(text, i, n, true);
+      if (!m || m.primes === 0) continue; // prime notation only, not f(x)
+      const close = matchParen(text, m.parenAt);
+      if (close < 0) continue;
+      const inner = text.slice(m.parenAt + 1, close);
+      if (!containsScalarPrime(inner, scalarNames))
+        return { kind: "appl", name: n, primes: m.primes, inner, start: i, end: close + 1 };
+    }
+  }
+  return null;
+}
+
+/**
+ * Replace each scalar-define prime call `f'(arg)` with `(arg)` — the analog of
+ * stripCalls for scalar defines, used before free-symbol `analyze`. The callee
+ * and its apostrophes must not reach the engine (which rejects the apostrophe);
+ * the derivative is materialized later, at sampling time. The argument's own
+ * symbols are kept (they may be real plot variables / sliders); the define's
+ * body symbols are surfaced by its own `name = expr` row.
+ */
+export function stripScalarPrimes(text: string, scalarNames: readonly string[]): string {
+  let s = text;
+  for (let guard = 0; guard < 64; guard++) {
+    const c = findScalarPrimeCall(s, scalarNames);
+    if (!c) break;
+    s = s.slice(0, c.start) + "(" + c.inner + ")" + s.slice(c.end);
+  }
+  return s;
+}
+
 /**
  * `count` fresh single-letter placeholder symbols that appear nowhere in
  * `avoid` (the concatenation of the body and all argument texts). Single

@@ -184,6 +184,13 @@ function isVar(side: string, name: string): boolean {
   return side.trim() === name;
 }
 
+/** A lone, non-axis identifier — the left side of a scalar/function definition
+ *  (`f`, `g_1`) as opposed to an axis (`x`/`y`/`r`) or a compound expression. */
+function isBareName(side: string): boolean {
+  const s = side.trim();
+  return /^[A-Za-z][A-Za-z0-9_]*$/.test(s) && !["x", "y", "r"].includes(s);
+}
+
 /**
  * Match a whole-row definite-integral area form — `integral(f, a, b)` or
  * `antiderivative(f, a, b)` — where the call spans the entire (trimmed) row and
@@ -304,12 +311,17 @@ function classifyBody(text: string): RowKind {
       // A first-order ODE: y' = f(x, y) or dy/dx = f(x, y) → slope field.
       const lhsNo = lhs.replace(/\s+/g, "");
       if (lhsNo === "y'" || lhsNo === "dy/dx") return { t: "slopefield", expr: rhs.trim() };
+      // A bare, non-axis name on the left (`f = …`) is a definition even when
+      // the right side is exactly a plot axis: `f = x` means "f is the function
+      // x" (like `f = x^2`), NOT the relation x = f. Only the rhs-is-axis
+      // branches need this guard — an axis on the LEFT (`x = …`) is unambiguous.
+      const lhsIsName = isBareName(lhs);
       if (isVar(lhs, "y")) return { t: "function", expr: rhs.trim() };
-      if (isVar(rhs, "y")) return { t: "function", expr: lhs.trim() };
+      if (isVar(rhs, "y") && !lhsIsName) return { t: "function", expr: lhs.trim() };
       if (isVar(lhs, "x")) return { t: "functionY", expr: rhs.trim() };
-      if (isVar(rhs, "x")) return { t: "functionY", expr: lhs.trim() };
+      if (isVar(rhs, "x") && !lhsIsName) return { t: "functionY", expr: lhs.trim() };
       if (isVar(lhs, "r")) return { t: "polar", expr: rhs.trim() };
-      if (isVar(rhs, "r")) return { t: "polar", expr: lhs.trim() };
+      if (isVar(rhs, "r") && !lhsIsName) return { t: "polar", expr: lhs.trim() };
       // A definition: `name = expr` (a reusable session value) or
       // `name(params) = expr` (a user function). The parameter list is captured
       // so `f(x) = x^2` can later be applied as `f(3)`, `f'(x)`, `g(f(x))`.

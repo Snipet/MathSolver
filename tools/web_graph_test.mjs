@@ -208,6 +208,40 @@ try {
   );
   check("definition does not create a stray slider", !sliderNames.includes("f") && !sliderNames.includes("x"), sliderNames.join(","));
 
+  // Prime notation on a scalar define: `f = x` then `f'(x)` must plot f's
+  // derivative (a constant 1 here) instead of failing with the parser's
+  // "unexpected character '''". Also `g = x^2` → `g'(x)` = 2x.
+  await page.evaluate(() => {
+    try {
+      localStorage.removeItem("mathsolver.graph");
+    } catch {}
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  await page.evaluate(() => {
+    [...document.querySelectorAll('.mode-switch [role="tab"]')].find((b) => b.textContent.trim() === "Graph")?.click();
+  });
+  await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  const primeRows = ["f = x", "y = f'(x)", "g = x^2", "y = g'(x)"];
+  for (let i = 0; i < primeRows.length; i++) {
+    if (i > 0) await page.click(".calc .add-row");
+    const inputs = await page.$$(".calc .expr");
+    await inputs[i].click({ clickCount: 3 });
+    await inputs[i].type(primeRows[i]);
+  }
+  await new Promise((r) => setTimeout(r, 1800));
+  const primeErrs = await page.$$eval(".calc .row-err", (els) => els.map((e) => e.textContent));
+  check(
+    "prime notation f'(x) on a scalar define plots without error",
+    primeErrs.length === 0,
+    primeErrs.join(" | "),
+  );
+  // No apostrophe should have reached the engine (no parser error surfaced).
+  check(
+    "no 'unexpected character' parser error from f'(x)",
+    !primeErrs.some((e) => /unexpected character/.test(e)),
+    primeErrs.join(" | "),
+  );
+
   // Domain restrictions: a clipped function, an extended-domain spiral, and a
   // parametric arc — all plot without error.
   await page.evaluate(() => {

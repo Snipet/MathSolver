@@ -11,7 +11,7 @@ const entry = join(dir, "entry.ts");
 writeFileSync(
   entry,
   `export { classifyRow } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/classify.ts")};
-   export { findInnermostAny, findInnermostAppl, stripCalls, freshPlaceholders, hasCalcCall } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/functions.ts")};`,
+   export { findInnermostAny, findInnermostAppl, findScalarPrimeCall, stripScalarPrimes, stripCalls, freshPlaceholders, hasCalcCall } from ${JSON.stringify(process.cwd() + "/web/src/lib/graph/functions.ts")};`,
 );
 const out = join(dir, "bundle.mjs");
 execFileSync(
@@ -19,7 +19,7 @@ execFileSync(
   ["esbuild", entry, "--bundle", "--format=esm", `--outfile=${out}`],
   { cwd: process.cwd(), stdio: ["ignore", "ignore", "inherit"] },
 );
-const { classifyRow, findInnermostAny, findInnermostAppl, stripCalls, freshPlaceholders, hasCalcCall } = await import(out);
+const { classifyRow, findInnermostAny, findInnermostAppl, findScalarPrimeCall, stripScalarPrimes, stripCalls, freshPlaceholders, hasCalcCall } = await import(out);
 rmSync(dir, { recursive: true, force: true });
 
 let pass = 0, fail = 0;
@@ -40,6 +40,15 @@ check("plain g = x^2 → define without params", (() => {
 })());
 check("f() = 5 (empty params) is not a function define", classifyRow("f() = 5").t !== "define" || classifyRow("f() = 5").params === undefined);
 check("y = x^2 is still a function, not a define", classifyRow("y = x^2").t === "function");
+check("f = x → scalar define (not functionY x=f)", (() => {
+  const r = classifyRow("f = x");
+  return r.t === "define" && r.name === "f" && r.expr === "x" && r.params === undefined;
+})());
+check("x = y^2 stays functionY (axis on the left)", classifyRow("x = y^2").t === "functionY");
+check("sin(y) = x stays functionY (lhs is a compound expr)", classifyRow("sin(y) = x").t === "functionY");
+check("x = f stays functionY (vertical line at x=f)", classifyRow("x = f").t === "functionY");
+check("y = f stays a function of x", classifyRow("y = f").t === "function");
+check("f = y → define (bare name), not a function", classifyRow("f = y").t === "define");
 
 // --- findInnermostAny ------------------------------------------------------
 check("f(x) with f registered → appl", (() => {
@@ -109,6 +118,29 @@ check("stripCalls product: bound index neutralized too", (() => {
   const r = stripCalls("product(x/j, j, 1, m)", []);
   return r.text === "((x/1)+(1)+(m))";
 })());
+
+// --- findScalarPrimeCall / stripScalarPrimes (scalar-define prime notation) --
+// A scalar define like `f = x` isn't a registered function, so `f'(x)` is not
+// an `appl`; it is recognized separately and rewritten to f's derivative.
+check("scalar prime: f'(x) with f a scalar define → matched, primes 1", (() => {
+  const c = findScalarPrimeCall("f'(x)", ["f"]);
+  return c && c.name === "f" && c.primes === 1 && c.inner === "x";
+})());
+check("scalar prime: f''(x/2) → primes 2, inner kept", (() => {
+  const c = findScalarPrimeCall("f''(x/2)", ["f"]);
+  return c && c.primes === 2 && c.inner === "x/2";
+})());
+check("scalar prime: bare f(x) (no prime) is NOT matched", findScalarPrimeCall("f(x)", ["f"]) === null);
+check("scalar prime: only names in the set match", findScalarPrimeCall("g'(x)", ["f"]) === null);
+check("scalar prime: word boundary — no match inside foo'(x)", findScalarPrimeCall("foo'(x)", ["f"]) === null);
+check("scalar prime: innermost first for g'(f'(x))", (() => {
+  const c = findScalarPrimeCall("g'(f'(x))", ["f", "g"]);
+  return c && c.name === "f";
+})());
+check("stripScalarPrimes: f'(x) → (x)", stripScalarPrimes("f'(x)", ["f"]) === "(x)");
+check("stripScalarPrimes: 2*f''(x+1)+3 → 2*(x+1)+3", stripScalarPrimes("2*f''(x+1)+3", ["f"]) === "2*(x+1)+3");
+check("stripScalarPrimes: leaves non-prime f(x) alone", stripScalarPrimes("f(x)", ["f"]) === "f(x)");
+check("stripScalarPrimes: no-op when set empty", stripScalarPrimes("f'(x)", []) === "f'(x)");
 
 // --- findInnermostAppl (console: user-function calls only) ------------------
 check("appl-only: f(x) found", (() => { const c = findInnermostAppl("f(x)", ["f"]); return c && c.name === "f"; })());

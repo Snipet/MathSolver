@@ -7,6 +7,15 @@ per-feature specs are under docs/proposals/.
 
 ### Fixed
 
+- **Grapher — `f = x` now defines a function, and `f'(x)` plots its
+  derivative.** Typing `f = x` used to be read as the relation *x = f* (a
+  vertical line) rather than a definition, so `f` became a stray slider and a
+  follow-up `y = f'(x)` failed with a cryptic `unexpected character '''`. A
+  bare, non-axis name on the left of `=` is now always a definition — matching
+  how `f = x^2` already behaved — and prime notation on such a named value
+  (`f'(x)`, `f''(x)`) plots the derivative, alongside the existing `diff(f)` /
+  `integral(f)` forms.
+
 - **Console — Cookbook no longer crashes on open.** Expanding the "Session
   Variables & Notebooks" category (and any recipe that shows a command twice —
   e.g. a value before and after a redefinition) threw a Svelte
