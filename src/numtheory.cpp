@@ -5,7 +5,9 @@
 #include <cstdint>
 #include <format>
 #include <string>
+#include <vector>
 
+#include "mathsolver/bigint.hpp"
 #include "mathsolver/errors.hpp"
 
 namespace mathsolver {
@@ -217,175 +219,149 @@ int mobius(long long n) {
     return (f.size() % 2 == 0) ? 1 : -1;
 }
 
-long long partition_count(long long n) {
+BigInt partition_count(long long n) {
     if (n < 0) throw EvalError{"partitions is defined for n >= 0"};
-    // p(n) already leaves the 64-bit range near n = 416; reject absurd n up
-    // front so we never attempt a giant allocation for a value that overflows.
-    if (n > 20000) throw OverflowError{"partitions overflows the 64-bit range"};
+    // Compute guard: p(n) is exact (arbitrary precision), but a giant n would
+    // allocate/iterate for a value nobody typed intentionally.
+    if (n > 20000) throw EvalError{"partitions argument too large (max 20000)"};
     // Euler's pentagonal-number recurrence:
     //   p(n) = Σ_{k>=1} (-1)^(k-1) [ p(n - g_k) + p(n - g'_k) ],
     // with generalized pentagonal numbers g_k = k(3k-1)/2, g'_k = k(3k+1)/2.
-    std::vector<long long> p(static_cast<std::size_t>(n) + 1, 0);
-    p[0] = 1;
+    std::vector<BigInt> p(static_cast<std::size_t>(n) + 1);
+    p[0] = BigInt(1);
     for (long long m = 1; m <= n; ++m) {
-        long long sum = 0;
+        BigInt sum;
         for (long long k = 1;; ++k) {
             const long long g1 = k * (3 * k - 1) / 2;
             if (g1 > m) break;
             const long long g2 = k * (3 * k + 1) / 2;
-            const long long sign = (k % 2 == 1) ? 1 : -1;
-            long long term = p[static_cast<std::size_t>(m - g1)];
-            if (g2 <= m &&
-                __builtin_add_overflow(term, p[static_cast<std::size_t>(m - g2)], &term))
-                throw OverflowError{"partitions overflows the 64-bit range"};
-            if (__builtin_add_overflow(sum, sign * term, &sum))
-                throw OverflowError{"partitions overflows the 64-bit range"};
+            BigInt term = p[static_cast<std::size_t>(m - g1)];
+            if (g2 <= m) term += p[static_cast<std::size_t>(m - g2)];
+            if (k % 2 == 1) sum += term;
+            else sum -= term;
         }
-        p[static_cast<std::size_t>(m)] = sum;
+        p[static_cast<std::size_t>(m)] = std::move(sum);
     }
     return p[static_cast<std::size_t>(n)];
 }
 
-long long stirling_second(long long n, long long k) {
+BigInt stirling_second(long long n, long long k) {
     if (n < 0 || k < 0) throw EvalError{"stirling2 is defined for n, k >= 0"};
-    if (k > n) return 0;
-    if (n > 5000) throw OverflowError{"stirling2 overflows the 64-bit range"};
+    if (k > n) return BigInt(0);
+    if (n > 2000) throw EvalError{"stirling2 argument too large (max n = 2000)"};
     // dp[j] = S(i, j), rolled forward row by row. Update j high→low in place.
-    std::vector<long long> dp(static_cast<std::size_t>(k) + 1, 0);
-    dp[0] = 1; // S(0, 0)
+    std::vector<BigInt> dp(static_cast<std::size_t>(k) + 1);
+    dp[0] = BigInt(1); // S(0, 0)
     for (long long i = 1; i <= n; ++i) {
         const long long upper = std::min(i, k);
         for (long long j = upper; j >= 1; --j) {
-            long long term = 0;
-            if (__builtin_mul_overflow(j, dp[static_cast<std::size_t>(j)], &term) ||
-                __builtin_add_overflow(term, dp[static_cast<std::size_t>(j - 1)], &term))
-                throw OverflowError{"stirling2 overflows the 64-bit range"};
-            dp[static_cast<std::size_t>(j)] = term;
+            dp[static_cast<std::size_t>(j)] =
+                BigInt(j) * dp[static_cast<std::size_t>(j)] + dp[static_cast<std::size_t>(j - 1)];
         }
-        dp[0] = 0; // S(i, 0) = 0 for i >= 1
+        dp[0] = BigInt(0); // S(i, 0) = 0 for i >= 1
     }
     return dp[static_cast<std::size_t>(k)];
 }
 
-long long bell_number(long long n) {
+BigInt bell_number(long long n) {
     if (n < 0) throw EvalError{"bell is defined for n >= 0"};
-    if (n > 5000) throw OverflowError{"bell overflows the 64-bit range"};
+    if (n > 2000) throw EvalError{"bell argument too large (max 2000)"};
     // Bell triangle (Aitken's array): a(i,0) = a(i-1, i-1);
     // a(i,j) = a(i,j-1) + a(i-1,j-1). B(n) = a(n, 0) = row[0] after n rows.
-    std::vector<long long> row{1}; // row 0 = {a(0,0)} = {1}
+    std::vector<BigInt> row{BigInt(1)}; // row 0 = {a(0,0)} = {1}
     for (long long i = 1; i <= n; ++i) {
-        std::vector<long long> next(static_cast<std::size_t>(i) + 1);
+        std::vector<BigInt> next(static_cast<std::size_t>(i) + 1);
         next[0] = row.back();
         for (long long j = 1; j <= i; ++j) {
-            long long s = 0;
-            if (__builtin_add_overflow(next[static_cast<std::size_t>(j - 1)],
-                                       row[static_cast<std::size_t>(j - 1)], &s))
-                throw OverflowError{"bell overflows the 64-bit range"};
-            next[static_cast<std::size_t>(j)] = s;
+            next[static_cast<std::size_t>(j)] =
+                next[static_cast<std::size_t>(j - 1)] + row[static_cast<std::size_t>(j - 1)];
         }
         row = std::move(next);
     }
     return row[0];
 }
 
-long long derangement_count(long long n) {
+BigInt derangement_count(long long n) {
     if (n < 0) throw EvalError{"derangement is defined for n >= 0"};
+    if (n > 50000) throw EvalError{"derangement argument too large (max 50000)"};
     // !n = (n-1)·(!(n-1) + !(n-2)), rolled forward with two running values.
-    // !0 = 1, !1 = 0. Overflow-guarded (D(n) ~ n!/e leaves int64 near n = 21).
-    if (n == 0) return 1;
-    long long prev2 = 1; // !(k-2), starting at !0
-    long long prev1 = 0; // !(k-1), starting at !1
+    // !0 = 1, !1 = 0.
+    if (n == 0) return BigInt(1);
+    BigInt prev2(1); // !(k-2), starting at !0
+    BigInt prev1(0); // !(k-1), starting at !1
     for (long long k = 2; k <= n; ++k) {
-        long long sum = 0;
-        long long term = 0;
-        if (__builtin_add_overflow(prev1, prev2, &sum) ||
-            __builtin_mul_overflow(k - 1, sum, &term))
-            throw OverflowError{"derangement overflows the 64-bit range"};
-        prev2 = prev1;
-        prev1 = term;
+        BigInt term = BigInt(k - 1) * (prev1 + prev2);
+        prev2 = std::move(prev1);
+        prev1 = std::move(term);
     }
     return prev1;
 }
 
-long long lucas_number(long long n) {
+BigInt lucas_number(long long n) {
     if (n < 0) throw EvalError{"lucas is defined for n >= 0"};
-    // L(0) = 2, L(1) = 1, L(n) = L(n-1) + L(n-2); overflow-guarded (L(n) ~ φ^n
-    // leaves int64 near n = 91).
-    long long prev2 = 2; // L(0)
-    long long prev1 = 1; // L(1)
+    if (n > 200000) throw EvalError{"lucas argument too large (max 200000)"};
+    // L(0) = 2, L(1) = 1, L(n) = L(n-1) + L(n-2).
+    BigInt prev2(2); // L(0)
+    BigInt prev1(1); // L(1)
     if (n == 0) return prev2;
     for (long long k = 2; k <= n; ++k) {
-        long long next = 0;
-        if (__builtin_add_overflow(prev1, prev2, &next))
-            throw OverflowError{"lucas overflows the 64-bit range"};
-        prev2 = prev1;
-        prev1 = next;
+        BigInt next = prev1 + prev2;
+        prev2 = std::move(prev1);
+        prev1 = std::move(next);
     }
     return prev1;
 }
 
-long long primorial(long long n) {
+BigInt primorial(long long n) {
     if (n < 0) throw EvalError{"primorial is defined for n >= 0"};
-    // Product of all primes p <= n, overflow-guarded (52# is the largest that
-    // fits int64; 53# overflows).
-    long long acc = 1;
+    if (n > 200000) throw EvalError{"primorial argument too large (max 200000)"};
+    // Product of all primes p <= n.
+    BigInt acc(1);
     for (long long p = 2; p <= n; ++p) {
         if (!is_prime(p)) continue;
-        if (__builtin_mul_overflow(acc, p, &acc))
-            throw OverflowError{"primorial overflows the 64-bit range"};
+        acc *= BigInt(p);
     }
     return acc;
 }
 
-long long motzkin_number(long long n) {
+BigInt motzkin_number(long long n) {
     if (n < 0) throw EvalError{"motzkin is defined for n >= 0"};
-    if (n < 2) return 1; // M(0) = M(1) = 1
-    // (k+2)·M(k) = (2k+1)·M(k-1) + 3(k-1)·M(k-2), an exact division at each
-    // step. A 128-bit intermediate holds the sum before the divide (it can
-    // exceed int64 near the overflow edge); the result is range-checked so we
-    // throw rather than wrap. M(44) is the largest that fits.
-    long long prev2 = 1; // M(k-2), starting at M(0)
-    long long prev1 = 1; // M(k-1), starting at M(1)
+    if (n > 50000) throw EvalError{"motzkin argument too large (max 50000)"};
+    if (n < 2) return BigInt(1); // M(0) = M(1) = 1
+    // (k+2)·M(k) = (2k+1)·M(k-1) + 3(k-1)·M(k-2), an exact division at each step.
+    BigInt prev2(1); // M(k-2), starting at M(0)
+    BigInt prev1(1); // M(k-1), starting at M(1)
     for (long long k = 2; k <= n; ++k) {
-        const __int128 num = static_cast<__int128>(2 * k + 1) * prev1 +
-                             static_cast<__int128>(3 * (k - 1)) * prev2;
-        const __int128 m = num / (k + 2);
-        if (m > static_cast<__int128>(INT64_MAX))
-            throw OverflowError{"motzkin overflows the 64-bit range"};
-        prev2 = prev1;
-        prev1 = static_cast<long long>(m);
+        const BigInt num = BigInt(2 * k + 1) * prev1 + BigInt(3 * (k - 1)) * prev2;
+        BigInt m = num / BigInt(k + 2); // exact
+        prev2 = std::move(prev1);
+        prev1 = std::move(m);
     }
     return prev1;
 }
 
-long long euler_number(long long n) {
+BigInt euler_number(long long n) {
     if (n < 0) throw EvalError{"euler is defined for n >= 0"};
-    if (n % 2 == 1) return 0; // odd-indexed Euler numbers vanish
+    if (n > 2000) throw EvalError{"euler argument too large (max 2000)"};
+    if (n % 2 == 1) return BigInt(0); // odd-indexed Euler numbers vanish
     // Boustrophedon (Seidel) triangle for the zigzag numbers A(n): each row is
     // read in the opposite direction to the last, accumulating prefix sums.
-    // |E(2m)| = A(2m); the sign is (-1)^m. Overflow-guarded (E(22) is the
-    // largest in magnitude that fits int64).
-    std::vector<long long> row{1}; // n = 0 row
-    long long an = 1;              // A(0)
+    // |E(2m)| = A(2m); the sign is (-1)^m.
+    std::vector<BigInt> row{BigInt(1)}; // n = 0 row
+    BigInt an(1);                       // A(0)
     for (long long i = 1; i <= n; ++i) {
-        std::vector<long long> next(static_cast<std::size_t>(i) + 1, 0);
+        std::vector<BigInt> next(static_cast<std::size_t>(i) + 1);
         if (i % 2 == 1) { // left to right
             for (long long k = 1; k <= i; ++k) {
-                long long s = 0;
-                if (__builtin_add_overflow(next[static_cast<std::size_t>(k - 1)],
-                                           row[static_cast<std::size_t>(k - 1)], &s))
-                    throw OverflowError{"euler overflows the 64-bit range"};
-                next[static_cast<std::size_t>(k)] = s;
+                next[static_cast<std::size_t>(k)] =
+                    next[static_cast<std::size_t>(k - 1)] + row[static_cast<std::size_t>(k - 1)];
             }
             an = next[static_cast<std::size_t>(i)];
         } else { // right to left, then reverse into place
-            std::vector<long long> r(static_cast<std::size_t>(i) + 1, 0);
+            std::vector<BigInt> r(static_cast<std::size_t>(i) + 1);
             for (long long k = 1; k <= i; ++k) {
-                long long s = 0;
-                if (__builtin_add_overflow(r[static_cast<std::size_t>(k - 1)],
-                                           row[static_cast<std::size_t>(i - k)], &s))
-                    throw OverflowError{"euler overflows the 64-bit range"};
-                r[static_cast<std::size_t>(k)] = s;
+                r[static_cast<std::size_t>(k)] =
+                    r[static_cast<std::size_t>(k - 1)] + row[static_cast<std::size_t>(i - k)];
             }
             for (long long k = 0; k <= i; ++k)
                 next[static_cast<std::size_t>(k)] = r[static_cast<std::size_t>(i - k)];
@@ -396,59 +372,49 @@ long long euler_number(long long n) {
     return (n / 2) % 2 == 0 ? an : -an;
 }
 
-long long tribonacci_number(long long n) {
+BigInt tribonacci_number(long long n) {
     if (n < 0) throw EvalError{"tribonacci is defined for n >= 0"};
-    // T(0) = T(1) = 0, T(2) = 1, T(n) = T(n-1) + T(n-2) + T(n-3), rolled
-    // forward with three running values and overflow-guarded (T(74) is the
-    // largest that fits int64).
-    long long a = 0; // T(k-3)
-    long long b = 0; // T(k-2)
-    long long c = 1; // T(k-1), seeded at T(2)
-    if (n < 2) return 0;
-    if (n == 2) return 1;
+    if (n > 200000) throw EvalError{"tribonacci argument too large (max 200000)"};
+    // T(0) = T(1) = 0, T(2) = 1, T(n) = T(n-1) + T(n-2) + T(n-3).
+    if (n < 2) return BigInt(0);
+    if (n == 2) return BigInt(1);
+    BigInt a(0); // T(k-3)
+    BigInt b(0); // T(k-2)
+    BigInt c(1); // T(k-1), seeded at T(2)
     for (long long k = 3; k <= n; ++k) {
-        long long t = 0;
-        if (__builtin_add_overflow(a, b, &t) || __builtin_add_overflow(t, c, &t))
-            throw OverflowError{"tribonacci overflows the 64-bit range"};
-        a = b;
-        b = c;
-        c = t;
+        BigInt t = a + b + c;
+        a = std::move(b);
+        b = std::move(c);
+        c = std::move(t);
     }
     return c;
 }
 
-long long pell_number(long long n) {
+BigInt pell_number(long long n) {
     if (n < 0) throw EvalError{"pell is defined for n >= 0"};
-    // P(0) = 0, P(1) = 1, P(n) = 2*P(n-1) + P(n-2), rolled forward with two
-    // running values and overflow-guarded (P(50) is the largest that fits
-    // int64; P(51) overflows).
-    long long a = 0; // P(k-1)
-    long long b = 1; // P(k)
-    if (n == 0) return 0;
+    if (n > 200000) throw EvalError{"pell argument too large (max 200000)"};
+    // P(0) = 0, P(1) = 1, P(n) = 2*P(n-1) + P(n-2).
+    if (n == 0) return BigInt(0);
+    BigInt a(0); // P(k-1)
+    BigInt b(1); // P(k)
     for (long long k = 1; k < n; ++k) {
-        long long t = 0;
-        if (__builtin_mul_overflow(b, 2LL, &t) || __builtin_add_overflow(t, a, &t))
-            throw OverflowError{"pell overflows the 64-bit range"};
-        a = b;
-        b = t;
+        BigInt t = b * BigInt(2) + a;
+        a = std::move(b);
+        b = std::move(t);
     }
     return b;
 }
 
-long long catalan_number(long long n) {
+BigInt catalan_number(long long n) {
     if (n < 0) throw EvalError{"catalan is defined for n >= 0"};
+    if (n > 50000) throw EvalError{"catalan argument too large (max 50000)"};
     // Iterate C(k+1) = C(k)·2(2k+1)/(k+2) — an exact division at every step
-    // (each Catalan number is integral). A 128-bit intermediate keeps the
-    // product from overflowing before the divide; the final value is then
-    // range-checked so we throw rather than wrap.
-    unsigned __int128 c = 1;
+    // (each Catalan number is integral).
+    BigInt c(1);
     for (long long k = 0; k < n; ++k) {
-        c = c * static_cast<unsigned long long>(2 * (2 * k + 1)) /
-            static_cast<unsigned long long>(k + 2);
-        if (c > static_cast<unsigned long long>(INT64_MAX))
-            throw OverflowError{"catalan overflows the 64-bit range"};
+        c = c * BigInt(2 * (2 * k + 1)) / BigInt(k + 2); // exact
     }
-    return static_cast<long long>(c);
+    return c;
 }
 
 long long int_mod(long long a, long long m) {

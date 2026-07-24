@@ -144,7 +144,7 @@ check("partitions of 10", ms.partitions("10"), (r) => r.ok && r.plain === "42", 
 check("partitions of 100", ms.partitions("100"), (r) => r.ok && r.plain === "190569292", "p(100)");
 check("partitions error negative", ms.partitions("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
 check("catalan of 10", ms.catalan("10"), (r) => r.ok && r.plain === "16796", "C(10)=16796");
-check("catalan error overflow", ms.catalan("40"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+check("catalan C(40) big", ms.catalan("40"), (r) => r.ok && r.plain === "2622127042276492108820", "arbitrary precision");
 // bernoulli numbers as exact rationals
 check("bernoulli B_2", ms.bernoulli("2"), (r) => r.ok && r.plain === "1/6", "B_2=1/6");
 check("bernoulli B_1 convention", ms.bernoulli("1"), (r) => r.ok && r.plain === "-1/2", "B_1=-1/2");
@@ -164,43 +164,43 @@ check("derangement !4", ms.derangement("4"), (r) => r.ok && r.plain === "9", "!4
 check("derangement !10", ms.derangement("10"), (r) => r.ok && r.plain === "1334961", "!10=1334961");
 check("derangement !0", ms.derangement("0"), (r) => r.ok && r.plain === "1", "!0=1");
 check("derangement error negative", ms.derangement("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
-check("derangement error overflow", ms.derangement("21"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+check("derangement !21 big", ms.derangement("21"), (r) => r.ok && r.plain === "18795307255050944540", "arbitrary precision");
 // lucas numbers L(n)
 check("lucas L(0)", ms.lucas("0"), (r) => r.ok && r.plain === "2", "L(0)=2");
 check("lucas L(10)", ms.lucas("10"), (r) => r.ok && r.plain === "123", "L(10)=123");
 check("lucas L(20)", ms.lucas("20"), (r) => r.ok && r.plain === "15127", "L(20)=15127");
 check("lucas error negative", ms.lucas("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
-check("lucas error overflow", ms.lucas("91"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+check("lucas L(91) big", ms.lucas("91"), (r) => r.ok && r.plain === "10420180999117162549", "arbitrary precision");
 // primorial n# (product of primes ≤ n)
 check("primorial 7#", ms.primorial("7"), (r) => r.ok && r.plain === "210", "7#=210");
 check("primorial 13#", ms.primorial("13"), (r) => r.ok && r.plain === "30030", "13#=30030");
 check("primorial 10# = 7#", ms.primorial("10"), (r) => r.ok && r.plain === "210", "no prime in (7,10]");
 check("primorial error negative", ms.primorial("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
-check("primorial error overflow", ms.primorial("53"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+check("primorial 53# big", ms.primorial("53"), (r) => r.ok && r.plain === "32589158477190044730", "arbitrary precision");
 // motzkin numbers M(n)
 check("motzkin M(6)", ms.motzkin("6"), (r) => r.ok && r.plain === "51", "M(6)=51");
 check("motzkin M(10)", ms.motzkin("10"), (r) => r.ok && r.plain === "2188", "M(10)=2188");
 check("motzkin M(20)", ms.motzkin("20"), (r) => r.ok && r.plain === "50852019", "M(20)");
 check("motzkin error negative", ms.motzkin("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
-check("motzkin error overflow", ms.motzkin("45"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+check("motzkin M(45) big", ms.motzkin("45"), (r) => r.ok && r.plain === "13603677110519480289", "arbitrary precision");
 // euler (secant) numbers E(n)
 check("euler E(6)", ms.euler("6"), (r) => r.ok && r.plain === "-61", "E(6)=-61");
 check("euler E(8)", ms.euler("8"), (r) => r.ok && r.plain === "1385", "E(8)=1385");
 check("euler odd vanishes", ms.euler("7"), (r) => r.ok && r.plain === "0", "E(7)=0");
 check("euler error negative", ms.euler("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
-check("euler error overflow", ms.euler("24"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+check("euler E(24) big", ms.euler("24"), (r) => r.ok && r.plain === "15514534163557086905", "arbitrary precision");
 // tribonacci numbers T(n)
 check("tribonacci T(10)", ms.tribonacci("10"), (r) => r.ok && r.plain === "81", "T(10)=81");
 check("tribonacci T(20)", ms.tribonacci("20"), (r) => r.ok && r.plain === "35890", "T(20)=35890");
 check("tribonacci T(2)", ms.tribonacci("2"), (r) => r.ok && r.plain === "1", "T(2)=1");
 check("tribonacci error negative", ms.tribonacci("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
-check("tribonacci error overflow", ms.tribonacci("75"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+check("tribonacci T(75) big", ms.tribonacci("75"), (r) => r.ok && r.plain === "12903063846126135669", "arbitrary precision");
 // pell numbers P(n)
 check("pell P(2)", ms.pell("2"), (r) => r.ok && r.plain === "2", "P(2)=2");
 check("pell P(10)", ms.pell("10"), (r) => r.ok && r.plain === "2378", "P(10)=2378");
 check("pell P(20)", ms.pell("20"), (r) => r.ok && r.plain === "15994428", "P(20)=15994428");
 check("pell error negative", ms.pell("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
-check("pell error overflow", ms.pell("51"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+check("pell P(51) big", ms.pell("51"), (r) => r.ok && r.plain === "11749380235262596085", "arbitrary precision");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

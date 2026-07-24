@@ -5,6 +5,17 @@ per-feature specs are under docs/proposals/.
 
 ## Unreleased (v0.6)
 
+### Changed
+
+- **Combinatorial sequence verbs are now arbitrary precision.** `partitions`,
+  `catalan`, `stirling2`, `bell`, `derangement`, `lucas`, `primorial`,
+  `motzkin`, `euler`, `tribonacci`, and `pell` no longer stop at the 64-bit
+  boundary — they compute exact values of any size (`catalan 100`,
+  `pell 200`, `bell 50`, …). Built on a new internal arbitrary-precision
+  integer type (Phase 2 of docs/proposals/bigint.md). A generous per-verb
+  compute guard replaces the old overflow error, so only genuinely enormous
+  inputs are declined. CLI and console alike.
+
 ### Fixed
 
 - **Console — Cookbook no longer crashes on open.** Expanding the "Session

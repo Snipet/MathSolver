@@ -177,7 +177,9 @@ TEST_CASE("integer partition function p(n)") {
     CHECK(partition_count(10) == 42);
     CHECK(partition_count(100) == 190569292);
     CHECK_THROWS_AS(partition_count(-1), EvalError);
-    CHECK_THROWS_AS(partition_count(1000000), OverflowError); // beyond int64
+    // Arbitrary precision: p(1000) is exact, far beyond int64.
+    CHECK(partition_count(1000) == BigInt("24061467864032622473692149727991"));
+    CHECK_THROWS_AS(partition_count(20001), EvalError); // compute guard
 }
 
 TEST_CASE("Stirling numbers of the second kind") {
@@ -191,7 +193,10 @@ TEST_CASE("Stirling numbers of the second kind") {
     CHECK(stirling_second(6, 3) == 90);
     CHECK(stirling_second(3, 5) == 0);   // k > n
     CHECK_THROWS_AS(stirling_second(-1, 0), EvalError);
-    CHECK_THROWS_AS(stirling_second(200, 100), OverflowError);
+    // Arbitrary precision: S(200, 100) is exact, far beyond int64.
+    CHECK(stirling_second(200, 100) ==
+          BigInt("2283943596473854926494186023981050257599257601238577334618926128114625773649859560873689656807578061558677832404485591735394159623463212267910289858070088234410209458409430330345615635450585241866631706977579545278456032333350189907556"));
+    CHECK_THROWS_AS(stirling_second(2001, 1), EvalError); // compute guard
 }
 
 TEST_CASE("Bell numbers") {
@@ -204,11 +209,14 @@ TEST_CASE("Bell numbers") {
     CHECK(bell_number(6) == 203);
     CHECK(bell_number(10) == 115975);
     // B(n) = Σ_k S(n, k).
-    long long s = 0;
+    BigInt s;
     for (long long k = 0; k <= 7; ++k) s += stirling_second(7, k);
     CHECK(s == bell_number(7)); // 877
     CHECK_THROWS_AS(bell_number(-1), EvalError);
-    CHECK_THROWS_AS(bell_number(100), OverflowError);
+    // Arbitrary precision: B(100) is exact, far beyond int64.
+    CHECK(bell_number(100) ==
+          BigInt("47585391276764833658790768841387207826363669686825611466616334637559114497892442622672724044217756306953557882560751"));
+    CHECK_THROWS_AS(bell_number(2001), EvalError); // compute guard
 }
 
 TEST_CASE("Derangements (subfactorial)") {
@@ -227,8 +235,10 @@ TEST_CASE("Derangements (subfactorial)") {
     }
     // !20 is the largest derangement number fitting in a signed 64-bit int.
     CHECK(derangement_count(20) == 895014631192902121LL);
+    // Arbitrary precision: !30 is exact, far beyond int64.
+    CHECK(derangement_count(30) == BigInt("97581073836835777732377428235481"));
     CHECK_THROWS_AS(derangement_count(-1), EvalError);
-    CHECK_THROWS_AS(derangement_count(21), OverflowError);
+    CHECK_THROWS_AS(derangement_count(50001), EvalError); // compute guard
 }
 
 TEST_CASE("Lucas numbers") {
@@ -245,8 +255,10 @@ TEST_CASE("Lucas numbers") {
         CHECK(lucas_number(n) == lucas_number(n - 1) + lucas_number(n - 2));
     // L(90) is the largest Lucas number fitting in a signed 64-bit int.
     CHECK(lucas_number(90) == 6440026026380244498LL);
+    // Arbitrary precision: L(100) is exact, far beyond int64.
+    CHECK(lucas_number(100) == BigInt("792070839848372253127"));
     CHECK_THROWS_AS(lucas_number(-1), EvalError);
-    CHECK_THROWS_AS(lucas_number(91), OverflowError);
+    CHECK_THROWS_AS(lucas_number(200001), EvalError); // compute guard
 }
 
 TEST_CASE("Primorial") {
@@ -259,12 +271,13 @@ TEST_CASE("Primorial") {
     CHECK(primorial(10) == 210);  // no prime in (7, 10]
     CHECK(primorial(11) == 2310);
     CHECK(primorial(13) == 30030);
-    // 52# is the largest primorial fitting in a signed 64-bit int (= 47#, since
-    // there is no prime in (47, 52]); 53# overflows.
+    // 47# = 52# (there is no prime in (47, 52]) is the last that fit int64.
     CHECK(primorial(47) == 614889782588491410LL);
     CHECK(primorial(52) == 614889782588491410LL);
+    // Arbitrary precision: 100# is exact, far beyond int64.
+    CHECK(primorial(100) == BigInt("2305567963945518424753102147331756070"));
     CHECK_THROWS_AS(primorial(-1), EvalError);
-    CHECK_THROWS_AS(primorial(53), OverflowError);
+    CHECK_THROWS_AS(primorial(200001), EvalError); // compute guard
 }
 
 TEST_CASE("Motzkin numbers") {
@@ -290,8 +303,10 @@ TEST_CASE("Motzkin numbers") {
     for (int nn = 0; nn <= 20; ++nn) CHECK(motzkin_number(nn) == m[nn]);
     // M(44) is the largest Motzkin number fitting in a signed 64-bit int.
     CHECK(motzkin_number(44) == 4684478925507420069LL);
+    // Arbitrary precision: M(50) is exact, far beyond int64.
+    CHECK(motzkin_number(50) == BigInt("2837208756709314025578"));
     CHECK_THROWS_AS(motzkin_number(-1), EvalError);
-    CHECK_THROWS_AS(motzkin_number(45), OverflowError);
+    CHECK_THROWS_AS(motzkin_number(50001), EvalError); // compute guard
 }
 
 TEST_CASE("Euler numbers") {
@@ -307,8 +322,10 @@ TEST_CASE("Euler numbers") {
     for (long long n = 1; n <= 21; n += 2) CHECK(euler_number(n) == 0);
     // E(22) is the largest-magnitude Euler number fitting a signed 64-bit int.
     CHECK(euler_number(22) == -69348874393137901LL);
+    // Arbitrary precision: E(30) is exact, far beyond int64 (and signed).
+    CHECK(euler_number(30) == BigInt("-441543893249023104553682821"));
     CHECK_THROWS_AS(euler_number(-1), EvalError);
-    CHECK_THROWS_AS(euler_number(24), OverflowError);
+    CHECK_THROWS_AS(euler_number(2001), EvalError); // compute guard
 }
 
 TEST_CASE("Tribonacci numbers") {
@@ -321,8 +338,10 @@ TEST_CASE("Tribonacci numbers") {
                                           tribonacci_number(n - 3));
     // T(74) is the largest tribonacci number fitting in a signed 64-bit int.
     CHECK(tribonacci_number(74) == 7015254043203144209LL);
+    // Arbitrary precision: T(100) is exact, far beyond int64.
+    CHECK(tribonacci_number(100) == BigInt("53324762928098149064722658"));
     CHECK_THROWS_AS(tribonacci_number(-1), EvalError);
-    CHECK_THROWS_AS(tribonacci_number(75), OverflowError);
+    CHECK_THROWS_AS(tribonacci_number(200001), EvalError); // compute guard
 }
 
 TEST_CASE("Pell numbers") {
@@ -333,8 +352,10 @@ TEST_CASE("Pell numbers") {
         CHECK(pell_number(n) == 2 * pell_number(n - 1) + pell_number(n - 2));
     // P(50) is the largest Pell number fitting in a signed 64-bit int.
     CHECK(pell_number(50) == 4866752642924153522LL);
+    // Arbitrary precision: P(100) is exact, far beyond int64.
+    CHECK(pell_number(100) == BigInt("66992092050551637663438906713182313772"));
     CHECK_THROWS_AS(pell_number(-1), EvalError);
-    CHECK_THROWS_AS(pell_number(51), OverflowError);
+    CHECK_THROWS_AS(pell_number(200001), EvalError); // compute guard
 }
 
 TEST_CASE("Catalan numbers") {
@@ -347,8 +368,10 @@ TEST_CASE("Catalan numbers") {
     CHECK(catalan_number(10) == 16796);
     // C(35) is the largest Catalan number fitting in a signed 64-bit integer.
     CHECK(catalan_number(35) == 3116285494907301262LL);
+    // Arbitrary precision: C(50) is exact, far beyond int64.
+    CHECK(catalan_number(50) == BigInt("1978261657756160653623774456"));
     CHECK_THROWS_AS(catalan_number(-1), EvalError);
-    CHECK_THROWS_AS(catalan_number(40), OverflowError);
+    CHECK_THROWS_AS(catalan_number(50001), EvalError); // compute guard
 }
 
 TEST_CASE("next/prev prime and Euclidean mod") {
