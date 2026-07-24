@@ -837,6 +837,45 @@ try {
     );
   }
 
+  // Reorder rows: the ▲/▼ controls move a row up/down; disabled at the ends.
+  {
+    await page.evaluate(() => {
+      localStorage.clear();
+      localStorage.setItem(
+        "mathsolver.graph",
+        JSON.stringify({
+          rows: [
+            { text: "y=x", color: "#2563eb", visible: true },
+            { text: "y=x^2", color: "#dc2626", visible: true },
+          ],
+          view: { cx: 0, cy: 0, scale: 40 },
+        }),
+      );
+    });
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    const order = () =>
+      page.evaluate(() =>
+        JSON.parse(localStorage.getItem("mathsolver.graph")).rows.map((r) => r.text),
+      );
+    const before = await order();
+    const topUpDisabled = await page.$eval(
+      '.calc .rows .row:first-child button[title="Move up"]',
+      (b) => b.disabled,
+    );
+    check("first row's move-up is disabled", topUpDisabled && before[0] === "y=x", JSON.stringify(before));
+
+    await page.click('.calc .rows .row:first-child button[title="Move down"]');
+    await new Promise((r) => setTimeout(r, 300));
+    const after = await order();
+    check(
+      "move-down reorders the rows",
+      after[0] === "y=x^2" && after[1] === "y=x",
+      JSON.stringify(after),
+    );
+  }
+
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 } catch (e) {
