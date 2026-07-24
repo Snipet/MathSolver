@@ -567,6 +567,17 @@ void run_bezout(const std::string& a, const std::string& b,
     std::println("t: {}", to_string(r.t, style));
 }
 
+/// `companion`: the companion matrix of a univariate polynomial (MATLAB
+/// `compan` orientation), whose eigenvalues are the polynomial's roots.
+void run_companion(const std::string& input, const std::string& explicit_var,
+                   PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "companion");
+    const CompanionResult r = companion_matrix(e, var);
+    if (r.status != CompanionResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", mat_to_string(r.matrix, style));
+}
+
 /// `discriminant`: the discriminant of a polynomial (degree 2–4), symbolic
 /// coefficients kept symbolic; the variable is inferred like diff when omitted.
 void run_discriminant(const std::string& input, const std::string& explicit_var,
@@ -1629,7 +1640,8 @@ bool is_known_subcommand(std::string_view s) {
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
            s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
            s == "polydiv" || s == "polygcd" || s == "polylcm" ||
-           s == "resultant" || s == "bezout" || s == "logexpand" || s == "logcombine";
+           s == "resultant" || s == "bezout" || s == "companion" ||
+           s == "logexpand" || s == "logcombine";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1925,6 +1937,15 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_discriminant(input, positionals.size() > 1 ? positionals[1] : "",
                              style);
+        } else if (sub == "companion") {
+            if (positionals.size() > 2) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver companion "
+                    "\"<polynomial>\" [var])",
+                    positionals[2])};
+            }
+            run_companion(input, positionals.size() > 1 ? positionals[1] : "",
+                          style);
         } else if (sub == "dsolve") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -2015,6 +2036,7 @@ void print_repl_help() {
         "  polygcd <a>, <b>[, <var>]   polylcm <a>, <b>[, <var>]   monic gcd/lcm\n"
         "  resultant <a>, <b>[, <var>]            0 iff a shared root\n"
         "  bezout <a>, <b>[, <var>]               gcd + cofactors s·a + t·b = gcd\n"
+        "  companion <polynomial>[, <var>]        companion matrix (roots = eigenvalues)\n"
         "  fit <x,y; x,y; ...> [| <model> [<degree>]]  least-squares regression\n"
         "  interp <x,y; x,y; ...>                 exact polynomial through the points\n"
         "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
@@ -2081,7 +2103,8 @@ bool is_repl_command(std::string_view word) {
            word == "divisors" || word == "totient" || word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
            word == "crt" || word == "discriminant" || word == "polydiv" ||
-           word == "polygcd" || word == "polylcm" || word == "resultant";
+           word == "polygcd" || word == "polylcm" || word == "resultant" ||
+           word == "companion";
 }
 
 // ---------------------------------------------------------------------------
@@ -2866,6 +2889,21 @@ void repl_command(const std::string& command, const std::string& rest,
             resolve_expr(parse_expression_diag(input), env, excluded),
             PrintStyle::Plain);
         run_discriminant(resolved, var, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "companion") {
+        // companion <polynomial>[, <var>]
+        if (parts.size() > 2) {
+            throw UsageError{"usage: companion <polynomial>[, <variable>]"};
+        }
+        const std::string var = parts.size() > 1 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
+        run_companion(resolved, var, PrintStyle::Plain);
         warn_assigned_variable(var, env);
     } else if (command == "polydiv") {
         // polydiv <dividend>, <divisor>[, <var>]

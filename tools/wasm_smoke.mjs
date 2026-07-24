@@ -114,6 +114,13 @@ check("orthopoly error bad family", ms.orthopoly("wiggle", 3, "x"), (r) => !r.ok
 check("bezout shared factor", ms.bezout("x^2 - 1", "x^3 - 1", "x"), (r) => r.ok && r.plain === "x - 1" && r.notes.some((n) => n === "s = -x") && r.notes.some((n) => n === "t = 1"), "gcd x-1 with cofactors");
 check("bezout coprime → gcd 1", ms.bezout("x^2 + 1", "x - 1", "x"), (r) => r.ok && r.plain === "1" && r.notes.length === 2, "coprime gcd 1");
 check("bezout error non-poly", ms.bezout("sin(x)", "x", "x"), (r) => !r.ok && r.error.includes("polynomial"), "non-polynomial rejected");
+// companion — companion matrix of a polynomial (MATLAB compan orientation)
+check("companion quadratic", ms.companion("x^2 - 3x + 2", "x"), (r) => r.ok && r.plain === "[3, -2; 1, 0]" && r.latex.includes("pmatrix"), "[3,-2;1,0]");
+check("companion normalizes leading coeff", ms.companion("2x^2 + 4x - 6", "x"), (r) => r.ok && r.plain === "[-2, 3; 1, 0]", "monic-normalized");
+check("companion cubic subdiagonal", ms.companion("x^3 - 1", "x"), (r) => r.ok && r.plain === "[0, 0, 1; 1, 0, 0; 0, 1, 0]", "subdiagonal ones");
+check("companion infers single variable", ms.companion("t^2 - 5t + 6", ""), (r) => r.ok && r.plain === "[5, -6; 1, 0]", "var inferred");
+check("companion error degree 0", ms.companion("7", "x"), (r) => !r.ok && r.error.includes("degree"), "constant rejected");
+check("companion error non-poly", ms.companion("sin(x)", "x"), (r) => !r.ok && r.error.includes("polynomial"), "non-polynomial rejected");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

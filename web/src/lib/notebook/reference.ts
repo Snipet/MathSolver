@@ -277,6 +277,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "bezout x^2 - 1, x^3 - 1",
       },
       {
+        insert: "companion",
+        usage: "companion <polynomial>[, <var>]",
+        hint: "Companion matrix of a polynomial (its eigenvalues are the roots)",
+        example: "companion x^3 - 2x + 1",
+      },
+      {
         insert: "limit",
         usage: "limit <expr>, <var>, <point>[, left|right]",
         hint: "Limit at a point or ±inf (exact where possible)",

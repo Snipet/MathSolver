@@ -607,7 +607,9 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   `polygcd`/`polylcm` (monic polynomial GCD/LCM), `resultant` (zero iff two
   polynomials share a root), and `bezout` (the extended GCD — the monic gcd
   plus Bézout cofactors `s`, `t` with `s·a + t·b = gcd`, e.g.
-  `bezout x^2 - 1, x^3 - 1` → gcd `x - 1`, `s = -x`, `t = 1`). **`trigexpand`** expands trig of sums
+  `bezout x^2 - 1, x^3 - 1` → gcd `x - 1`, `s = -x`, `t = 1`), and `companion`
+  (the companion matrix of a polynomial, whose eigenvalues are its roots —
+  `companion x^2 - 3x + 2` → `[3, -2; 1, 0]`). **`trigexpand`** expands trig of sums
   and multiples into single angles (`sin(a+b)` → `sin(a)cos(b) + cos(a)sin(b)`,
   `cos(2x)` → `cos(x)² - sin(x)²`); **`trigreduce`** inverts it, turning
   products and powers back into multiple angles (`sin(x)²` → `1/2 - cos(2x)/2`,

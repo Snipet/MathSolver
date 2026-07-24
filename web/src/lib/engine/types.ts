@@ -325,6 +325,7 @@ export interface EngineApi {
   polylcm: [[a: string, b: string, variable: string], TransformResult];
   resultant: [[a: string, b: string, variable: string], TransformResult];
   bezout: [[a: string, b: string, variable: string], TransformResult];
+  companion: [[poly: string, variable: string], TransformResult];
   solveIneq: [[lhs: string, rhs: string, op: string, variable: string], TransformResult];
   mod: [[args: string], TransformResult];
   powmod: [[args: string], TransformResult];
