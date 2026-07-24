@@ -82,6 +82,7 @@ interface PersistedRow {
 interface Persisted {
   rows: PersistedRow[];
   view: View;
+  showGrid?: boolean;
 }
 
 const FIT_MODELS: FitModelName[] = ["", "linear", "quadratic", "cubic", "exp", "power", "log"];
@@ -134,10 +135,10 @@ function normalizeRow(r: PersistedRow): ExprRow {
   };
 }
 
-function load(): { rows: ExprRow[]; view: View } {
+function load(): { rows: ExprRow[]; view: View; showGrid: boolean } {
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return { rows: [seedRow()], view: { ...DEFAULT_VIEW } };
+    if (!raw) return { rows: [seedRow()], view: { ...DEFAULT_VIEW }, showGrid: true };
     const p = JSON.parse(raw) as Partial<Persisted>;
     const rows: ExprRow[] = Array.isArray(p.rows)
       ? p.rows
@@ -150,9 +151,9 @@ function load(): { rows: ExprRow[]; view: View } {
       v && Number.isFinite(v.cx) && Number.isFinite(v.cy) && Number.isFinite(v.scale) && v.scale > 0
         ? { cx: v.cx, cy: v.cy, scale: v.scale }
         : { ...DEFAULT_VIEW };
-    return { rows: rows.length ? rows : [seedRow()], view };
+    return { rows: rows.length ? rows : [seedRow()], view, showGrid: p.showGrid !== false };
   } catch {
-    return { rows: [seedRow()], view: { ...DEFAULT_VIEW } };
+    return { rows: [seedRow()], view: { ...DEFAULT_VIEW }, showGrid: true };
   }
 }
 
@@ -163,11 +164,19 @@ function seedRow(): ExprRow {
 class GraphStore {
   rows = $state<ExprRow[]>([]);
   view = $state<View>({ ...DEFAULT_VIEW });
+  showGrid = $state(true);
 
   constructor() {
-    const { rows, view } = load();
+    const { rows, view, showGrid } = load();
     this.rows = rows;
     this.view = view;
+    this.showGrid = showGrid;
+  }
+
+  /** Toggle the background gridlines (axes and number labels are unaffected). */
+  toggleGrid(): void {
+    this.showGrid = !this.showGrid;
+    this.persist();
   }
 
   #nextColor(): string {
@@ -388,7 +397,11 @@ class GraphStore {
       this.#persistTimer = null;
     }
     try {
-      const data: Persisted = { rows: this.rows.map((r) => this.#rowSnapshot(r)), view: this.view };
+      const data: Persisted = {
+        rows: this.rows.map((r) => this.#rowSnapshot(r)),
+        view: this.view,
+        showGrid: this.showGrid,
+      };
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch {
       /* storage unavailable */

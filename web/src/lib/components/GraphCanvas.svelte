@@ -34,6 +34,8 @@
     labelOffsets?: Record<string, { dx: number; dy: number }>;
     /** Console/compact mode uses a shorter graph. */
     height?: number;
+    /** Draw the background gridlines (axes + number labels always show). */
+    showGrid?: boolean;
     onPointDragStart?: () => void;
     onPointDrag?: (rowId: number, coordIndex: number, wx: number, wy: number) => void;
     onPointCommit?: (rowId: number, coordIndex: number, wx: number, wy: number) => void;
@@ -48,6 +50,7 @@
     handles = {},
     labelOffsets = {},
     height = 0,
+    showGrid = true,
     onPointDragStart,
     onPointDrag,
     onPointCommit,
@@ -104,6 +107,7 @@
     void ghost;
     void labelDrag; // redraw the moving label live
     void labelOffsets; // and when a committed offset changes
+    void showGrid; // toggle the background grid
     const c = canvas;
     const w = width;
     const h = H;
@@ -145,15 +149,18 @@
     const majX = niceStep(xhi - xlo, Math.max(2, w / 90));
     const majY = niceStep(yhi - ylo, Math.max(2, h / 90));
 
-    // Minor gridlines (major / 5).
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = gridMinor;
-    ctx.globalAlpha = 0.5;
-    drawGrid(ctx, v, w, h, xlo, xhi, ylo, yhi, majX / 5, majY / 5);
-    // Major gridlines.
-    ctx.globalAlpha = 0.9;
-    drawGrid(ctx, v, w, h, xlo, xhi, ylo, yhi, majX, majY);
-    ctx.globalAlpha = 1;
+    // Background gridlines (optional; axes + number labels are drawn regardless).
+    if (showGrid) {
+      // Minor gridlines (major / 5).
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = gridMinor;
+      ctx.globalAlpha = 0.5;
+      drawGrid(ctx, v, w, h, xlo, xhi, ylo, yhi, majX / 5, majY / 5);
+      // Major gridlines.
+      ctx.globalAlpha = 0.9;
+      drawGrid(ctx, v, w, h, xlo, xhi, ylo, yhi, majX, majY);
+      ctx.globalAlpha = 1;
+    }
 
     // Axes: the x-axis (y=0) and y-axis (x=0), clamped to the edge when the
     // origin is off-screen so labels stay attached to the axis line.
