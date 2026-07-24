@@ -34,6 +34,9 @@ export interface ExprRow {
   weight: LineWeight;
   /** Optional text label drawn at the point(s) / along the curve (empty = off). */
   label: string;
+  /** Column names for table rows (display + copy headers; default x / y). */
+  xName?: string;
+  yName?: string;
   visible: boolean;
 }
 
@@ -63,6 +66,8 @@ interface PersistedRow {
   lineStyle?: string;
   weight?: string;
   label?: string;
+  xName?: string;
+  yName?: string;
   kind?: "expr" | "table";
   points?: DataPoint[];
   /** Loose `string` (not FitModelName) so decoded share data is assignable;
@@ -97,6 +102,12 @@ function withTrailingBlank(points: DataPoint[]): DataPoint[] {
   return points;
 }
 
+/** A column name: trimmed, length-capped, falling back to a default. */
+export function cleanColName(raw: unknown, fallback: string): string {
+  const s = typeof raw === "string" ? raw.slice(0, 16) : "";
+  return s.trim() === "" ? fallback : s;
+}
+
 function normalizeRow(r: PersistedRow): ExprRow {
   const kind = r.kind === "table" ? "table" : "expr";
   return {
@@ -109,6 +120,9 @@ function normalizeRow(r: PersistedRow): ExprRow {
     lineStyle: LINE_STYLES.includes(r.lineStyle as LineStyle) ? (r.lineStyle as LineStyle) : "solid",
     weight: LINE_WEIGHTS.includes(r.weight as LineWeight) ? (r.weight as LineWeight) : "normal",
     label: typeof r.label === "string" ? r.label.slice(0, 60) : "",
+    ...(kind === "table"
+      ? { xName: cleanColName(r.xName, "x"), yName: cleanColName(r.yName, "y") }
+      : {}),
     visible: r.visible !== false,
   };
 }
@@ -179,6 +193,8 @@ class GraphStore {
       lineStyle: "solid",
       weight: "normal",
       label: "",
+      xName: "x",
+      yName: "y",
       visible: true,
     };
     this.rows.push(row);
@@ -256,6 +272,14 @@ class GraphStore {
     r.label = label.slice(0, 60);
     this.persistSoon();
   }
+  /** Rename a table column (kept short; blank falls back to x/y on reload). */
+  setColName(id: number, axis: "x" | "y", name: string): void {
+    const r = this.rows.find((x) => x.id === id);
+    if (!r || r.kind !== "table") return;
+    if (axis === "x") r.xName = name.slice(0, 16);
+    else r.yName = name.slice(0, 16);
+    this.persistSoon();
+  }
   toggleVisible(id: number): void {
     const r = this.rows.find((x) => x.id === id);
     if (r) {
@@ -267,7 +291,7 @@ class GraphStore {
   #rowSnapshot(r: ExprRow): PersistedRow {
     const style = { lineStyle: r.lineStyle, weight: r.weight, label: r.label };
     return r.kind === "table"
-      ? { kind: "table", text: "", color: r.color, visible: r.visible, ...style, points: r.points.map((p) => ({ x: p.x, y: p.y })), fit: r.fit }
+      ? { kind: "table", text: "", color: r.color, visible: r.visible, ...style, points: r.points.map((p) => ({ x: p.x, y: p.y })), fit: r.fit, xName: r.xName ?? "x", yName: r.yName ?? "y" }
       : { text: r.text, color: r.color, visible: r.visible, ...style };
   }
 

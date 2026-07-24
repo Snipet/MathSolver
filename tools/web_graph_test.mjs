@@ -507,6 +507,49 @@ try {
     );
   }
 
+  // Data table: column names are editable + persisted, and the copy button
+  // exports tab-separated values (with the renamed header) to the clipboard.
+  {
+    await page.evaluate(() => {
+      localStorage.clear();
+      localStorage.setItem(
+        "mathsolver.graph",
+        JSON.stringify({
+          rows: [{ kind: "table", color: "#2563eb", visible: true, fit: "", points: [{ x: "1", y: "2" }, { x: "3", y: "4" }] }],
+          view: { cx: 0, cy: 0, scale: 40 },
+        }),
+      );
+      localStorage.setItem("mathsolver.mode", "graph");
+    });
+    await page.goto("about:blank");
+    await page.goto(url, { waitUntil: "networkidle0" });
+    await page.waitForSelector(".calc .head-name", { timeout: 8000 });
+    // Rename the x column to "time".
+    await page.evaluate(() => {
+      const inp = document.querySelector(".calc .head-name");
+      inp.value = "time";
+      inp.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await new Promise((r) => setTimeout(r, 400)); // debounced persist
+    const xName = await page.evaluate(
+      () => JSON.parse(localStorage.getItem("mathsolver.graph")).rows[0].xName,
+    );
+    check("renaming a table column persists", xName === "time", String(xName));
+
+    // Copy → TSV with the renamed header on the clipboard.
+    const tsv = await page.evaluate(async () => {
+      window.__copied = null;
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText: (t) => { window.__copied = t; return Promise.resolve(); } },
+        configurable: true,
+      });
+      document.querySelector(".calc .copy").click();
+      await new Promise((r) => setTimeout(r, 50));
+      return window.__copied;
+    });
+    check("copy exports TSV with the renamed header", tsv === "time\ty\n1\t2\n3\t4", JSON.stringify(tsv));
+  }
+
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 } catch (e) {
