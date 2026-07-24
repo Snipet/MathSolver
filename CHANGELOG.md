@@ -30,6 +30,12 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — click a traced point to copy its coordinate.** While the hover
+  trace is riding a curve (or snapped to a point of interest), a plain click on
+  it copies the coordinate — `(x, y)`, or the exact CAS form for a point of
+  interest — to the clipboard, with a brief "✓ copied" confirmation. A click
+  that pans, or one away from the marker, is unaffected.
+
 - **Grapher — a scannable sidebar reference.** The graph screen's wall-of-text
   tip is now a grouped, collapsible cheat-sheet: six categories (Functions &
   values, Sliders & animation, Sums/products & piecewise, Area & domain,

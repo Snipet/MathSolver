@@ -612,6 +612,35 @@ try {
     check("a coordinate readout appears on hover", readoutSeen);
   }
 
+  // Clicking the hover-trace marker copies the coordinate to the clipboard.
+  {
+    const box = await page.$eval(".calc .graph canvas", (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    });
+    await page.evaluate(() => {
+      window.__copied = null;
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText: (t) => { window.__copied = t; return Promise.resolve(); } },
+        configurable: true,
+      });
+    });
+    // The parabola's vertex sits at the canvas center (world (0,0)). Hover it so
+    // the trace attaches, then click (no drag) to copy.
+    const cx = box.x + box.w * 0.5;
+    const cy = box.y + box.h * 0.5;
+    await page.mouse.move(cx - 6, cy, { steps: 2 });
+    await page.mouse.move(cx, cy, { steps: 2 });
+    await new Promise((r) => setTimeout(r, 150));
+    await page.mouse.down();
+    await page.mouse.up();
+    await new Promise((r) => setTimeout(r, 150));
+    const copied = await page.evaluate(() => window.__copied);
+    check("clicking a traced point copies its coordinate", typeof copied === "string" && /^\(.*,.*\)$/.test(copied), String(copied));
+    const toast = await page.$eval(".calc .graph", (el) => !!el.querySelector(".copied-toast")).catch(() => false);
+    check("a 'copied' toast appears", toast);
+  }
+
   // Data table: column names are editable + persisted, and the copy button
   // exports tab-separated values (with the renamed header) to the clipboard.
   {

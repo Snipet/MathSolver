@@ -4,7 +4,7 @@
   // multi-series rendering. Purely a view: it owns the viewport interaction
   // and drawing; the parent supplies already-sampled `series` and resamples
   // when `view` changes.
-  import { untrack } from "svelte";
+  import { untrack, onDestroy } from "svelte";
   import {
     type View,
     type DrawSeries,
@@ -547,6 +547,7 @@
     label: string,
     bg: string,
   ): void {
+    lastTraceHit = null;
     if (!cursor || dragging || pointDrag || labelDrag) return;
     type Hit = { px: number; py: number; x: number; y: number; color: string; label?: string };
 
@@ -610,6 +611,7 @@
 
     const best = poi ?? curve ?? vertex;
     if (!best) return;
+    lastTraceHit = { px: best.px, py: best.py, text: best.label ?? `(${fmtCoord(best.x)}, ${fmtCoord(best.y)})` };
     ctx.beginPath();
     ctx.arc(best.px, best.py, 4.5, 0, 2 * Math.PI);
     ctx.fillStyle = best.color;
@@ -677,9 +679,28 @@
 
   // --- pointer interaction ---------------------------------------------------
   let dragging = $state(false);
+  let panMoved = false; // did the current pan actually move (vs. a plain click)?
   let lastX = 0;
   let lastY = 0;
   const pointers = new Map<number, { x: number; y: number }>();
+  // The hover-trace marker's last screen position + coordinate text, so a click
+  // on it can copy the coordinate. Plain (non-reactive) — read on pointerup.
+  let lastTraceHit: { px: number; py: number; text: string } | null = null;
+  let clickHit: { px: number; py: number; text: string } | null = null; // captured at press
+  // Brief "copied (x, y)" confirmation toast.
+  let copiedToast = $state<string | null>(null);
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  async function copyCoord(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      copiedToast = text;
+    } catch {
+      return;
+    }
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => (copiedToast = null), 1400);
+  }
+  onDestroy(() => clearTimeout(copiedTimer));
   let pinchDist = 0;
 
   // Draggable-point state: the grabbed handle and a live ghost position drawn
@@ -815,6 +836,10 @@
         return; // do NOT arm pan
       }
       dragging = true;
+      panMoved = false;
+      // Capture the trace marker now — arming pan will blank lastTraceHit on the
+      // next redraw, so a plain click needs the hit as it was at press time.
+      clickHit = lastTraceHit;
       lastX = p.x;
       lastY = p.y;
     } else if (pointers.size === 2) {
@@ -871,6 +896,7 @@
       hoverLabel = !hoverPoint && hitLabel(p) !== null; // or over a draggable label
       return;
     }
+    panMoved = true;
     view = panned(view, p.x - lastX, p.y - lastY);
     lastX = p.x;
     lastY = p.y;
@@ -886,6 +912,15 @@
       onLabelMove?.(labelDrag.rowId, labelDrag.curDx, labelDrag.curDy);
       labelDrag = null;
     }
+    // A plain click (pan armed but never moved) on the hover-trace marker copies
+    // its coordinate to the clipboard.
+    if (dragging && !panMoved && !pointDrag && !labelDrag && clickHit) {
+      const q = localXY(e);
+      if (Math.hypot(clickHit.px - q.x, clickHit.py - q.y) < 22) {
+        void copyCoord(clickHit.text);
+      }
+    }
+    clickHit = null;
     if (pointers.size < 2) pinchDist = 0;
     if (pointers.size === 1) {
       // Lifting one finger of a pinch: reseat the pan anchor to the remaining
@@ -956,7 +991,7 @@
     bind:this={canvas}
     tabindex="0"
     style:cursor={cursorStyle}
-    aria-label="Interactive graph — drag or arrow keys to pan, scroll or +/- to zoom, 0 to reset, drag points to move them"
+    aria-label="Interactive graph — drag or arrow keys to pan, scroll or +/- to zoom, 0 to reset, drag points to move them, click a traced point to copy its coordinate"
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
@@ -982,6 +1017,10 @@
     <div class="readout" aria-hidden="true">
       ({fmtCoord(readout.x)}, {fmtCoord(readout.y)})
     </div>
+  {/if}
+
+  {#if copiedToast}
+    <div class="copied-toast" role="status">✓ copied {copiedToast}</div>
   {/if}
 </div>
 
@@ -1058,6 +1097,21 @@
     color: var(--fg-muted);
     background: color-mix(in srgb, var(--bg-panel) 82%, transparent);
     border: 1px solid var(--border);
+    border-radius: 999px;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .copied-toast {
+    position: absolute;
+    right: 0.6rem;
+    bottom: 0.6rem;
+    padding: 0.15rem 0.6rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--bg-panel) 90%, transparent);
+    border: 1px solid var(--accent);
     border-radius: 999px;
     pointer-events: none;
     white-space: nowrap;
