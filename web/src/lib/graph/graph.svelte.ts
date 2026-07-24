@@ -85,11 +85,18 @@ interface Persisted {
   showGrid?: boolean;
   /** Optional names drawn at the ends of the x- and y-axes. */
   axisLabels?: { x: string; y: string };
+  /** Optional title drawn centered at the top of the plot. */
+  title?: string;
 }
 
 /** An axis name: trimmed and length-capped; empty means "no label". */
 export function cleanAxisLabel(raw: unknown): string {
   return typeof raw === "string" ? raw.slice(0, 24) : "";
+}
+
+/** A graph title: trimmed and length-capped; empty means "no title". */
+export function cleanTitle(raw: unknown): string {
+  return typeof raw === "string" ? raw.slice(0, 60) : "";
 }
 
 function loadAxisLabels(raw: unknown): { x: string; y: string } {
@@ -147,11 +154,11 @@ function normalizeRow(r: PersistedRow): ExprRow {
   };
 }
 
-function load(): { rows: ExprRow[]; view: View; showGrid: boolean; axisLabels: { x: string; y: string } } {
+function load(): { rows: ExprRow[]; view: View; showGrid: boolean; axisLabels: { x: string; y: string }; title: string } {
   const emptyLabels = { x: "", y: "" };
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return { rows: [seedRow()], view: { ...DEFAULT_VIEW }, showGrid: true, axisLabels: emptyLabels };
+    if (!raw) return { rows: [seedRow()], view: { ...DEFAULT_VIEW }, showGrid: true, axisLabels: emptyLabels, title: "" };
     const p = JSON.parse(raw) as Partial<Persisted>;
     const rows: ExprRow[] = Array.isArray(p.rows)
       ? p.rows
@@ -164,9 +171,9 @@ function load(): { rows: ExprRow[]; view: View; showGrid: boolean; axisLabels: {
       v && Number.isFinite(v.cx) && Number.isFinite(v.cy) && Number.isFinite(v.scale) && v.scale > 0
         ? { cx: v.cx, cy: v.cy, scale: v.scale }
         : { ...DEFAULT_VIEW };
-    return { rows: rows.length ? rows : [seedRow()], view, showGrid: p.showGrid !== false, axisLabels: loadAxisLabels(p.axisLabels) };
+    return { rows: rows.length ? rows : [seedRow()], view, showGrid: p.showGrid !== false, axisLabels: loadAxisLabels(p.axisLabels), title: cleanTitle(p.title) };
   } catch {
-    return { rows: [seedRow()], view: { ...DEFAULT_VIEW }, showGrid: true, axisLabels: emptyLabels };
+    return { rows: [seedRow()], view: { ...DEFAULT_VIEW }, showGrid: true, axisLabels: emptyLabels, title: "" };
   }
 }
 
@@ -179,13 +186,15 @@ class GraphStore {
   view = $state<View>({ ...DEFAULT_VIEW });
   showGrid = $state(true);
   axisLabels = $state<{ x: string; y: string }>({ x: "", y: "" });
+  title = $state("");
 
   constructor() {
-    const { rows, view, showGrid, axisLabels } = load();
+    const { rows, view, showGrid, axisLabels, title } = load();
     this.rows = rows;
     this.view = view;
     this.showGrid = showGrid;
     this.axisLabels = axisLabels;
+    this.title = title;
   }
 
   /** Toggle the background gridlines (axes and number labels are unaffected). */
@@ -197,6 +206,12 @@ class GraphStore {
   /** Set the x- or y-axis name drawn at the axis end (empty string clears it). */
   setAxisLabel(axis: "x" | "y", text: string): void {
     this.axisLabels = { ...this.axisLabels, [axis]: text.slice(0, 24) };
+    this.persistSoon();
+  }
+
+  /** Set the graph title drawn at the top of the plot (empty string clears it). */
+  setTitle(text: string): void {
+    this.title = text.slice(0, 60);
     this.persistSoon();
   }
 
@@ -423,6 +438,7 @@ class GraphStore {
         view: this.view,
         showGrid: this.showGrid,
         axisLabels: this.axisLabels,
+        title: this.title,
       };
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch {

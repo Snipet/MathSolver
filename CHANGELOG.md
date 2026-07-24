@@ -30,6 +30,12 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — add a graph title.** The graph toolbar's **Labels** button (the
+  renamed **Axes** control) now also holds a **Title** field; the title draws
+  centered along the top of the plot and persists with the document — handy for
+  presentation graphs and before saving a PNG. The x- and y-axis name inputs
+  live in the same panel.
+
 - **Console — `primorial` n#.** `primorial n` is the product of all primes
   ≤ *n* (`primorial 7` → 210, `primorial 13` → 30030), built by folding the
   existing deterministic primality test. Exact over the 64-bit range (52# is
