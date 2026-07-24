@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, onDestroy } from "svelte";
   import { notebook } from "../notebook/notebook.svelte";
   import { consoleUi } from "../notebook/console-ui.svelte";
   import { completionItems, type RefItem } from "../notebook/reference";
@@ -317,6 +317,30 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
+  // Copy the whole session transcript (the same Markdown as Export) to the
+  // clipboard, for pasting into a doc or chat without the file round-trip.
+  let copyState = $state<"idle" | "copied" | "error">("idle");
+  let copyTimer: ReturnType<typeof setTimeout> | null = null;
+  async function copyTranscript() {
+    if (notebook.cells.length === 0) return;
+    const text = serializeTranscript(notebook.cells);
+    let ok = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
+    } catch {
+      ok = false;
+    }
+    copyState = ok ? "copied" : "error";
+    if (copyTimer) clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => (copyState = "idle"), 2200);
+  }
+  onDestroy(() => {
+    if (copyTimer) clearTimeout(copyTimer);
+  });
+
   // --- keyboard: suggestions, history recall, shortcuts ---------------------
   function onkeydownextra(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "l") {
@@ -393,6 +417,14 @@
       </span>
     </div>
     <div class="head-actions">
+      <button
+        class="copy-btn"
+        onclick={copyTranscript}
+        disabled={notebook.cells.length === 0}
+        title="Copy the whole session transcript to the clipboard"
+      >
+        {copyState === "copied" ? "✓ Copied" : copyState === "error" ? "Copy failed" : "Copy"}
+      </button>
       <button
         class="export-btn"
         onclick={exportTranscript}
@@ -610,7 +642,8 @@
     color: var(--fg-muted);
   }
   .clear-btn,
-  .export-btn {
+  .export-btn,
+  .copy-btn {
     flex: 0 0 auto;
     font: inherit;
     font-size: 0.82rem;
@@ -622,12 +655,14 @@
     cursor: pointer;
   }
   .clear-btn:hover:not(:disabled),
-  .export-btn:hover:not(:disabled) {
+  .export-btn:hover:not(:disabled),
+  .copy-btn:hover:not(:disabled) {
     color: var(--accent);
     border-color: var(--accent);
   }
   .clear-btn:disabled,
-  .export-btn:disabled {
+  .export-btn:disabled,
+  .copy-btn:disabled {
     opacity: 0.5;
     cursor: default;
   }

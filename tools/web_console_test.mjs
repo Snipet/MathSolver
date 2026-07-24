@@ -921,6 +921,34 @@ try {
     (exported.text || "").slice(0, 80),
   );
 
+  // --- copy: put the same transcript on the clipboard ---------------------
+  // Stub navigator.clipboard.writeText (unreliable headless) to record the text.
+  await page.evaluate(() => {
+    window.__clip = { called: false, text: null };
+    window.__origWrite = navigator.clipboard?.writeText?.bind(navigator.clipboard);
+    navigator.clipboard = navigator.clipboard || {};
+    navigator.clipboard.writeText = async (t) => {
+      window.__clip.called = true;
+      window.__clip.text = t;
+    };
+  });
+  await page.click(".console-head .copy-btn");
+  await new Promise((r) => setTimeout(r, 200));
+  const copied = await page.evaluate(() => window.__clip);
+  const copyLabel = await page.$eval(".console-head .copy-btn", (el) => el.textContent.trim());
+  await page.evaluate(() => {
+    if (window.__origWrite) navigator.clipboard.writeText = window.__origWrite;
+  });
+  check(
+    "Copy writes the transcript to the clipboard",
+    copied.called &&
+      !!copied.text &&
+      copied.text.includes("# MathSolver console session") &&
+      copied.text.includes("2*x + 3"),
+    (copied.text || "").slice(0, 80),
+  );
+  check("Copy reports success", copyLabel === "✓ Copied", copyLabel);
+
   // --- notebook documents: save / open / run in a fresh scope --------------
   await page.click(".console-head .clear-btn");
   await page.waitForFunction(

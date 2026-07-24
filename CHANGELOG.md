@@ -35,12 +35,13 @@ per-feature specs are under docs/proposals/.
   existing deterministic primality test. Exact over the 64-bit range (52# is
   the largest that fits) and errors cleanly past it. CLI too.
 
-- **Console — export the session transcript.** An **Export** button in the
-  console header downloads the whole session as a Markdown file — one
-  `In[k]` / `Out[k]` block per cell (`mathsolver-session.md`) — so a working
-  session can be saved or shared as plain text. Complements the existing
-  in-app `save` notebooks (which store re-runnable commands) with a portable,
-  human-readable record of inputs *and* their results.
+- **Console — copy or export the session transcript.** **Copy** and **Export**
+  buttons in the console header render the whole session as Markdown — one
+  `In[k]` / `Out[k]` block per cell — and either place it on the clipboard or
+  download it (`mathsolver-session.md`), so a working session can be pasted or
+  saved as plain text. Complements the existing in-app `save` notebooks (which
+  store re-runnable commands) with a portable, human-readable record of inputs
+  *and* their results.
 
 - **Console — `lucas` numbers.** `lucas n` is the n-th Lucas number L(n) —
   the companion sequence to the Fibonacci numbers (L₀ = 2, L₁ = 1,
