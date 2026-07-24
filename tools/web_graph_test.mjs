@@ -876,6 +876,41 @@ try {
     );
   }
 
+  // Gridlines toggle: the "Grid off"/"Grid on" toolbar button flips a
+  // persisted preference; axes/labels are unaffected.
+  {
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    const gridBtn = () =>
+      page.evaluate(() => {
+        const b = [...document.querySelectorAll(".calc-toolbar .tool-btn")].find((el) =>
+          /^Grid (on|off)$/.test(el.textContent.trim()),
+        );
+        return b ? b.textContent.trim() : null;
+      });
+    const showGrid = () =>
+      page.evaluate(() => {
+        const g = JSON.parse(localStorage.getItem("mathsolver.graph") || "{}");
+        return g.showGrid;
+      });
+    const label0 = await gridBtn();
+    check("grid toggle defaults to on ('Grid off' offered)", label0 === "Grid off", String(label0));
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll(".calc-toolbar .tool-btn")].find(
+        (el) => el.textContent.trim() === "Grid off",
+      );
+      b?.click();
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    check(
+      "clicking 'Grid off' hides the grid and persists it",
+      (await showGrid()) === false && (await gridBtn()) === "Grid on",
+      `showGrid=${await showGrid()}, label=${await gridBtn()}`,
+    );
+  }
+
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 } catch (e) {

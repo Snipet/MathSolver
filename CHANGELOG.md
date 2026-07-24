@@ -30,6 +30,11 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — gridlines on/off toggle.** A **Grid** button in the graph
+  toolbar hides or shows the background gridlines (the axes and their number
+  labels stay), for a cleaner plot — handy before saving a PNG. The choice
+  persists with the document.
+
 - **Grapher — reorder expressions.** Each row now has small **▲ / ▼** controls
   to move it up or down the list (disabled at the ends), so you can group or
   re-rank curves after the fact. The new order persists with the document.
