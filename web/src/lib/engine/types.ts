@@ -321,6 +321,8 @@ export interface EngineApi {
   totient: [[n: string], TransformResult];
   sigma: [[n: string, k: string], TransformResult];
   mobius: [[n: string], TransformResult];
+  partitions: [[n: string], TransformResult];
+  catalan: [[n: string], TransformResult];
   cfrac: [[value: string], TransformResult];
   discriminant: [[poly: string, variable: string], TransformResult];
   polydiv: [[dividend: string, divisor: string, variable: string], TransformResult];

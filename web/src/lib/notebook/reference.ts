@@ -164,6 +164,18 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "mobius 30",
       },
       {
+        insert: "partitions",
+        usage: "partitions <n>",
+        hint: "Integer partition count p(n): ways to write n as a sum of positive integers",
+        example: "partitions 10",
+      },
+      {
+        insert: "catalan",
+        usage: "catalan <n>",
+        hint: "The n-th Catalan number C(n) = binomial(2n, n) / (n + 1)",
+        example: "catalan 8",
+      },
+      {
         insert: "cfrac",
         usage: "cfrac <rational | sqrt(n) | real>",
         hint: "Continued fraction + convergents (best rational approximations)",

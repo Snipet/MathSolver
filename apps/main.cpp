@@ -857,6 +857,22 @@ void run_mobius(const std::string& input) {
     std::println("{}", mobius(v[0]));
 }
 
+/// `partitions`: the integer partition function p(n) of a single n >= 0.
+void run_partitions(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "partitions");
+    if (v.size() != 1) throw UsageError{"partitions takes a single integer"};
+    if (v[0] < 0) throw UsageError{"partitions is defined for n >= 0"};
+    std::println("{}", partition_count(v[0]));
+}
+
+/// `catalan`: the n-th Catalan number for a single n >= 0.
+void run_catalan(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "catalan");
+    if (v.size() != 1) throw UsageError{"catalan takes a single integer"};
+    if (v[0] < 0) throw UsageError{"catalan is defined for n >= 0"};
+    std::println("{}", catalan_number(v[0]));
+}
+
 /// `divisors`: all positive divisors of a single non-zero integer, ascending.
 void run_divisors(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "divisors");
@@ -1692,6 +1708,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "hermite" || s == "laguerre" ||
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
            s == "divisors" || s == "totient" || s == "sigma" || s == "mobius" ||
+           s == "partitions" || s == "catalan" ||
            s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
            s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
@@ -1932,7 +1949,7 @@ int run_one_shot(const std::vector<std::string>& args) {
             run_seq(positionals, style);
         } else if (sub == "gcd" || sub == "lcm" || sub == "isprime" ||
                    sub == "nextprime" || sub == "divisors" || sub == "totient" ||
-                   sub == "mobius") {
+                   sub == "mobius" || sub == "partitions" || sub == "catalan") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (put the integers in one quoted "
@@ -1945,6 +1962,8 @@ int run_one_shot(const std::vector<std::string>& args) {
             else if (sub == "nextprime") run_nextprime(input);
             else if (sub == "divisors") run_divisors(input);
             else if (sub == "mobius") run_mobius(input);
+            else if (sub == "partitions") run_partitions(input);
+            else if (sub == "catalan") run_catalan(input);
             else run_totient(input);
         } else if (sub == "sigma") {
             run_sigma(input);
@@ -2129,6 +2148,7 @@ void print_repl_help() {
         "  gcd <a, b, ...>   lcm <a, b, ...>       exact over the integers\n"
         "  isprime <n>   nextprime <n>   divisors <n>   totient <n>\n"
         "  sigma <n>[, k]   mobius <n>            divisor sum σ_k and Möbius μ\n"
+        "  partitions <n>   catalan <n>           partition count p(n) and Catalan C(n)\n"
         "  cfrac <rational | sqrt(n) | real>      continued fraction + convergents\n"
         "  mod <a, m>   powmod <b, e, m>   modinv <a, m>   modular arithmetic\n"
         "  crt <r1, r2, …; m1, m2, …>             Chinese remainder theorem\n"
@@ -2182,7 +2202,8 @@ bool is_repl_command(std::string_view word) {
            word == "regress" || word == "stats" || word == "vandermonde" || word == "gcd" ||
            word == "lcm" || word == "isprime" || word == "nextprime" ||
            word == "divisors" || word == "totient" || word == "sigma" ||
-           word == "mobius" || word == "cfrac" ||
+           word == "mobius" || word == "partitions" || word == "catalan" ||
+           word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
            word == "crt" || word == "discriminant" || word == "polydiv" ||
            word == "polygcd" || word == "polylcm" || word == "resultant" ||
@@ -2769,7 +2790,8 @@ void repl_command(const std::string& command, const std::string& rest,
     // gcd/lcm) or a single integer (for the rest).
     if (command == "gcd" || command == "lcm" || command == "isprime" ||
         command == "nextprime" || command == "divisors" ||
-        command == "totient" || command == "mobius" || command == "sigma") {
+        command == "totient" || command == "mobius" || command == "sigma" ||
+        command == "partitions" || command == "catalan") {
         if (trim(rest).empty()) {
             throw UsageError{std::format(
                 "usage: {} <integer{}>", command,
@@ -2784,6 +2806,8 @@ void repl_command(const std::string& command, const std::string& rest,
         else if (command == "divisors") run_divisors(rest);
         else if (command == "mobius") run_mobius(rest);
         else if (command == "sigma") run_sigma(rest);
+        else if (command == "partitions") run_partitions(rest);
+        else if (command == "catalan") run_catalan(rest);
         else run_totient(rest);
         return;
     }

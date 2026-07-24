@@ -139,6 +139,12 @@ check("sigma error non-positive", ms.sigma("0", ""), (r) => !r.ok && r.error.inc
 check("mobius three primes", ms.mobius("30"), (r) => r.ok && r.plain === "-1", "μ(30)=-1");
 check("mobius squared factor", ms.mobius("12"), (r) => r.ok && r.plain === "0", "μ(12)=0");
 check("mobius of one", ms.mobius("1"), (r) => r.ok && r.plain === "1", "μ(1)=1");
+// partitions p(n) and catalan numbers
+check("partitions of 10", ms.partitions("10"), (r) => r.ok && r.plain === "42", "p(10)=42");
+check("partitions of 100", ms.partitions("100"), (r) => r.ok && r.plain === "190569292", "p(100)");
+check("partitions error negative", ms.partitions("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("catalan of 10", ms.catalan("10"), (r) => r.ok && r.plain === "16796", "C(10)=16796");
+check("catalan error overflow", ms.catalan("40"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");
