@@ -86,6 +86,7 @@ export const MATH_VERBS = new Set([
   "rsolve",
   "fit",
   "regress",
+  "interp",
   "stats",
   "gcd",
   "lcm",
@@ -488,6 +489,21 @@ async function runVerb(
       if (!r.ok) return err(data, r);
       const notes = [
         `${r.model} fit${r.exact ? " (exact)" : ""} · ${r.n} points · R² = ${r.r2.toFixed(4)}`,
+      ];
+      return {
+        kind: "transform",
+        result: { ok: true, plain: r.plain, latex: r.latex, notes },
+        computedFrom: null,
+      };
+    }
+    case "interp": {
+      // The whole input is the point list (commas / semicolons): the exact
+      // polynomial through the points. interp 1,1; 2,4; 3,9
+      if (!rest.trim()) return usage("usage: interp <x,y; x,y; ...>");
+      const r = await call("interp", [rest]);
+      if (!r.ok) return err(rest, r);
+      const notes = [
+        `degree ${r.degree}${r.exact ? " (exact)" : ""} · ${r.n} point${r.n === 1 ? "" : "s"}`,
       ];
       return {
         kind: "transform",

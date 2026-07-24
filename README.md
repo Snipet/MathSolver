@@ -290,6 +290,23 @@ model: exponential
 R^2: 1
 ```
 
+Exact interpolation — `interp` returns the unique polynomial that passes
+**through** every point (as opposed to `fit`, which minimizes the error).
+The Vandermonde system is solved over the rationals, so perfectly
+polynomial data comes back as the exact polynomial and its true degree —
+collinear points collapse to a line, and fractional coefficients stay
+fractions. Non-rational data falls back to a numeric solve that still hits
+every point:
+
+```console
+$ mathsolver interp "1,1; 2,4; 3,9"
+x^2
+degree: 2 (exact)
+$ mathsolver interp "0,0; 1,1; 2,1"
+-x^2/2 + 3*x/2
+degree: 2 (exact)
+```
+
 Summary statistics — `stats` reports the mean, median, quartiles (Moore &
 McCabe), spread, and both population and sample standard deviation of a
 data list. On rational data every statistic is **exact** — the mean stays

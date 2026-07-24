@@ -387,6 +387,104 @@ FitResult fit(const std::vector<std::string>& xs, const std::vector<std::string>
     return fit_linearized(xc, yc, model, variable);
 }
 
+InterpResult interp(const std::vector<std::string>& xs, const std::vector<std::string>& ys,
+                    std::string_view variable) {
+    InterpResult R;
+    R.variable = std::string(variable);
+    if (xs.size() != ys.size()) {
+        R.message = "x and y must have the same number of values";
+        return R;
+    }
+    if (xs.empty()) {
+        R.message = "need at least 1 data point";
+        return R;
+    }
+    const int n = static_cast<int>(xs.size());
+    R.n = n;
+
+    std::vector<Coord> xc;
+    std::vector<Coord> yc;
+    for (int i = 0; i < n; ++i) {
+        auto cx = parse_coord(xs[i]);
+        auto cy = parse_coord(ys[i]);
+        if (!cx) {
+            R.message = "could not read x value '" + xs[i] + "'";
+            return R;
+        }
+        if (!cy) {
+            R.message = "could not read y value '" + ys[i] + "'";
+            return R;
+        }
+        xc.push_back(*cx);
+        yc.push_back(*cy);
+    }
+    std::set<double> distinct;
+    for (const Coord& c : xc) distinct.insert(c.value);
+    if (static_cast<int>(distinct.size()) < n) {
+        R.message = "x values must be distinct";
+        return R;
+    }
+
+    const bool all_rational = std::ranges::all_of(xc, [](const Coord& c) { return c.has_exact; }) &&
+                              std::ranges::all_of(yc, [](const Coord& c) { return c.has_exact; });
+
+    // Solve the n×n Vandermonde system  Σ c_j · x_i^j = y_i  for c_0..c_{n-1}.
+    std::vector<Expr> coeffs;
+    int deg = 0;
+    if (all_rational) {
+        try {
+            std::vector<std::vector<Rational>> A(n, std::vector<Rational>(n, Rational(0)));
+            std::vector<Rational> b(n);
+            for (int i = 0; i < n; ++i) {
+                Rational p(1);
+                for (int j = 0; j < n; ++j) {
+                    A[i][j] = p;
+                    p = p * xc[i].exact;
+                }
+                b[i] = yc[i].exact;
+            }
+            if (auto sol = gauss_solve<Rational>(A, b)) {
+                for (int k = 0; k < n; ++k)
+                    if (!(*sol)[k].is_zero()) deg = k;
+                for (const Rational& c : *sol) coeffs.push_back(make_num(c));
+                R.exact = true;
+            }
+        } catch (const OverflowError&) {
+            coeffs.clear();
+            R.exact = false;
+        }
+    }
+    if (coeffs.empty()) {
+        // Numeric fallback (non-rational data, or exact overflow).
+        std::vector<std::vector<double>> A(n, std::vector<double>(n, 0.0));
+        std::vector<double> b(n);
+        double scale = 0.0;
+        for (int i = 0; i < n; ++i) {
+            double p = 1.0;
+            for (int j = 0; j < n; ++j) {
+                A[i][j] = p;
+                p *= xc[i].value;
+            }
+            b[i] = yc[i].value;
+            scale = std::max(scale, std::fabs(yc[i].value));
+        }
+        auto sol = gauss_solve<double>(A, b);
+        if (!sol) {
+            R.message = "interpolation failed (ill-conditioned system)";
+            return R;
+        }
+        const double tol = 1e-9 * std::max(1.0, scale);
+        for (int k = 0; k < n; ++k)
+            if (std::fabs((*sol)[k]) > tol) deg = k;
+        for (double c : *sol) coeffs.push_back(num_expr(c));
+    }
+
+    R.degree = deg;
+    R.expr = poly_expr(coeffs, variable); // simplify drops zero high-order terms
+    R.status = InterpResult::Status::Ok;
+    return R;
+}
+
 std::optional<std::pair<FitModel, int>> parse_fit_model(std::string_view name) {
     if (name == "linear") return std::pair{FitModel::Poly, 1};
     if (name == "quadratic" || name == "quad") return std::pair{FitModel::Poly, 2};

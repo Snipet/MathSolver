@@ -307,6 +307,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "fit 0,1; 1,2; 2,2; 3,4 | linear",
       },
       {
+        insert: "interp",
+        usage: "interp <x,y; x,y; …>",
+        hint: "Exact polynomial through the points (Vandermonde over the rationals)",
+        example: "interp 1,1; 2,4; 3,9",
+      },
+      {
         insert: "stats",
         usage: "stats <v1, v2, v3, …>",
         hint: "Exact summary statistics — mean, median, quartiles, stdev (fractions & radicals)",

@@ -45,6 +45,32 @@ struct FitResult {
 FitResult fit(const std::vector<std::string>& xs, const std::vector<std::string>& ys,
               FitModel model, int degree, std::string_view variable = "x");
 
+/// Exact polynomial interpolation: the unique polynomial of degree ≤ n−1
+/// through n points (distinct x). Unlike `fit` (least squares), it passes
+/// through every point. Solved exactly over the rationals when the data are
+/// rational; falls back to double for non-rational data.
+struct InterpResult {
+    enum class Status { Ok, Error };
+
+    Status status = Status::Error;
+    /// The interpolating polynomial in `variable` (valid iff Ok).
+    Expr expr;
+    std::string variable = "x";
+    /// True when solved exactly over the rationals.
+    bool exact = false;
+    /// Number of data points.
+    int n = 0;
+    /// Degree of the interpolating polynomial (≤ n−1 after simplification).
+    int degree = 0;
+    /// Error text when Status::Error.
+    std::string message;
+};
+
+/// Interpolate `ys` at `xs` (parallel coordinate-string arrays) with a
+/// polynomial in `variable`. Requires ≥ 1 point and distinct x values.
+InterpResult interp(const std::vector<std::string>& xs, const std::vector<std::string>& ys,
+                    std::string_view variable = "x");
+
 /// Parse a model name to (family, default degree). Poly aliases fix a degree;
 /// the generic "poly"/"polynomial" returns degree -1 (caller supplies one).
 /// Returns nullopt for an unknown name.
