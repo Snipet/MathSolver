@@ -58,7 +58,7 @@ export const GRAPH_REFERENCE: GraphRefGroup[] = [
       { code: "(a, b)", desc: "Drag the point to move it — its variables move everywhere" },
       { desc: "Click a row's colored dot to restyle: color, line style, weight." },
       { desc: "Add a label in the style popover, then drag the label to reposition it." },
-      { desc: "Axes → name the x- and y-axes; the names draw at each axis end." },
+      { desc: "Labels → set a graph title and name the x- and y-axes; they draw on the plot." },
     ],
   },
   {

@@ -39,6 +39,8 @@
     /** Optional axis names drawn at the far end of each axis. */
     xAxisLabel?: string;
     yAxisLabel?: string;
+    /** Optional title drawn centered at the top of the plot. */
+    title?: string;
     onPointDragStart?: () => void;
     onPointDrag?: (rowId: number, coordIndex: number, wx: number, wy: number) => void;
     onPointCommit?: (rowId: number, coordIndex: number, wx: number, wy: number) => void;
@@ -56,6 +58,7 @@
     showGrid = true,
     xAxisLabel = "",
     yAxisLabel = "",
+    title = "",
     onPointDragStart,
     onPointDrag,
     onPointCommit,
@@ -115,6 +118,7 @@
     void showGrid; // toggle the background grid
     void xAxisLabel; // redraw when an axis name changes
     void yAxisLabel;
+    void title; // redraw when the graph title changes
     const c = canvas;
     const w = width;
     const h = H;
@@ -228,6 +232,16 @@
         ctx.textBaseline = "top";
         ctx.fillText(yAxisLabel, ctx.textAlign === "right" ? w - 6 : tx, 6);
       }
+    }
+
+    // Graph title, centered along the top edge. Skipped when blank.
+    if (title) {
+      ctx.fillStyle = label;
+      ctx.font =
+        "600 15px " + (cssColor(c, "--font-sans", "") || "system-ui, sans-serif");
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(title, w / 2, 6, w - 16);
     }
 
     // Drawables, clipped to the panel: regions (under) → lines → points.

@@ -911,23 +911,23 @@ try {
     );
   }
 
-  // Axis labels: the "Axes" toolbar button reveals x/y name inputs whose
-  // values persist (drawn at each axis end on the canvas).
+  // Labels: the "Labels" toolbar button reveals the graph-title and x/y
+  // axis-name inputs whose values persist (drawn on the canvas).
   {
     await page.evaluate(() => localStorage.clear());
     await page.reload({ waitUntil: "networkidle0" });
     await clickGraph();
     await new Promise((r) => setTimeout(r, 300));
-    // The panel is closed by default (no labels set) — click "Axes" to open it.
+    // The panel is closed by default (nothing set) — click "Labels" to open it.
     const opened = await page.evaluate(() => {
       const b = [...document.querySelectorAll(".calc-toolbar .tool-btn")].find(
-        (el) => el.textContent.trim() === "Axes",
+        (el) => el.textContent.trim() === "Labels",
       );
       if (b) b.click();
       return !!b;
     });
     await new Promise((r) => setTimeout(r, 150));
-    check("'Axes' button reveals the axis-name inputs", opened, String(opened));
+    check("'Labels' button reveals the label inputs", opened, String(opened));
     // Type into the x-axis input and assert it persists.
     const typed = await page.evaluate(async () => {
       const input = document.querySelector('.axis-labels input[placeholder="x-axis label"]');
@@ -947,15 +947,38 @@ try {
       typed === true && savedX === "time (s)",
       `saved=${savedX}`,
     );
-    // It survives a reload and reopens the panel automatically.
+    // Type a graph title and assert it persists.
+    const titled = await page.evaluate(async () => {
+      const input = document.querySelector('.axis-labels input[placeholder="graph title"]');
+      if (!input) return null;
+      input.focus();
+      input.value = "Velocity vs. time";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    });
+    await new Promise((r) => setTimeout(r, 400));
+    const savedTitle = await page.evaluate(() => {
+      const g = JSON.parse(localStorage.getItem("mathsolver.graph") || "{}");
+      return g.title ?? null;
+    });
+    check(
+      "typing a graph title persists it",
+      titled === true && savedTitle === "Velocity vs. time",
+      `saved=${savedTitle}`,
+    );
+    // Both survive a reload and reopen the panel automatically.
     await page.reload({ waitUntil: "networkidle0" });
     await clickGraph();
     await new Promise((r) => setTimeout(r, 300));
-    const reloadedVal = await page.evaluate(() => {
-      const input = document.querySelector('.axis-labels input[placeholder="x-axis label"]');
-      return input ? input.value : null;
-    });
-    check("axis label restored after reload", reloadedVal === "time (s)", String(reloadedVal));
+    const reloaded = await page.evaluate(() => ({
+      axis: document.querySelector('.axis-labels input[placeholder="x-axis label"]')?.value ?? null,
+      title: document.querySelector('.axis-labels input[placeholder="graph title"]')?.value ?? null,
+    }));
+    check(
+      "labels restored after reload",
+      reloaded.axis === "time (s)" && reloaded.title === "Velocity vs. time",
+      JSON.stringify(reloaded),
+    );
   }
 
   // Copy image: the "Copy image" toolbar button writes the graph PNG to the
