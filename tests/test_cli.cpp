@@ -207,7 +207,7 @@ TEST_CASE("cli: partitions and catalan numbers") {
     // n < 0 is a usage error (exit 2); an out-of-range value is a runtime
     // overflow error (nonzero exit). Both fail cleanly rather than wrapping.
     CHECK(run_cli({"partitions", "-1"}).exit_code == 2);
-    CHECK(run_cli({"catalan", "40"}).exit_code != 0); // overflows int64
+    CHECK(contains(run_cli({"catalan", "40"}).output, "2622127042276492108820")); // exact (bigint)
 }
 
 TEST_CASE("cli: bernoulli numbers as exact rationals") {
@@ -251,7 +251,7 @@ TEST_CASE("cli: stirling2 and bell numbers") {
 
     // Errors: negative arg is a usage error; a huge Bell overflows (nonzero).
     CHECK(run_cli({"stirling2", "-1, 2"}).exit_code == 2);
-    CHECK(run_cli({"bell", "100"}).exit_code != 0);
+    CHECK(contains(run_cli({"bell", "100"}).output, "47585391276764833658790768841387207826363669686825611466616334637559114497892442622672724044217756306953557882560751")); // exact (bigint)
 }
 
 TEST_CASE("cli: derangement numbers") {
@@ -265,7 +265,7 @@ TEST_CASE("cli: derangement numbers") {
 
     // Negative arg is a usage error; !21 overflows the 64-bit range (nonzero).
     CHECK(run_cli({"derangement", "-1"}).exit_code == 2);
-    CHECK(run_cli({"derangement", "21"}).exit_code != 0);
+    CHECK(contains(run_cli({"derangement", "21"}).output, "18795307255050944540")); // exact (bigint)
 }
 
 TEST_CASE("cli: lucas numbers") {
@@ -279,7 +279,7 @@ TEST_CASE("cli: lucas numbers") {
 
     // Negative arg is a usage error; L(91) overflows the 64-bit range (nonzero).
     CHECK(run_cli({"lucas", "-1"}).exit_code == 2);
-    CHECK(run_cli({"lucas", "91"}).exit_code != 0);
+    CHECK(contains(run_cli({"lucas", "91"}).output, "10420180999117162549")); // exact (bigint)
 }
 
 TEST_CASE("cli: primorial") {
@@ -293,7 +293,7 @@ TEST_CASE("cli: primorial") {
 
     // Negative arg is a usage error; 53# overflows the 64-bit range (nonzero).
     CHECK(run_cli({"primorial", "-1"}).exit_code == 2);
-    CHECK(run_cli({"primorial", "53"}).exit_code != 0);
+    CHECK(contains(run_cli({"primorial", "53"}).output, "32589158477190044730")); // exact (bigint)
 }
 
 TEST_CASE("cli: motzkin numbers") {
@@ -307,7 +307,7 @@ TEST_CASE("cli: motzkin numbers") {
 
     // Negative arg is a usage error; M(45) overflows the 64-bit range (nonzero).
     CHECK(run_cli({"motzkin", "-1"}).exit_code == 2);
-    CHECK(run_cli({"motzkin", "45"}).exit_code != 0);
+    CHECK(contains(run_cli({"motzkin", "45"}).output, "13603677110519480289")); // exact (bigint)
 }
 
 TEST_CASE("cli: euler numbers") {
@@ -326,7 +326,7 @@ TEST_CASE("cli: euler numbers") {
 
     // Negative arg is a usage error; E(24) overflows the 64-bit range (nonzero).
     CHECK(run_cli({"euler", "-1"}).exit_code == 2);
-    CHECK(run_cli({"euler", "24"}).exit_code != 0);
+    CHECK(contains(run_cli({"euler", "24"}).output, "15514534163557086905")); // exact (bigint)
 }
 
 TEST_CASE("cli: tribonacci numbers") {
@@ -340,7 +340,7 @@ TEST_CASE("cli: tribonacci numbers") {
 
     // Negative arg is a usage error; T(75) overflows the 64-bit range (nonzero).
     CHECK(run_cli({"tribonacci", "-1"}).exit_code == 2);
-    CHECK(run_cli({"tribonacci", "75"}).exit_code != 0);
+    CHECK(contains(run_cli({"tribonacci", "75"}).output, "12903063846126135669")); // exact (bigint)
 }
 
 TEST_CASE("cli: pell numbers") {
@@ -354,7 +354,7 @@ TEST_CASE("cli: pell numbers") {
 
     // Negative arg is a usage error; P(51) overflows the 64-bit range (nonzero).
     CHECK(run_cli({"pell", "-1"}).exit_code == 2);
-    CHECK(run_cli({"pell", "51"}).exit_code != 0);
+    CHECK(contains(run_cli({"pell", "51"}).output, "11749380235262596085")); // exact (bigint)
 }
 
 TEST_CASE("cli: trigexpand of sums and multiples") {

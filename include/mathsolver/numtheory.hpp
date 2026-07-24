@@ -4,6 +4,8 @@
 #include <string_view>
 #include <vector>
 
+#include "mathsolver/bigint.hpp"
+
 namespace mathsolver {
 
 /// A prime power p^e appearing in an integer factorization (e >= 1).
@@ -55,65 +57,65 @@ int mobius(long long n);
 
 /// The integer partition function p(n) for n >= 0: the number of ways to write
 /// n as a sum of positive integers (order-independent). p(0) = 1. Computed
-/// exactly via Euler's pentagonal-number recurrence; throws OverflowError once
-/// p(n) leaves the 64-bit range (around n = 416).
-long long partition_count(long long n);
+/// exactly (arbitrary precision) via Euler's pentagonal-number recurrence.
+/// Requires 0 <= n <= 20000 (a compute guard, not a value ceiling).
+BigInt partition_count(long long n);
 
 /// The n-th Catalan number C(n) = binomial(2n, n) / (n + 1) for n >= 0.
-/// C(0) = 1. Built by an exact product so it never forms the huge factorials;
-/// throws OverflowError past the 64-bit range (around n = 37).
-long long catalan_number(long long n);
+/// C(0) = 1. Built by an exact product so it never forms the huge factorials.
+/// Arbitrary precision; requires 0 <= n <= 50000 (a compute guard).
+BigInt catalan_number(long long n);
 
 /// The Stirling number of the second kind S(n, k): the number of ways to
 /// partition an n-element set into k non-empty unlabelled subsets. Requires
-/// n, k >= 0; S(n, k) = 0 for k > n, S(0, 0) = 1. Exact via the recurrence
-/// S(n, k) = k·S(n-1, k) + S(n-1, k-1); throws OverflowError past int64.
-long long stirling_second(long long n, long long k);
+/// n, k >= 0 (and n <= 2000, a compute guard); S(n, k) = 0 for k > n,
+/// S(0, 0) = 1. Exact (arbitrary precision) via the recurrence
+/// S(n, k) = k·S(n-1, k) + S(n-1, k-1).
+BigInt stirling_second(long long n, long long k);
 
 /// The n-th Bell number B(n) = Σ_k S(n, k): the number of partitions of an
-/// n-element set. B(0) = 1. Built exactly via the Bell triangle; throws
-/// OverflowError past the 64-bit range (around n = 26).
-long long bell_number(long long n);
+/// n-element set. B(0) = 1. Built exactly (arbitrary precision) via the Bell
+/// triangle. Requires 0 <= n <= 2000 (a compute guard).
+BigInt bell_number(long long n);
 
 /// The n-th derangement (subfactorial !n) for n >= 0: the number of
 /// permutations of n elements with no fixed point. !0 = 1, !1 = 0. Built
-/// exactly via the recurrence !n = (n-1)·(!(n-1) + !(n-2)); throws
-/// OverflowError past the 64-bit range (around n = 21).
-long long derangement_count(long long n);
+/// exactly (arbitrary precision) via !n = (n-1)·(!(n-1) + !(n-2)). Requires
+/// 0 <= n <= 50000 (a compute guard).
+BigInt derangement_count(long long n);
 
 /// The n-th Lucas number L(n) for n >= 0: the companion sequence to the
-/// Fibonacci numbers, L(0) = 2, L(1) = 1, L(n) = L(n-1) + L(n-2). Exact;
-/// throws OverflowError past the 64-bit range (around n = 91).
-long long lucas_number(long long n);
+/// Fibonacci numbers, L(0) = 2, L(1) = 1, L(n) = L(n-1) + L(n-2). Exact
+/// (arbitrary precision); requires 0 <= n <= 200000 (a compute guard).
+BigInt lucas_number(long long n);
 
 /// The primorial n# for n >= 0: the product of all primes p <= n. 0# = 1# = 1
-/// (empty product). Exact; throws OverflowError past the 64-bit range (52# is
-/// the largest that fits, 53# overflows).
-long long primorial(long long n);
+/// (empty product). Exact (arbitrary precision); requires 0 <= n <= 200000
+/// (a compute guard).
+BigInt primorial(long long n);
 
 /// The n-th Motzkin number M(n) for n >= 0: the number of ways to draw
 /// non-crossing chords between n points on a circle. M(0) = M(1) = 1, built by
-/// the exact recurrence (n+2)·M(n) = (2n+1)·M(n-1) + 3(n-1)·M(n-2); throws
-/// OverflowError past the 64-bit range (M(44) is the largest that fits).
-long long motzkin_number(long long n);
+/// the exact recurrence (n+2)·M(n) = (2n+1)·M(n-1) + 3(n-1)·M(n-2). Arbitrary
+/// precision; requires 0 <= n <= 50000 (a compute guard).
+BigInt motzkin_number(long long n);
 
 /// The n-th Euler (secant) number E(n) for n >= 0: E(0) = 1, E(2) = -1,
 /// E(4) = 5, E(6) = -61, ... with every odd-indexed value 0. Signed. Built
-/// exactly from the boustrophedon (Seidel) zigzag triangle; throws
-/// OverflowError past the 64-bit range (E(22) is the largest in magnitude
-/// that fits).
-long long euler_number(long long n);
+/// exactly (arbitrary precision) from the boustrophedon (Seidel) zigzag
+/// triangle. Requires 0 <= n <= 2000 (a compute guard).
+BigInt euler_number(long long n);
 
 /// The n-th tribonacci number T(n) for n >= 0: T(0) = T(1) = 0, T(2) = 1,
-/// T(n) = T(n-1) + T(n-2) + T(n-3). Exact; throws OverflowError past the
-/// 64-bit range (T(74) is the largest that fits).
-long long tribonacci_number(long long n);
+/// T(n) = T(n-1) + T(n-2) + T(n-3). Exact (arbitrary precision); requires
+/// 0 <= n <= 200000 (a compute guard).
+BigInt tribonacci_number(long long n);
 
 /// The n-th Pell number P(n) for n >= 0: P(0) = 0, P(1) = 1,
 /// P(n) = 2*P(n-1) + P(n-2) (0, 1, 2, 5, 12, 29, 70, 169, ...). The numerators
-/// of the continued-fraction convergents to sqrt(2). Exact; throws
-/// OverflowError past the 64-bit range (P(50) is the largest that fits).
-long long pell_number(long long n);
+/// of the continued-fraction convergents to sqrt(2). Exact (arbitrary
+/// precision); requires 0 <= n <= 200000 (a compute guard).
+BigInt pell_number(long long n);
 
 /// Euclidean remainder: the r with 0 <= r < |m| and a == r (mod m). m = 0
 /// throws DivisionByZeroError.

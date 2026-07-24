@@ -862,7 +862,7 @@ void run_partitions(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "partitions");
     if (v.size() != 1) throw UsageError{"partitions takes a single integer"};
     if (v[0] < 0) throw UsageError{"partitions is defined for n >= 0"};
-    std::println("{}", partition_count(v[0]));
+    std::println("{}", partition_count(v[0]).to_string());
 }
 
 /// `catalan`: the n-th Catalan number for a single n >= 0.
@@ -870,7 +870,7 @@ void run_catalan(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "catalan");
     if (v.size() != 1) throw UsageError{"catalan takes a single integer"};
     if (v[0] < 0) throw UsageError{"catalan is defined for n >= 0"};
-    std::println("{}", catalan_number(v[0]));
+    std::println("{}", catalan_number(v[0]).to_string());
 }
 
 /// `stirling2`: the Stirling number of the second kind S(n, k).
@@ -878,7 +878,7 @@ void run_stirling2(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "stirling2");
     if (v.size() != 2) throw UsageError{"usage: stirling2 <n>, <k>"};
     if (v[0] < 0 || v[1] < 0) throw UsageError{"stirling2 is defined for n, k >= 0"};
-    std::println("{}", stirling_second(v[0], v[1]));
+    std::println("{}", stirling_second(v[0], v[1]).to_string());
 }
 
 /// `bell`: the n-th Bell number B(n) for a single n >= 0.
@@ -886,7 +886,7 @@ void run_bell(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "bell");
     if (v.size() != 1) throw UsageError{"bell takes a single integer"};
     if (v[0] < 0) throw UsageError{"bell is defined for n >= 0"};
-    std::println("{}", bell_number(v[0]));
+    std::println("{}", bell_number(v[0]).to_string());
 }
 
 /// `derangement`: the n-th derangement (subfactorial !n) for a single n >= 0.
@@ -894,7 +894,7 @@ void run_derangement(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "derangement");
     if (v.size() != 1) throw UsageError{"derangement takes a single integer"};
     if (v[0] < 0) throw UsageError{"derangement is defined for n >= 0"};
-    std::println("{}", derangement_count(v[0]));
+    std::println("{}", derangement_count(v[0]).to_string());
 }
 
 /// `lucas`: the n-th Lucas number L(n) for a single n >= 0.
@@ -902,7 +902,7 @@ void run_lucas(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "lucas");
     if (v.size() != 1) throw UsageError{"lucas takes a single integer"};
     if (v[0] < 0) throw UsageError{"lucas is defined for n >= 0"};
-    std::println("{}", lucas_number(v[0]));
+    std::println("{}", lucas_number(v[0]).to_string());
 }
 
 /// `primorial`: the primorial n# (product of primes <= n) for a single n >= 0.
@@ -910,7 +910,7 @@ void run_primorial(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "primorial");
     if (v.size() != 1) throw UsageError{"primorial takes a single integer"};
     if (v[0] < 0) throw UsageError{"primorial is defined for n >= 0"};
-    std::println("{}", primorial(v[0]));
+    std::println("{}", primorial(v[0]).to_string());
 }
 
 /// `motzkin`: the n-th Motzkin number M(n) for a single n >= 0.
@@ -918,7 +918,7 @@ void run_motzkin(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "motzkin");
     if (v.size() != 1) throw UsageError{"motzkin takes a single integer"};
     if (v[0] < 0) throw UsageError{"motzkin is defined for n >= 0"};
-    std::println("{}", motzkin_number(v[0]));
+    std::println("{}", motzkin_number(v[0]).to_string());
 }
 
 /// `euler`: the n-th Euler (secant) number E(n) for a single n >= 0.
@@ -926,7 +926,7 @@ void run_euler(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "euler");
     if (v.size() != 1) throw UsageError{"euler takes a single integer"};
     if (v[0] < 0) throw UsageError{"euler is defined for n >= 0"};
-    std::println("{}", euler_number(v[0]));
+    std::println("{}", euler_number(v[0]).to_string());
 }
 
 /// `tribonacci`: the n-th tribonacci number T(n) for a single n >= 0.
@@ -934,7 +934,7 @@ void run_tribonacci(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "tribonacci");
     if (v.size() != 1) throw UsageError{"tribonacci takes a single integer"};
     if (v[0] < 0) throw UsageError{"tribonacci is defined for n >= 0"};
-    std::println("{}", tribonacci_number(v[0]));
+    std::println("{}", tribonacci_number(v[0]).to_string());
 }
 
 /// `pell`: the n-th Pell number P(n) for a single n >= 0.
@@ -942,7 +942,7 @@ void run_pell(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "pell");
     if (v.size() != 1) throw UsageError{"pell takes a single integer"};
     if (v[0] < 0) throw UsageError{"pell is defined for n >= 0"};
-    std::println("{}", pell_number(v[0]));
+    std::println("{}", pell_number(v[0]).to_string());
 }
 
 /// `bernoulli`: the n-th Bernoulli number B_n (exact rational, 0 <= n <= 20).

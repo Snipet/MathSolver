@@ -354,7 +354,7 @@ std::string ms_partitions(std::string arg) {
         const auto n = nt_int(arg);
         if (!n) return err_json(std::format("partitions: expected an integer, got '{}'", trim(arg)));
         if (*n < 0) return err_json("partitions is defined for n >= 0");
-        const std::string s = std::to_string(partition_count(*n));
+        const std::string s = partition_count(*n).to_string();
         return nt_json(s, s, {std::format("p({})", *n)});
     });
 }
@@ -363,7 +363,7 @@ std::string ms_catalan(std::string arg) {
         const auto n = nt_int(arg);
         if (!n) return err_json(std::format("catalan: expected an integer, got '{}'", trim(arg)));
         if (*n < 0) return err_json("catalan is defined for n >= 0");
-        const std::string s = std::to_string(catalan_number(*n));
+        const std::string s = catalan_number(*n).to_string();
         return nt_json(s, s, {std::format("C({})", *n)});
     });
 }
@@ -374,7 +374,7 @@ std::string ms_stirling2(std::string nArg, std::string kArg) {
         if (!n) return err_json(std::format("stirling2: expected an integer n, got '{}'", trim(nArg)));
         if (!k) return err_json(std::format("stirling2: expected an integer k, got '{}'", trim(kArg)));
         if (*n < 0 || *k < 0) return err_json("stirling2 is defined for n, k >= 0");
-        const std::string s = std::to_string(stirling_second(*n, *k));
+        const std::string s = stirling_second(*n, *k).to_string();
         return nt_json(s, s, {std::format("S({}, {})", *n, *k)});
     });
 }
@@ -383,7 +383,7 @@ std::string ms_bell(std::string arg) {
         const auto n = nt_int(arg);
         if (!n) return err_json(std::format("bell: expected an integer, got '{}'", trim(arg)));
         if (*n < 0) return err_json("bell is defined for n >= 0");
-        const std::string s = std::to_string(bell_number(*n));
+        const std::string s = bell_number(*n).to_string();
         return nt_json(s, s, {std::format("B({})", *n)});
     });
 }
@@ -392,7 +392,7 @@ std::string ms_derangement(std::string arg) {
         const auto n = nt_int(arg);
         if (!n) return err_json(std::format("derangement: expected an integer, got '{}'", trim(arg)));
         if (*n < 0) return err_json("derangement is defined for n >= 0");
-        const std::string s = std::to_string(derangement_count(*n));
+        const std::string s = derangement_count(*n).to_string();
         return nt_json(s, s, {std::format("!{}", *n)});
     });
 }
@@ -401,7 +401,7 @@ std::string ms_lucas(std::string arg) {
         const auto n = nt_int(arg);
         if (!n) return err_json(std::format("lucas: expected an integer, got '{}'", trim(arg)));
         if (*n < 0) return err_json("lucas is defined for n >= 0");
-        const std::string s = std::to_string(lucas_number(*n));
+        const std::string s = lucas_number(*n).to_string();
         return nt_json(s, s, {std::format("L({})", *n)});
     });
 }
@@ -410,7 +410,7 @@ std::string ms_primorial(std::string arg) {
         const auto n = nt_int(arg);
         if (!n) return err_json(std::format("primorial: expected an integer, got '{}'", trim(arg)));
         if (*n < 0) return err_json("primorial is defined for n >= 0");
-        const std::string s = std::to_string(primorial(*n));
+        const std::string s = primorial(*n).to_string();
         return nt_json(s, s, {std::format("{}#", *n)});
     });
 }
@@ -419,7 +419,7 @@ std::string ms_motzkin(std::string arg) {
         const auto n = nt_int(arg);
         if (!n) return err_json(std::format("motzkin: expected an integer, got '{}'", trim(arg)));
         if (*n < 0) return err_json("motzkin is defined for n >= 0");
-        const std::string s = std::to_string(motzkin_number(*n));
+        const std::string s = motzkin_number(*n).to_string();
         return nt_json(s, s, {std::format("M({})", *n)});
     });
 }
@@ -428,7 +428,7 @@ std::string ms_euler(std::string arg) {
         const auto n = nt_int(arg);
         if (!n) return err_json(std::format("euler: expected an integer, got '{}'", trim(arg)));
         if (*n < 0) return err_json("euler is defined for n >= 0");
-        const std::string s = std::to_string(euler_number(*n));
+        const std::string s = euler_number(*n).to_string();
         return nt_json(s, s, {std::format("E({})", *n)});
     });
 }
@@ -437,7 +437,7 @@ std::string ms_tribonacci(std::string arg) {
         const auto n = nt_int(arg);
         if (!n) return err_json(std::format("tribonacci: expected an integer, got '{}'", trim(arg)));
         if (*n < 0) return err_json("tribonacci is defined for n >= 0");
-        const std::string s = std::to_string(tribonacci_number(*n));
+        const std::string s = tribonacci_number(*n).to_string();
         return nt_json(s, s, {std::format("T({})", *n)});
     });
 }
@@ -446,7 +446,7 @@ std::string ms_pell(std::string arg) {
         const auto n = nt_int(arg);
         if (!n) return err_json(std::format("pell: expected an integer, got '{}'", trim(arg)));
         if (*n < 0) return err_json("pell is defined for n >= 0");
-        const std::string s = std::to_string(pell_number(*n));
+        const std::string s = pell_number(*n).to_string();
         return nt_json(s, s, {std::format("P({})", *n)});
     });
 }

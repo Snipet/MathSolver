@@ -682,7 +682,10 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   the Euler numbers `euler` (secant numbers, companion to Bernoulli),
   the tribonacci numbers `tribonacci` (three-term Fibonacci), and the Pell
   numbers `pell` (P(n) = 2·P(n−1) + P(n−2), numerators of the √2 convergents)
-  — all exact, factoring via trial division + Pollard's rho:
+  — all exact, factoring via trial division + Pollard's rho. The combinatorial
+  sequence counts (`partitions`, `catalan`, `stirling2`, `bell`, `derangement`,
+  `lucas`, `primorial`, `motzkin`, `euler`, `tribonacci`, `pell`) are
+  arbitrary precision — no 64-bit ceiling (`catalan 100`, `pell 200`):
 
   ```console
   $ mathsolver factor 360

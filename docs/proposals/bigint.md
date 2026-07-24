@@ -1,8 +1,10 @@
 # Proposal: Arbitrary-Precision Integers (remove the int64 ceiling)
 
-Status: **in progress** — Phase 1 (this PR) lands the `BigInt` type; Phases 2–3
-follow. Size: **L**. Written to DESIGN.md's contract standard: normative
-sections fold into DESIGN.md as each phase lands.
+Status: **in progress** — Phase 1 landed the `BigInt` type; **Phase 2 (this
+PR)** makes the combinatorial sequence verbs arbitrary precision; Phase 3
+(Rational-on-BigInt, the symbolic tower) follows. Size: **L**. Written to
+DESIGN.md's contract standard: normative sections fold into DESIGN.md as each
+phase lands.
 
 Goal: make the exact-integer/rational tower **arbitrary precision**, so
 `factorial 100`, `catalan 200`, `bernoulli 40`, `pell 200`, big binomials, and
