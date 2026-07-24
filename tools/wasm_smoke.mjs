@@ -131,6 +131,14 @@ check("vandermonde numeric nodes", ms.vandermonde("1, 2, 3"), (r) => r.ok && r.p
 check("vandermonde symbolic nodes", ms.vandermonde("a, b"), (r) => r.ok && r.plain === "[1, a; 1, b]", "symbolic stays symbolic");
 check("vandermonde zero node", ms.vandermonde("0, 5"), (r) => r.ok && r.plain === "[1, 0; 1, 5]", "x^0 = 1");
 check("vandermonde error empty", ms.vandermonde(""), (r) => !r.ok && r.error.includes("node"), "empty rejected");
+// sigma (divisor function σ_k) and mobius (μ)
+check("sigma sum of divisors", ms.sigma("12", ""), (r) => r.ok && r.plain === "28", "σ(12)=28");
+check("sigma of squares", ms.sigma("6", "2"), (r) => r.ok && r.plain === "50", "σ_2(6)=50");
+check("sigma count of divisors", ms.sigma("12", "0"), (r) => r.ok && r.plain === "6", "σ_0(12)=6");
+check("sigma error non-positive", ms.sigma("0", ""), (r) => !r.ok && r.error.includes("positive"), "n≥1 required");
+check("mobius three primes", ms.mobius("30"), (r) => r.ok && r.plain === "-1", "μ(30)=-1");
+check("mobius squared factor", ms.mobius("12"), (r) => r.ok && r.plain === "0", "μ(12)=0");
+check("mobius of one", ms.mobius("1"), (r) => r.ok && r.plain === "1", "μ(1)=1");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

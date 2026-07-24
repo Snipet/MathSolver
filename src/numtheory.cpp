@@ -193,6 +193,30 @@ long long euler_totient(long long n) {
     return phi;
 }
 
+long long divisor_sigma(long long n, int k) {
+    if (n < 1) throw EvalError{"sigma is defined for positive integers"};
+    if (k < 0) throw EvalError{"sigma exponent must be non-negative"};
+    long long sum = 0;
+    for (long long d : divisors(n)) {
+        long long term = 1;
+        for (int e = 0; e < k; ++e)
+            if (__builtin_mul_overflow(term, d, &term))
+                throw OverflowError{"sigma overflows the 64-bit range"};
+        if (__builtin_add_overflow(sum, term, &sum))
+            throw OverflowError{"sigma overflows the 64-bit range"};
+    }
+    return sum;
+}
+
+int mobius(long long n) {
+    if (n < 1) throw EvalError{"mobius is defined for positive integers"};
+    if (n == 1) return 1;
+    const std::vector<PrimePower> f = factorize(n);
+    for (const PrimePower& pp : f)
+        if (pp.exponent > 1) return 0; // a squared factor → μ = 0
+    return (f.size() % 2 == 0) ? 1 : -1;
+}
+
 long long int_mod(long long a, long long m) {
     if (m == 0) throw DivisionByZeroError{"mod by zero"};
     long long r = a % m;

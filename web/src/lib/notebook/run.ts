@@ -104,6 +104,8 @@ export const MATH_VERBS = new Set([
   "nextprime",
   "divisors",
   "totient",
+  "sigma",
+  "mobius",
   "cfrac",
   "mod",
   "powmod",
@@ -578,9 +580,17 @@ async function runVerb(
     case "isprime":
     case "nextprime":
     case "divisors":
+    case "mobius":
     case "totient": {
       if (args.length > 1) return usage(`usage: ${verb} <integer>`);
       const r = await call(verb, [expr]);
+      if (!r.ok) return err(expr, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "sigma": {
+      // sigma <n>[, <k>]: the divisor function σ_k (default k = 1).
+      if (args.length > 2) return usage("usage: sigma <n>[, <k>]");
+      const r = await call("sigma", [expr, args[1] ?? ""]);
       if (!r.ok) return err(expr, r);
       return { kind: "transform", result: r, computedFrom: null };
     }

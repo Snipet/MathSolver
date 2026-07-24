@@ -323,6 +323,32 @@ std::string ms_totient(std::string arg) {
         return nt_json(s, s, {std::format("phi({})", *n)});
     });
 }
+std::string ms_sigma(std::string arg, std::string kArg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("sigma: expected an integer, got '{}'", trim(arg)));
+        if (*n < 1) return err_json("sigma is defined for positive integers");
+        int k = 1;
+        if (!trim(kArg).empty()) {
+            const auto kk = nt_int(kArg);
+            if (!kk) return err_json(std::format("sigma: exponent must be an integer, got '{}'",
+                                                 trim(kArg)));
+            if (*kk < 0) return err_json("sigma exponent must be non-negative");
+            k = static_cast<int>(*kk);
+        }
+        const std::string s = std::to_string(divisor_sigma(*n, k));
+        return nt_json(s, s, {std::format("sigma_{}({})", k, *n)});
+    });
+}
+std::string ms_mobius(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("mobius: expected an integer, got '{}'", trim(arg)));
+        if (*n < 1) return err_json("mobius is defined for positive integers");
+        const std::string s = std::to_string(mobius(*n));
+        return nt_json(s, s, {std::format("mu({})", *n)});
+    });
+}
 std::string ms_divisors(std::string arg) {
     return guarded([&]() -> std::string {
         const auto n = nt_int(arg);
@@ -1699,6 +1725,8 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("nextprime", &ms_nextprime);
     emscripten::function("divisors", &ms_divisors);
     emscripten::function("totient", &ms_totient);
+    emscripten::function("sigma", &ms_sigma);
+    emscripten::function("mobius", &ms_mobius);
     emscripten::function("cfrac", &ms_cfrac);
     emscripten::function("discriminant", &ms_discriminant);
     emscripten::function("polydiv", &ms_polydiv);

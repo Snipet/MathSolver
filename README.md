@@ -668,8 +668,10 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   inconsistency detection.
 - **Number theory** — integer `factor` (prime factorization), `gcd`/`lcm`
   of a list, deterministic `isprime` (Miller–Rabin over the whole 64-bit
-  range), `nextprime`, `divisors`, and Euler's `totient` — all exact,
-  factoring via trial division + Pollard's rho:
+  range), `nextprime`, `divisors`, Euler's `totient`, the divisor function
+  `sigma` (σ_k, with `sigma n, 0` counting divisors and `sigma n, 2` summing
+  squares), and the Möbius function `mobius` — all exact, factoring via
+  trial division + Pollard's rho:
 
   ```console
   $ mathsolver factor 360
@@ -682,6 +684,10 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   1, 2, 4, 7, 14, 28
   $ mathsolver totient 36
   12
+  $ mathsolver sigma 12
+  28
+  $ mathsolver mobius 30
+  -1
   ```
 - **Modular arithmetic** — `mod`, `powmod` (modular exponentiation that
   handles huge exponents no plain evaluation could), `modinv` (modular

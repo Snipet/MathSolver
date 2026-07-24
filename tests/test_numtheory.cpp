@@ -137,6 +137,37 @@ TEST_CASE("Euler's totient") {
     CHECK_THROWS_AS(euler_totient(0), EvalError);
 }
 
+TEST_CASE("divisor function sigma_k") {
+    // σ_1 (sum of divisors).
+    CHECK(divisor_sigma(1) == 1);
+    CHECK(divisor_sigma(6) == 12);   // 1+2+3+6 (perfect number)
+    CHECK(divisor_sigma(28) == 56);  // 1+2+4+7+14+28
+    CHECK(divisor_sigma(12) == 28);  // 1+2+3+4+6+12
+    CHECK(divisor_sigma(97) == 98);  // prime p → p+1
+    // σ_0 counts divisors; σ_2 sums squares.
+    CHECK(divisor_sigma(12, 0) == 6);            // d(12) = 6
+    CHECK(divisor_sigma(6, 2) == 1 + 4 + 9 + 36); // 50
+    // sigma is multiplicative: σ(3·4) = σ(3)·σ(4) since gcd(3,4)=1.
+    CHECK(divisor_sigma(12) == divisor_sigma(3) * divisor_sigma(4));
+    CHECK_THROWS_AS(divisor_sigma(0), EvalError);
+    CHECK_THROWS_AS(divisor_sigma(6, -1), EvalError);
+}
+
+TEST_CASE("Mobius function") {
+    CHECK(mobius(1) == 1);
+    CHECK(mobius(2) == -1);  // one prime
+    CHECK(mobius(6) == 1);   // 2·3, two primes
+    CHECK(mobius(30) == -1); // 2·3·5, three primes
+    CHECK(mobius(4) == 0);   // 2^2 — squared factor
+    CHECK(mobius(12) == 0);  // 2^2·3
+    CHECK(mobius(97) == -1); // prime
+    // Σ_{d | n} μ(d) = [n == 1] (the Möbius identity).
+    long long acc = 0;
+    for (long long d : divisors(30)) acc += mobius(d);
+    CHECK(acc == 0);
+    CHECK_THROWS_AS(mobius(0), EvalError);
+}
+
 TEST_CASE("next/prev prime and Euclidean mod") {
     CHECK(next_prime(0) == 2);
     CHECK(next_prime(7) == 11);

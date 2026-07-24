@@ -152,6 +152,18 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "totient 36",
       },
       {
+        insert: "sigma",
+        usage: "sigma <n> [, <k>]",
+        hint: "Divisor function σₖ(n): sum of the k-th powers of divisors (default k=1)",
+        example: "sigma 12",
+      },
+      {
+        insert: "mobius",
+        usage: "mobius <n>",
+        hint: "Möbius μ(n): 0 if n has a squared factor, else ±1 by prime count",
+        example: "mobius 30",
+      },
+      {
         insert: "cfrac",
         usage: "cfrac <rational | sqrt(n) | real>",
         hint: "Continued fraction + convergents (best rational approximations)",
