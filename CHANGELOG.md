@@ -28,6 +28,11 @@ per-feature specs are under docs/proposals/.
 
 ### Fixed
 
+- **Grapher — toolbar buttons no longer wrap mid-label.** In a narrow graph
+  panel the toolbar squeezed its buttons until labels like "Grid off", "Save
+  PNG", and "Copy image" broke awkwardly onto two lines. Each label now stays on
+  one line and whole buttons wrap to a second row when space runs out.
+
 - **Console — Cookbook no longer crashes on open.** Expanding the "Session
   Variables & Notebooks" category (and any recipe that shows a command twice —
   e.g. a value before and after a redefinition) threw a Svelte
