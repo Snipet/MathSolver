@@ -56,6 +56,15 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **`steps` — worked, rule-by-rule derivatives.** `steps <expr>[, <var>]`
+  shows the derivative as a student would work it: one numbered line per rule
+  applied (power, product, chain, exponential, sum, …), innermost first, then
+  the result — e.g. `steps "sin(x^2)"` prints the power-rule step for `x^2`,
+  then the chain-rule step for `sin`. The result always matches plain `diff`;
+  each step is rendered in plain text and LaTeX. First phase of the
+  step-by-step feature (docs/proposals/step-by-step.md); integrals and solving
+  follow. CLI now; console next.
+
 - **Console — `pell` numbers.** `pell n` is the n-th Pell number P(n) —
   P₀ = 0, P₁ = 1, P(n) = 2·P(n−1) + P(n−2) (0, 1, 2, 5, 12, 29, 70, 169, …;
   `pell 10` → 2378) — the numerators of the continued-fraction convergents to

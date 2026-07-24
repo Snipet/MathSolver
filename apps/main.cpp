@@ -399,6 +399,20 @@ void run_diff(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(differentiate(e, var), style));
 }
 
+/// `steps`: a worked, rule-by-rule derivative — one numbered line per rule
+/// applied (innermost first), then the final result. Same variable-selection
+/// rules as `diff`.
+void run_steps(const std::string& input, const std::string& explicit_var, PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "steps");
+    const Explanation ex = explain_derivative(e, var);
+    int i = 1;
+    for (const ExplainStep& s : ex.steps) {
+        std::println("{}. [{}] {}", i++, s.rule, style == PrintStyle::LaTeX ? s.latex : s.plain);
+    }
+    std::println("result: {}", style == PrintStyle::LaTeX ? ex.result_latex : ex.result_plain);
+}
+
 /// `laplace` maps f(t) -> F(s); the time variable defaults to t and may be
 /// given explicitly (any name but s). Errors from the transform (e.g. no rule
 /// for the input) propagate as normal Error diagnostics.
@@ -1778,7 +1792,7 @@ void print_usage(std::FILE* out) {
 bool is_known_subcommand(std::string_view s) {
     return s == "simplify" || s == "expand" || s == "factor" || s == "cancel" ||
            s == "together" ||
-           s == "solve" || s == "diff" || s == "integrate" || s == "eval" ||
+           s == "solve" || s == "diff" || s == "steps" || s == "integrate" || s == "eval" ||
            s == "latex" || s == "subs" || s == "collect" || s == "laplace" ||
            s == "ilaplace" ||
            s == "apart" || s == "dsolve" || s == "series" || s == "pade" ||
@@ -1890,7 +1904,7 @@ int run_one_shot(const std::vector<std::string>& args) {
             const std::vector<std::string> vars(positionals.begin() + 1,
                                                 positionals.end());
             run_solve_system(input, vars, style);
-        } else if (sub == "solve" || sub == "diff" || sub == "integrate" ||
+        } else if (sub == "solve" || sub == "diff" || sub == "steps" || sub == "integrate" ||
                    sub == "collect" || sub == "laplace" || sub == "ilaplace" ||
                    sub == "apart" || sub == "cancel") {
             if (positionals.size() > 2) {
@@ -1903,6 +1917,8 @@ int run_one_shot(const std::vector<std::string>& args) {
                 run_solve(input, var, opts, style);
             } else if (sub == "diff") {
                 run_diff(input, var, style);
+            } else if (sub == "steps") {
+                run_steps(input, var, style);
             } else if (sub == "collect") {
                 run_collect(input, var, style);
             } else if (sub == "apart") {
@@ -2222,6 +2238,7 @@ void print_repl_help() {
         "  solve <equation>[, <variable>]\n"
         "  solve <eq>; <eq>[; ...][, <var>, <var>, ...]   (linear system)\n"
         "  diff <expression>[, <variable>]\n"
+        "  steps <expression>[, <variable>]      worked, rule-by-rule derivative\n"
         "  integrate <expression>[, <variable>[, <lo>, <hi>]]\n"
         "  eval <expression>, x=1[, y=2 ...]\n"
         "  subs <expression>, x=y+1[, z=2 ...]\n"
@@ -2303,7 +2320,7 @@ bool is_repl_command(std::string_view word) {
            word == "trigexpand" || word == "trigreduce" ||
            word == "logexpand" || word == "logcombine" ||
            word == "cancel" || word == "together" || word == "solve" ||
-           word == "diff" || word == "integrate" ||
+           word == "diff" || word == "steps" || word == "integrate" ||
            word == "eval" || word == "latex" || word == "debug" ||
            word == "subs" || word == "collect" || word == "laplace" ||
            word == "ilaplace" || word == "apart" || word == "dsolve" ||
@@ -2970,7 +2987,8 @@ void repl_command(const std::string& command, const std::string& rest,
     const std::vector<std::string> parts = split_top_level_commas(rest);
     if (parts.empty() || parts[0].empty()) {
         const std::string_view suffix =
-            command == "solve" || command == "diff" || command == "collect"
+            command == "solve" || command == "diff" || command == "steps" ||
+                    command == "collect"
                 ? "[, <variable>]"
             : command == "subs" ? ", <name>=<expr>[, ...]"
                                 : "";
@@ -2985,8 +3003,8 @@ void repl_command(const std::string& command, const std::string& rest,
         // The first comma segment holds the equation(s) (';'-separated for a
         // system), the remaining segments are the variables.
         repl_solve(input, {parts.begin() + 1, parts.end()}, env);
-    } else if (command == "diff" || command == "collect" || command == "apart" ||
-               command == "cancel") {
+    } else if (command == "diff" || command == "steps" || command == "collect" ||
+               command == "apart" || command == "cancel") {
         if (parts.size() > 2) {
             throw UsageError{std::format(
                 "too many arguments: usage: {} <input>[, <variable>]", command)};
@@ -3001,6 +3019,8 @@ void repl_command(const std::string& command, const std::string& rest,
             PrintStyle::Plain);
         if (command == "diff") {
             run_diff(resolved, var, PrintStyle::Plain);
+        } else if (command == "steps") {
+            run_steps(resolved, var, PrintStyle::Plain);
         } else if (command == "apart") {
             run_apart(resolved, var, PrintStyle::Plain);
         } else if (command == "cancel") {

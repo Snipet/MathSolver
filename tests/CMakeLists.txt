@@ -20,6 +20,7 @@ add_executable(mathsolver_tests
     test_simplify.cpp
     test_simplify_review.cpp
     test_derivative.cpp
+    test_steps.cpp
     test_integrate.cpp
     test_apart.cpp
     test_fit.cpp
