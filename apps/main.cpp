@@ -479,6 +479,26 @@ void run_interp(const std::string& input, PrintStyle style) {
     std::println("degree: {}{}", r.degree, r.exact ? " (exact)" : "");
 }
 
+/// `chebyshev`/`legendre`/`hermite`/`laguerre`: the exact degree-n orthogonal
+/// polynomial of the family in the given variable (default `x`).
+void run_orthopoly(OrthoFamily fam, const std::string& n_text,
+                   const std::string& var_text, PrintStyle style) {
+    const std::string nt = trim(n_text);
+    int n = 0;
+    try {
+        std::size_t pos = 0;
+        n = std::stoi(nt, &pos);
+        if (pos != nt.size()) throw std::invalid_argument("trailing");
+    } catch (const std::exception&) {
+        throw UsageError{std::format("expected an integer degree, got '{}'", n_text)};
+    }
+    const std::string var = var_text.empty() ? "x" : trim(var_text);
+    const OrthoPolyResult r = ortho_poly(fam, n, var);
+    if (r.status != OrthoPolyResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", to_string(r.expr, style));
+    std::println("{}, degree {}", r.family, r.degree);
+}
+
 /// `stats`: exact summary statistics of a data list (mean, median, quartiles,
 /// spread). Each statistic prints as `label = value`; values are exact
 /// (fractions / radicals) when the data are rational.
@@ -1586,6 +1606,8 @@ bool is_known_subcommand(std::string_view s) {
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
            s == "rsolve" || s == "mlimit" || s == "stirling" ||
            s == "seq" || s == "fit" || s == "regress" || s == "interp" || s == "stats" ||
+           s == "chebyshev" || s == "chebyu" || s == "legendre" ||
+           s == "hermite" || s == "laguerre" ||
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
            s == "divisors" || s == "totient" || s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
@@ -1783,6 +1805,20 @@ int run_one_shot(const std::vector<std::string>& args) {
                     positionals[1])};
             }
             run_interp(input, style);
+        } else if (sub == "chebyshev" || sub == "chebyu" || sub == "legendre" ||
+                   sub == "hermite" || sub == "laguerre") {
+            if (positionals.size() > 2) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver {} <n> [var])",
+                    positionals[2], sub)};
+            }
+            const OrthoFamily fam = sub == "chebyshev" ? OrthoFamily::ChebyshevT
+                                    : sub == "chebyu"    ? OrthoFamily::ChebyshevU
+                                    : sub == "legendre"  ? OrthoFamily::Legendre
+                                    : sub == "hermite"   ? OrthoFamily::Hermite
+                                                         : OrthoFamily::Laguerre;
+            run_orthopoly(fam, input, positionals.size() > 1 ? positionals[1] : "",
+                          style);
         } else if (sub == "stats") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -1960,6 +1996,8 @@ void print_repl_help() {
         "  interp <x,y; x,y; ...>                 exact polynomial through the points\n"
         "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
         "  stats <v1, v2, v3, ...>                exact summary statistics\n"
+        "  chebyshev/chebyu/legendre/hermite/laguerre <n> [var]\n"
+        "                                         exact orthogonal polynomials\n"
         "  stirling [<var>[, <terms>]]            ln Gamma asymptotics\n"
         "  seq <a0>, <a1>, <a2>, <a3>[, ...]      recognize the pattern\n"
         "  factor <n>                             integer -> prime factorization\n"

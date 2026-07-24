@@ -307,6 +307,24 @@ $ mathsolver interp "0,0; 1,1; 2,1"
 degree: 2 (exact)
 ```
 
+Orthogonal polynomials — `chebyshev`, `chebyu` (second kind), `legendre`,
+`hermite`, and `laguerre` generate the exact degree-n member of each
+classical family from its three-term recurrence over the rationals, so the
+coefficients are exact integers or fractions rather than decimals. An
+optional second argument names the variable:
+
+```console
+$ mathsolver chebyshev 5
+16*x^5 - 20*x^3 + 5*x
+Chebyshev T, degree 5
+$ mathsolver legendre 3
+5*x^3/2 - 3*x/2
+Legendre, degree 3
+$ mathsolver hermite 4 t
+16*t^4 - 48*t^2 + 12
+Hermite, degree 4
+```
+
 Summary statistics — `stats` reports the mean, median, quartiles (Moore &
 McCabe), spread, and both population and sample standard deviation of a
 data list. On rational data every statistic is **exact** — the mean stays
