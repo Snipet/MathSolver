@@ -210,6 +210,28 @@ TEST_CASE("cli: partitions and catalan numbers") {
     CHECK(run_cli({"catalan", "40"}).exit_code != 0); // overflows int64
 }
 
+TEST_CASE("cli: bernoulli numbers as exact rationals") {
+    const RunResult b2 = run_cli({"bernoulli", "2"});
+    CHECK(b2.exit_code == 0);
+    CHECK(contains(b2.output, "1/6"));
+
+    const RunResult b1 = run_cli({"bernoulli", "1"});
+    CHECK(b1.exit_code == 0);
+    CHECK(contains(b1.output, "-1/2")); // B_1 = -1/2 convention
+
+    const RunResult b12 = run_cli({"bernoulli", "12"});
+    CHECK(b12.exit_code == 0);
+    CHECK(contains(b12.output, "-691/2730"));
+
+    // LaTeX renders the fraction.
+    const RunResult tex = run_cli({"bernoulli", "4", "--latex"});
+    CHECK(tex.exit_code == 0);
+    CHECK(contains(tex.output, "\\frac"));
+
+    // Out of range is a usage error (exit 2).
+    CHECK(run_cli({"bernoulli", "21"}).exit_code == 2);
+}
+
 TEST_CASE("cli: trigexpand of sums and multiples") {
     const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
     INFO(sum.output);

@@ -128,6 +128,17 @@ TEST_CASE("bernoulli numbers are the classic exact rationals") {
     CHECK_THROWS_AS(bernoulli_numbers(21), Error);
 }
 
+TEST_CASE("bernoulli_number returns the single indexed value") {
+    CHECK(bernoulli_number(0) == Rational(1));
+    CHECK(bernoulli_number(1) == Rational(-1, 2));
+    CHECK(bernoulli_number(2) == Rational(1, 6));
+    CHECK(bernoulli_number(3) == Rational(0));    // odd B_n (n>1) vanish
+    CHECK(bernoulli_number(12) == Rational(-691, 2730));
+    CHECK(bernoulli_number(20) == Rational(-174611, 330));
+    CHECK_THROWS_AS(bernoulli_number(21), Error);
+    CHECK_THROWS_AS(bernoulli_number(-1), Error);
+}
+
 TEST_CASE("stirling series carries the classic correction terms") {
     const StirlingResult r = stirling_series("x", 3);
     const std::string plain = to_string(r.series, PrintStyle::Plain);

@@ -367,6 +367,17 @@ std::string ms_catalan(std::string arg) {
         return nt_json(s, s, {std::format("C({})", *n)});
     });
 }
+std::string ms_bernoulli(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("bernoulli: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0 || *n > 20) return err_json("bernoulli: the index must be in [0, 20]");
+        const Rational b = bernoulli_number(static_cast<int>(*n));
+        // Render the exact rational (fractions like 1/6, -1/30) plain and LaTeX.
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}",
+                           rendered_fields(make_num(b)), jarr_str({std::format("B_{}", *n)}));
+    });
+}
 std::string ms_divisors(std::string arg) {
     return guarded([&]() -> std::string {
         const auto n = nt_int(arg);
@@ -1747,6 +1758,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("mobius", &ms_mobius);
     emscripten::function("partitions", &ms_partitions);
     emscripten::function("catalan", &ms_catalan);
+    emscripten::function("bernoulli", &ms_bernoulli);
     emscripten::function("cfrac", &ms_cfrac);
     emscripten::function("discriminant", &ms_discriminant);
     emscripten::function("polydiv", &ms_polydiv);

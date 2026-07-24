@@ -145,6 +145,12 @@ check("partitions of 100", ms.partitions("100"), (r) => r.ok && r.plain === "190
 check("partitions error negative", ms.partitions("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
 check("catalan of 10", ms.catalan("10"), (r) => r.ok && r.plain === "16796", "C(10)=16796");
 check("catalan error overflow", ms.catalan("40"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+// bernoulli numbers as exact rationals
+check("bernoulli B_2", ms.bernoulli("2"), (r) => r.ok && r.plain === "1/6", "B_2=1/6");
+check("bernoulli B_1 convention", ms.bernoulli("1"), (r) => r.ok && r.plain === "-1/2", "B_1=-1/2");
+check("bernoulli B_12", ms.bernoulli("12"), (r) => r.ok && r.plain === "-691/2730", "B_12");
+check("bernoulli odd vanishes", ms.bernoulli("3"), (r) => r.ok && r.plain === "0", "B_3=0");
+check("bernoulli error range", ms.bernoulli("21"), (r) => !r.ok && r.error.includes("[0, 20]"), "index capped");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

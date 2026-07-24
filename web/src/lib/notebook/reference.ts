@@ -176,6 +176,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "catalan 8",
       },
       {
+        insert: "bernoulli",
+        usage: "bernoulli <n>",
+        hint: "The n-th Bernoulli number Bₙ as an exact rational (0 ≤ n ≤ 20)",
+        example: "bernoulli 12",
+      },
+      {
         insert: "cfrac",
         usage: "cfrac <rational | sqrt(n) | real>",
         hint: "Continued fraction + convergents (best rational approximations)",

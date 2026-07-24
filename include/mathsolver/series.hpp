@@ -38,6 +38,10 @@ Expr series_at_infinity(const Expr& f, std::string_view var, int order);
 /// [0, 20] (the exact 64-bit rationals stay comfortably in range there).
 std::vector<Rational> bernoulli_numbers(int m);
 
+/// The single n-th Bernoulli number B_n (B_1 = -1/2 convention), exact over
+/// the rationals. Requires 0 <= n <= 20 (throws Error otherwise).
+Rational bernoulli_number(int n);
+
 struct StirlingResult {
     Expr series;  ///< The truncated asymptotic series for ln Gamma(var).
     /// Accuracy check against lgamma at sample points, one line each —

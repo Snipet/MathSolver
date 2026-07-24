@@ -671,9 +671,9 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   range), `nextprime`, `divisors`, Euler's `totient`, the divisor function
   `sigma` (σ_k, with `sigma n, 0` counting divisors and `sigma n, 2` summing
   squares), the Möbius function `mobius`, the integer partition count
-  `partitions` (p(n) via Euler's pentagonal recurrence), and the Catalan
-  numbers `catalan` — all exact, factoring via trial division + Pollard's
-  rho:
+  `partitions` (p(n) via Euler's pentagonal recurrence), the Catalan
+  numbers `catalan`, and the Bernoulli numbers `bernoulli` (exact rationals,
+  B₁ = −1/2) — all exact, factoring via trial division + Pollard's rho:
 
   ```console
   $ mathsolver factor 360
@@ -694,6 +694,8 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   42
   $ mathsolver catalan 10
   16796
+  $ mathsolver bernoulli 12
+  -691/2730
   ```
 - **Modular arithmetic** — `mod`, `powmod` (modular exponentiation that
   handles huge exponents no plain evaluation could), `modinv` (modular
