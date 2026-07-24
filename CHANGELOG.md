@@ -30,6 +30,12 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — "Hide all / Show all" bulk visibility toggle.** When two or
+  more expressions are plotted, a toolbar button hides every curve at once
+  (to focus on one you're about to un-hide) or brings them all back — no
+  more clicking each colour dot in turn. The label flips to "Show all"
+  whenever anything is hidden, and the state persists with the document.
+
 - **Console — `sigma` and `mobius` divisor functions.** Two classic
   multiplicative number-theory functions joining `totient` / `divisors`.
   `sigma n` sums the divisors of *n* (`sigma 12` → 28); an optional exponent

@@ -302,6 +302,17 @@ class GraphStore {
       this.persist();
     }
   }
+  /** Show or hide every row at once (a bulk visibility toggle). */
+  setAllVisible(v: boolean): void {
+    let changed = false;
+    for (const r of this.rows) {
+      if (r.visible !== v) {
+        r.visible = v;
+        changed = true;
+      }
+    }
+    if (changed) this.persist();
+  }
 
   #rowSnapshot(r: ExprRow): PersistedRow {
     const style = {

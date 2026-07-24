@@ -753,6 +753,56 @@ try {
     check("clicking a reference chip adds a row", after === before + 1, `${before} -> ${after}`);
   }
 
+  // Bulk visibility: a "Hide all" / "Show all" toolbar toggle for multi-row graphs.
+  {
+    await page.evaluate(() => {
+      localStorage.clear();
+      localStorage.setItem(
+        "mathsolver.graph",
+        JSON.stringify({
+          rows: [
+            { text: "y=x", color: "#2563eb", visible: true },
+            { text: "y=x^2", color: "#dc2626", visible: true },
+          ],
+          view: { cx: 0, cy: 0, scale: 40 },
+        }),
+      );
+    });
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    const clickToolBtn = (label) =>
+      page.evaluate((lbl) => {
+        const b = [...document.querySelectorAll(".calc-toolbar .tool-btn")].find(
+          (el) => el.textContent.trim() === lbl,
+        );
+        if (b) b.click();
+        return !!b;
+      }, label);
+    const visibles = () =>
+      page.evaluate(() =>
+        JSON.parse(localStorage.getItem("mathsolver.graph")).rows.map((r) => r.visible),
+      );
+
+    const hadHide = await clickToolBtn("Hide all");
+    await new Promise((r) => setTimeout(r, 200));
+    const afterHide = await visibles();
+    check(
+      "'Hide all' hides every expression",
+      hadHide && afterHide.every((v) => v === false),
+      JSON.stringify(afterHide),
+    );
+
+    const hadShow = await clickToolBtn("Show all");
+    await new Promise((r) => setTimeout(r, 200));
+    const afterShow = await visibles();
+    check(
+      "'Show all' restores every expression",
+      hadShow && afterShow.every((v) => v === true),
+      JSON.stringify(afterShow),
+    );
+  }
+
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 } catch (e) {
