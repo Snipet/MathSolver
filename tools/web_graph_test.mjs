@@ -803,6 +803,40 @@ try {
     );
   }
 
+  // Duplicate a row: the ⧉ button inserts an identical expression right after,
+  // with its own colour.
+  {
+    await page.evaluate(() => {
+      localStorage.clear();
+      localStorage.setItem(
+        "mathsolver.graph",
+        JSON.stringify({
+          rows: [{ text: "y=x^2", color: "#2563eb", visible: true }],
+          view: { cx: 0, cy: 0, scale: 40 },
+        }),
+      );
+    });
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    const before = await page.$$eval(".calc .rows .row", (els) => els.length);
+    await page.click(".calc .rows .row .row-dup");
+    await new Promise((r) => setTimeout(r, 300));
+    const rows = await page.evaluate(
+      () => JSON.parse(localStorage.getItem("mathsolver.graph")).rows,
+    );
+    check(
+      "duplicate-row inserts an identical expression after it",
+      rows.length === before + 1 && rows[0].text === "y=x^2" && rows[1].text === "y=x^2",
+      JSON.stringify(rows.map((r) => r.text)),
+    );
+    check(
+      "the duplicate gets its own colour",
+      rows[0].color !== rows[1].color,
+      `${rows[0].color} vs ${rows[1].color}`,
+    );
+  }
+
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 } catch (e) {

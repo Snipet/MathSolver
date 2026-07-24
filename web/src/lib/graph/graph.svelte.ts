@@ -215,6 +215,24 @@ class GraphStore {
     this.persist();
   }
 
+  /** Insert a copy of a row (new id, fresh colour, deep-copied points) right
+   *  after it. Returns the new row's id, or -1 if it's missing or at the cap. */
+  duplicateRow(id: number): number {
+    if (this.rows.length >= CAP) return -1;
+    const i = this.rows.findIndex((r) => r.id === id);
+    if (i < 0) return -1;
+    const src = this.rows[i];
+    const copy: ExprRow = {
+      ...src,
+      id: nextId++,
+      color: this.#nextColor(),
+      points: src.points.map((p) => ({ ...p })),
+    };
+    this.rows.splice(i + 1, 0, copy);
+    this.persist();
+    return copy.id;
+  }
+
   setText(id: number, text: string): void {
     const r = this.rows.find((x) => x.id === id);
     if (r) {
