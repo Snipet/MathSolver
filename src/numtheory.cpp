@@ -307,6 +307,23 @@ long long derangement_count(long long n) {
     return prev1;
 }
 
+long long lucas_number(long long n) {
+    if (n < 0) throw EvalError{"lucas is defined for n >= 0"};
+    // L(0) = 2, L(1) = 1, L(n) = L(n-1) + L(n-2); overflow-guarded (L(n) ~ φ^n
+    // leaves int64 near n = 91).
+    long long prev2 = 2; // L(0)
+    long long prev1 = 1; // L(1)
+    if (n == 0) return prev2;
+    for (long long k = 2; k <= n; ++k) {
+        long long next = 0;
+        if (__builtin_add_overflow(prev1, prev2, &next))
+            throw OverflowError{"lucas overflows the 64-bit range"};
+        prev2 = prev1;
+        prev1 = next;
+    }
+    return prev1;
+}
+
 long long catalan_number(long long n) {
     if (n < 0) throw EvalError{"catalan is defined for n >= 0"};
     // Iterate C(k+1) = C(k)·2(2k+1)/(k+2) — an exact division at every step

@@ -200,6 +200,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "derangement 6",
       },
       {
+        insert: "lucas",
+        usage: "lucas <n>",
+        hint: "The n-th Lucas number L(n): companion to Fibonacci, L₀=2, L₁=1",
+        example: "lucas 10",
+      },
+      {
         insert: "cfrac",
         usage: "cfrac <rational | sqrt(n) | real>",
         hint: "Continued fraction + convergents (best rational approximations)",

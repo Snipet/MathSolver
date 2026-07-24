@@ -897,6 +897,14 @@ void run_derangement(const std::string& input) {
     std::println("{}", derangement_count(v[0]));
 }
 
+/// `lucas`: the n-th Lucas number L(n) for a single n >= 0.
+void run_lucas(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "lucas");
+    if (v.size() != 1) throw UsageError{"lucas takes a single integer"};
+    if (v[0] < 0) throw UsageError{"lucas is defined for n >= 0"};
+    std::println("{}", lucas_number(v[0]));
+}
+
 /// `bernoulli`: the n-th Bernoulli number B_n (exact rational, 0 <= n <= 20).
 void run_bernoulli(const std::string& input, PrintStyle style) {
     const std::vector<long long> v = parse_integer_list(input, "bernoulli");
@@ -1742,7 +1750,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "divisors" || s == "totient" || s == "sigma" || s == "mobius" ||
            s == "partitions" || s == "catalan" || s == "bernoulli" ||
            s == "stirling2" || s == "bell" || s == "derangement" ||
-           s == "cfrac" ||
+           s == "lucas" || s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
            s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
            s == "polydiv" || s == "polygcd" || s == "polylcm" ||
@@ -1983,7 +1991,7 @@ int run_one_shot(const std::vector<std::string>& args) {
         } else if (sub == "gcd" || sub == "lcm" || sub == "isprime" ||
                    sub == "nextprime" || sub == "divisors" || sub == "totient" ||
                    sub == "mobius" || sub == "partitions" || sub == "catalan" ||
-                   sub == "bell" || sub == "derangement") {
+                   sub == "bell" || sub == "derangement" || sub == "lucas") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (put the integers in one quoted "
@@ -2000,6 +2008,7 @@ int run_one_shot(const std::vector<std::string>& args) {
             else if (sub == "catalan") run_catalan(input);
             else if (sub == "bell") run_bell(input);
             else if (sub == "derangement") run_derangement(input);
+            else if (sub == "lucas") run_lucas(input);
             else run_totient(input);
         } else if (sub == "stirling2") {
             run_stirling2(input);
@@ -2196,7 +2205,7 @@ void print_repl_help() {
         "  partitions <n>   catalan <n>           partition count p(n) and Catalan C(n)\n"
         "  bernoulli <n>                          the n-th Bernoulli number B_n (exact)\n"
         "  stirling2 <n>, <k>   bell <n>           Stirling 2nd-kind S(n,k) and Bell B(n)\n"
-        "  derangement <n>                        subfactorial !n (no fixed point)\n"
+        "  derangement <n>   lucas <n>             subfactorial !n and Lucas L(n)\n"
         "  cfrac <rational | sqrt(n) | real>      continued fraction + convergents\n"
         "  mod <a, m>   powmod <b, e, m>   modinv <a, m>   modular arithmetic\n"
         "  crt <r1, r2, …; m1, m2, …>             Chinese remainder theorem\n"
@@ -2252,7 +2261,7 @@ bool is_repl_command(std::string_view word) {
            word == "divisors" || word == "totient" || word == "sigma" ||
            word == "mobius" || word == "partitions" || word == "catalan" ||
            word == "bernoulli" || word == "stirling2" || word == "bell" ||
-           word == "derangement" || word == "cfrac" ||
+           word == "derangement" || word == "lucas" || word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
            word == "crt" || word == "discriminant" || word == "polydiv" ||
            word == "polygcd" || word == "polylcm" || word == "resultant" ||
@@ -2841,7 +2850,7 @@ void repl_command(const std::string& command, const std::string& rest,
         command == "nextprime" || command == "divisors" ||
         command == "totient" || command == "mobius" || command == "sigma" ||
         command == "partitions" || command == "catalan" || command == "bell" ||
-        command == "derangement") {
+        command == "derangement" || command == "lucas") {
         if (trim(rest).empty()) {
             throw UsageError{std::format(
                 "usage: {} <integer{}>", command,
@@ -2860,6 +2869,7 @@ void repl_command(const std::string& command, const std::string& rest,
         else if (command == "catalan") run_catalan(rest);
         else if (command == "bell") run_bell(rest);
         else if (command == "derangement") run_derangement(rest);
+        else if (command == "lucas") run_lucas(rest);
         else run_totient(rest);
         return;
     }

@@ -112,6 +112,7 @@ export const MATH_VERBS = new Set([
   "stirling2",
   "bell",
   "derangement",
+  "lucas",
   "cfrac",
   "mod",
   "powmod",
@@ -592,6 +593,7 @@ async function runVerb(
     case "bernoulli":
     case "bell":
     case "derangement":
+    case "lucas":
     case "totient": {
       if (args.length > 1) return usage(`usage: ${verb} <integer>`);
       const r = await call(verb, [expr]);

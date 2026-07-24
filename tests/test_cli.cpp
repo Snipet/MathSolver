@@ -268,6 +268,20 @@ TEST_CASE("cli: derangement numbers") {
     CHECK(run_cli({"derangement", "21"}).exit_code != 0);
 }
 
+TEST_CASE("cli: lucas numbers") {
+    const RunResult l10 = run_cli({"lucas", "10"});
+    CHECK(l10.exit_code == 0);
+    CHECK(contains(l10.output, "123"));
+
+    const RunResult l20 = run_cli({"lucas", "20"});
+    CHECK(l20.exit_code == 0);
+    CHECK(contains(l20.output, "15127"));
+
+    // Negative arg is a usage error; L(91) overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"lucas", "-1"}).exit_code == 2);
+    CHECK(run_cli({"lucas", "91"}).exit_code != 0);
+}
+
 TEST_CASE("cli: trigexpand of sums and multiples") {
     const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
     INFO(sum.output);
