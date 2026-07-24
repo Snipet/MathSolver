@@ -34,6 +34,9 @@ export interface ExprRow {
   weight: LineWeight;
   /** Optional text label drawn at the point(s) / along the curve (empty = off). */
   label: string;
+  /** Pixel offset of the label from its anchor, set by dragging it (default 0,0). */
+  labelDx?: number;
+  labelDy?: number;
   /** Column names for table rows (display + copy headers; default x / y). */
   xName?: string;
   yName?: string;
@@ -66,6 +69,8 @@ interface PersistedRow {
   lineStyle?: string;
   weight?: string;
   label?: string;
+  labelDx?: number;
+  labelDy?: number;
   xName?: string;
   yName?: string;
   kind?: "expr" | "table";
@@ -120,6 +125,8 @@ function normalizeRow(r: PersistedRow): ExprRow {
     lineStyle: LINE_STYLES.includes(r.lineStyle as LineStyle) ? (r.lineStyle as LineStyle) : "solid",
     weight: LINE_WEIGHTS.includes(r.weight as LineWeight) ? (r.weight as LineWeight) : "normal",
     label: typeof r.label === "string" ? r.label.slice(0, 60) : "",
+    labelDx: Number.isFinite(r.labelDx) ? (r.labelDx as number) : 0,
+    labelDy: Number.isFinite(r.labelDy) ? (r.labelDy as number) : 0,
     ...(kind === "table"
       ? { xName: cleanColName(r.xName, "x"), yName: cleanColName(r.yName, "y") }
       : {}),
@@ -272,6 +279,14 @@ class GraphStore {
     r.label = label.slice(0, 60);
     this.persistSoon();
   }
+  /** Set the label's pixel offset from its anchor (from dragging the label). */
+  setLabelOffset(id: number, dx: number, dy: number): void {
+    const r = this.rows.find((x) => x.id === id);
+    if (!r) return;
+    r.labelDx = Number.isFinite(dx) ? dx : 0;
+    r.labelDy = Number.isFinite(dy) ? dy : 0;
+    this.persistSoon();
+  }
   /** Rename a table column (kept short; blank falls back to x/y on reload). */
   setColName(id: number, axis: "x" | "y", name: string): void {
     const r = this.rows.find((x) => x.id === id);
@@ -289,7 +304,13 @@ class GraphStore {
   }
 
   #rowSnapshot(r: ExprRow): PersistedRow {
-    const style = { lineStyle: r.lineStyle, weight: r.weight, label: r.label };
+    const style = {
+      lineStyle: r.lineStyle,
+      weight: r.weight,
+      label: r.label,
+      labelDx: r.labelDx ?? 0,
+      labelDy: r.labelDy ?? 0,
+    };
     return r.kind === "table"
       ? { kind: "table", text: "", color: r.color, visible: r.visible, ...style, points: r.points.map((p) => ({ x: p.x, y: p.y })), fit: r.fit, xName: r.xName ?? "x", yName: r.yName ?? "y" }
       : { text: r.text, color: r.color, visible: r.visible, ...style };

@@ -11,6 +11,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — draggable labels.** A point/curve label can now be **dragged** to
+  reposition it: grab the label pill and move it anywhere, and the offset
+  persists with the document. The label rides at a fixed screen distance from
+  its anchor (so it stays put as you pan and zoom), and moving it never
+  re-samples the curve — it's a pure display nudge, independent of the plotted
+  expression.
+
 - **Console — `bezout` extended polynomial GCD.** `bezout a, b` returns the
   monic gcd of two polynomials *and* the Bézout cofactors `s`, `t` satisfying
   `s·a + t·b = gcd`, computed exactly over the rationals via the extended

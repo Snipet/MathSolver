@@ -507,6 +507,41 @@ try {
     );
   }
 
+  // Movable label: a row's label ("tag") can be dragged to a new offset, which
+  // persists to the row without touching the plotted expression.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({
+        rows: [{ text: "(1, 2)", color: "#2563eb", visible: true, label: "P" }],
+        view: { cx: 0, cy: 0, scale: 40 },
+      }),
+    );
+    localStorage.setItem("mathsolver.mode", "graph");
+  });
+  await page.goto("about:blank");
+  await page.goto(url, { waitUntil: "networkidle0" });
+  await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  await new Promise((r) => setTimeout(r, 500));
+  {
+    const box = await canvasBox();
+    const pt = worldToScreen(box, 1, 2, 40); // the point the label hangs off of
+    const from = { x: pt.x + 11, y: pt.y - 9 }; // inside the label pill (+8,-9 anchor)
+    const to = { x: from.x + 45, y: from.y + 25 };
+    await dragOnCanvas(from, to);
+    await new Promise((r) => setTimeout(r, 400)); // debounced persist
+    const off = await page.evaluate(() => {
+      const r = JSON.parse(localStorage.getItem("mathsolver.graph")).rows[0];
+      return { dx: r.labelDx, dy: r.labelDy };
+    });
+    const ok = off && Math.abs(off.dx - 45) < 12 && Math.abs(off.dy - 25) < 12;
+    check("dragging a row label persists its offset", !!ok, JSON.stringify(off));
+    // The plotted expression is untouched by the label move.
+    const text = await page.$eval(".calc .expr", (el) => el.value);
+    check("label drag leaves the expression unchanged", text.replace(/\s/g, "") === "(1,2)", text);
+  }
+
   // Continuous curve trace: hovering along a y=f(x) curve follows it (the new
   // interpolate-at-x path) and shows a coordinate readout, without throwing.
   await page.evaluate(() => {
