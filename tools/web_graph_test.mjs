@@ -911,6 +911,53 @@ try {
     );
   }
 
+  // Axis labels: the "Axes" toolbar button reveals x/y name inputs whose
+  // values persist (drawn at each axis end on the canvas).
+  {
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    // The panel is closed by default (no labels set) — click "Axes" to open it.
+    const opened = await page.evaluate(() => {
+      const b = [...document.querySelectorAll(".calc-toolbar .tool-btn")].find(
+        (el) => el.textContent.trim() === "Axes",
+      );
+      if (b) b.click();
+      return !!b;
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    check("'Axes' button reveals the axis-name inputs", opened, String(opened));
+    // Type into the x-axis input and assert it persists.
+    const typed = await page.evaluate(async () => {
+      const input = document.querySelector('.axis-labels input[placeholder="x-axis label"]');
+      if (!input) return null;
+      input.focus();
+      input.value = "time (s)";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    });
+    await new Promise((r) => setTimeout(r, 400)); // debounced persistSoon
+    const savedX = await page.evaluate(() => {
+      const g = JSON.parse(localStorage.getItem("mathsolver.graph") || "{}");
+      return g.axisLabels ? g.axisLabels.x : null;
+    });
+    check(
+      "typing an x-axis name persists it",
+      typed === true && savedX === "time (s)",
+      `saved=${savedX}`,
+    );
+    // It survives a reload and reopens the panel automatically.
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    const reloadedVal = await page.evaluate(() => {
+      const input = document.querySelector('.axis-labels input[placeholder="x-axis label"]');
+      return input ? input.value : null;
+    });
+    check("axis label restored after reload", reloadedVal === "time (s)", String(reloadedVal));
+  }
+
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 } catch (e) {

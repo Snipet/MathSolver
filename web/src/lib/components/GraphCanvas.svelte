@@ -36,6 +36,9 @@
     height?: number;
     /** Draw the background gridlines (axes + number labels always show). */
     showGrid?: boolean;
+    /** Optional axis names drawn at the far end of each axis. */
+    xAxisLabel?: string;
+    yAxisLabel?: string;
     onPointDragStart?: () => void;
     onPointDrag?: (rowId: number, coordIndex: number, wx: number, wy: number) => void;
     onPointCommit?: (rowId: number, coordIndex: number, wx: number, wy: number) => void;
@@ -51,6 +54,8 @@
     labelOffsets = {},
     height = 0,
     showGrid = true,
+    xAxisLabel = "",
+    yAxisLabel = "",
     onPointDragStart,
     onPointDrag,
     onPointCommit,
@@ -108,6 +113,8 @@
     void labelDrag; // redraw the moving label live
     void labelOffsets; // and when a committed offset changes
     void showGrid; // toggle the background grid
+    void xAxisLabel; // redraw when an axis name changes
+    void yAxisLabel;
     const c = canvas;
     const w = width;
     const h = H;
@@ -200,6 +207,27 @@
       ctx.textAlign = "right";
       ctx.textBaseline = "top";
       ctx.fillText("0", axisX - 4, axisY + 4);
+    }
+
+    // Axis names, drawn at the far end of each axis (x at the right, y at the
+    // top), nudged to the inside of the panel so they stay visible when the
+    // origin is off-screen. Skipped when blank.
+    if (xAxisLabel || yAxisLabel) {
+      ctx.fillStyle = label;
+      ctx.font =
+        "italic 13px " + (cssColor(c, "--font-sans", "") || "system-ui, sans-serif");
+      if (xAxisLabel) {
+        const ty = Math.max(14, Math.min(h - 6, axisY - 6));
+        ctx.textAlign = "right";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(xAxisLabel, w - 6, ty);
+      }
+      if (yAxisLabel) {
+        const tx = Math.max(6, Math.min(w - 6, axisX + 6));
+        ctx.textAlign = tx > w - 60 ? "right" : "left";
+        ctx.textBaseline = "top";
+        ctx.fillText(yAxisLabel, ctx.textAlign === "right" ? w - 6 : tx, 6);
+      }
     }
 
     // Drawables, clipped to the panel: regions (under) → lines → points.

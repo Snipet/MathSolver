@@ -83,6 +83,18 @@ interface Persisted {
   rows: PersistedRow[];
   view: View;
   showGrid?: boolean;
+  /** Optional names drawn at the ends of the x- and y-axes. */
+  axisLabels?: { x: string; y: string };
+}
+
+/** An axis name: trimmed and length-capped; empty means "no label". */
+export function cleanAxisLabel(raw: unknown): string {
+  return typeof raw === "string" ? raw.slice(0, 24) : "";
+}
+
+function loadAxisLabels(raw: unknown): { x: string; y: string } {
+  const a = (raw ?? {}) as Record<string, unknown>;
+  return { x: cleanAxisLabel(a.x), y: cleanAxisLabel(a.y) };
 }
 
 const FIT_MODELS: FitModelName[] = ["", "linear", "quadratic", "cubic", "exp", "power", "log"];
@@ -135,10 +147,11 @@ function normalizeRow(r: PersistedRow): ExprRow {
   };
 }
 
-function load(): { rows: ExprRow[]; view: View; showGrid: boolean } {
+function load(): { rows: ExprRow[]; view: View; showGrid: boolean; axisLabels: { x: string; y: string } } {
+  const emptyLabels = { x: "", y: "" };
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return { rows: [seedRow()], view: { ...DEFAULT_VIEW }, showGrid: true };
+    if (!raw) return { rows: [seedRow()], view: { ...DEFAULT_VIEW }, showGrid: true, axisLabels: emptyLabels };
     const p = JSON.parse(raw) as Partial<Persisted>;
     const rows: ExprRow[] = Array.isArray(p.rows)
       ? p.rows
@@ -151,9 +164,9 @@ function load(): { rows: ExprRow[]; view: View; showGrid: boolean } {
       v && Number.isFinite(v.cx) && Number.isFinite(v.cy) && Number.isFinite(v.scale) && v.scale > 0
         ? { cx: v.cx, cy: v.cy, scale: v.scale }
         : { ...DEFAULT_VIEW };
-    return { rows: rows.length ? rows : [seedRow()], view, showGrid: p.showGrid !== false };
+    return { rows: rows.length ? rows : [seedRow()], view, showGrid: p.showGrid !== false, axisLabels: loadAxisLabels(p.axisLabels) };
   } catch {
-    return { rows: [seedRow()], view: { ...DEFAULT_VIEW }, showGrid: true };
+    return { rows: [seedRow()], view: { ...DEFAULT_VIEW }, showGrid: true, axisLabels: emptyLabels };
   }
 }
 
@@ -165,18 +178,26 @@ class GraphStore {
   rows = $state<ExprRow[]>([]);
   view = $state<View>({ ...DEFAULT_VIEW });
   showGrid = $state(true);
+  axisLabels = $state<{ x: string; y: string }>({ x: "", y: "" });
 
   constructor() {
-    const { rows, view, showGrid } = load();
+    const { rows, view, showGrid, axisLabels } = load();
     this.rows = rows;
     this.view = view;
     this.showGrid = showGrid;
+    this.axisLabels = axisLabels;
   }
 
   /** Toggle the background gridlines (axes and number labels are unaffected). */
   toggleGrid(): void {
     this.showGrid = !this.showGrid;
     this.persist();
+  }
+
+  /** Set the x- or y-axis name drawn at the axis end (empty string clears it). */
+  setAxisLabel(axis: "x" | "y", text: string): void {
+    this.axisLabels = { ...this.axisLabels, [axis]: text.slice(0, 24) };
+    this.persistSoon();
   }
 
   #nextColor(): string {
@@ -401,6 +422,7 @@ class GraphStore {
         rows: this.rows.map((r) => this.#rowSnapshot(r)),
         view: this.view,
         showGrid: this.showGrid,
+        axisLabels: this.axisLabels,
       };
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch {
