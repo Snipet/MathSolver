@@ -2,6 +2,7 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "mathsolver/expr.hpp"
 
@@ -58,5 +59,21 @@ struct PolyBezoutResult {
 };
 
 PolyBezoutResult polynomial_bezout(const Expr& a, const Expr& b, std::string_view var);
+
+/// The companion matrix of a univariate polynomial in `var`, in the MATLAB
+/// `compan` orientation: for the degree-n polynomial normalized to monic form
+/// x^n + a_{n-1} x^{n-1} + ... + a_1 x + a_0, an n×n matrix whose top row is
+/// (-a_{n-1}, ..., -a_1, -a_0) and whose first subdiagonal is all ones. Its
+/// characteristic polynomial is the (monic) input, so its eigenvalues are the
+/// polynomial's roots. The matrix is exact over the rationals; symbolic
+/// coefficients are kept symbolic. Requires degree ≥ 1.
+struct CompanionResult {
+    enum class Status { Ok, NotPolynomial, DegreeTooLow };
+    Status status = Status::NotPolynomial;
+    std::vector<std::vector<Expr>> matrix;  ///< n×n, row-major
+    std::string message;
+};
+
+CompanionResult companion_matrix(const Expr& poly, std::string_view var);
 
 } // namespace mathsolver

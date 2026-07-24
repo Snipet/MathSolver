@@ -30,6 +30,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `companion` matrix of a polynomial.** `companion p` builds the
+  companion matrix of a univariate polynomial (MATLAB `compan` orientation,
+  normalized to monic form), rendered as a matrix — `companion x^2 - 3x + 2`
+  → `[3, -2; 1, 0]`. Its eigenvalues are exactly the polynomial's roots, so it
+  bridges a polynomial to the linear-algebra view of its roots. Exact over the
+  rationals, symbolic coefficients kept symbolic; available in the CLI too.
+
 - **Grapher — click a traced point to copy its coordinate.** While the hover
   trace is riding a curve (or snapped to a point of interest), a plain click on
   it copies the coordinate — `(x, y)`, or the exact CAS form for a point of

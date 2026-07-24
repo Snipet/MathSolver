@@ -222,4 +222,38 @@ PolyGcdResult polynomial_lcm(const Expr& a, const Expr& b, std::string_view var)
     return out;
 }
 
+CompanionResult companion_matrix(const Expr& poly, std::string_view var) {
+    CompanionResult out;
+    const auto co = polynomial_coefficients(simplify(poly), var);
+    if (!co) {
+        out.status = CompanionResult::Status::NotPolynomial;
+        out.message = "companion: input must be a polynomial in the variable";
+        return out;
+    }
+    const int n = effective_degree(*co);
+    if (n < 1) {
+        out.status = CompanionResult::Status::DegreeTooLow;
+        out.message = "companion: polynomial must have degree ≥ 1";
+        return out;
+    }
+    const Expr lead = (*co)[n];  // nonzero by construction of effective_degree
+
+    // n×n, top row = (-a_{n-1}, ..., -a_1, -a_0) with a_k = c[k]/lead,
+    // first subdiagonal all ones, everything else zero.
+    std::vector<std::vector<Expr>> m(
+        static_cast<std::size_t>(n), std::vector<Expr>(static_cast<std::size_t>(n), make_num(0)));
+    for (int j = 0; j < n; ++j) {
+        const Expr coeff = (*co)[n - 1 - j];
+        m[0][static_cast<std::size_t>(j)] =
+            simplify(make_neg(make_div(coeff, lead)));
+    }
+    for (int i = 1; i < n; ++i) {
+        m[static_cast<std::size_t>(i)][static_cast<std::size_t>(i - 1)] = make_num(1);
+    }
+
+    out.status = CompanionResult::Status::Ok;
+    out.matrix = std::move(m);
+    return out;
+}
+
 } // namespace mathsolver

@@ -257,6 +257,28 @@ TEST_CASE("cli: discriminant of a polynomial") {
     CHECK(bad.exit_code == 2);
 }
 
+TEST_CASE("cli: companion matrix of a polynomial") {
+    // x^2 - 3x + 2 → [3, -2; 1, 0] (MATLAB compan orientation).
+    const RunResult quad = run_cli({"companion", "x^2 - 3x + 2"});
+    INFO(quad.output);
+    CHECK(quad.exit_code == 0);
+    CHECK(contains(quad.output, "[3, -2; 1, 0]"));
+
+    // Non-monic leading coefficient is normalized: 2x^2+4x-6 → x^2+2x-3.
+    const RunResult scaled = run_cli({"companion", "2x^2 + 4x - 6"});
+    CHECK(scaled.exit_code == 0);
+    CHECK(contains(scaled.output, "[-2, 3; 1, 0]"));
+
+    // LaTeX renders a pmatrix.
+    const RunResult tex = run_cli({"companion", "x^2 - 3x + 2", "--latex"});
+    CHECK(tex.exit_code == 0);
+    CHECK(contains(tex.output, "pmatrix"));
+
+    // A bare constant has degree 0 → usage error, exit 2.
+    const RunResult bad = run_cli({"companion", "7"});
+    CHECK(bad.exit_code == 2);
+}
+
 TEST_CASE("cli: solve inequalities into interval solution sets") {
     const RunResult quad = run_cli({"solve", "x^2 < 4"});
     INFO(quad.output);

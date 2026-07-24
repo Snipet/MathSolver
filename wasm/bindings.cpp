@@ -530,6 +530,33 @@ std::string ms_bezout(std::string a, std::string b, std::string var) {
     });
 }
 
+/// companion(input, variable): the companion matrix of a univariate polynomial
+/// (MATLAB `compan` orientation), whose eigenvalues are the polynomial's roots.
+/// Returns the matrix rendered plain ("[a, b; c, d]") and LaTeX (pmatrix).
+std::string ms_companion(std::string input, std::string variable) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string v = trim(variable);
+        if (v.empty()) {
+            const std::set<std::string> syms = free_symbols(e);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json("companion: name the variable, e.g. "
+                                 "companion x^2 - 3x + 2, x");
+        }
+        const CompanionResult r = companion_matrix(e, v);
+        if (r.status != CompanionResult::Status::Ok) return err_json(r.message);
+        const int n = static_cast<int>(r.matrix.size());
+        const std::vector<std::string> notes = {
+            std::format("{}×{} companion matrix; its eigenvalues are the roots "
+                        "of the polynomial",
+                        n, n)};
+        return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{},\"notes\":{}}}",
+                           jstr(mat_to_string(r.matrix, PrintStyle::Plain)),
+                           jstr(mat_to_string(r.matrix, PrintStyle::LaTeX)),
+                           jarr_str(notes));
+    });
+}
+
 /// solveIneq(lhs, rhs, op, var): solve the inequality `lhs <op> rhs` for its
 /// variable (op is one of "<", "<=", ">", ">="; var may be empty to infer).
 std::string ms_solve_ineq(std::string lhs, std::string rhs, std::string op,
@@ -1625,6 +1652,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("polylcm", &ms_polylcm);
     emscripten::function("resultant", &ms_resultant);
     emscripten::function("bezout", &ms_bezout);
+    emscripten::function("companion", &ms_companion);
     emscripten::function("solveIneq", &ms_solve_ineq);
     emscripten::function("mod", &ms_mod);
     emscripten::function("powmod", &ms_powmod);

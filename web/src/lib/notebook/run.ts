@@ -82,6 +82,7 @@ export const MATH_VERBS = new Set([
   "polylcm",
   "resultant",
   "bezout",
+  "companion",
   "sum",
   "product",
   "rsolve",
@@ -601,6 +602,14 @@ async function runVerb(
       const v = args[1] ?? "";
       const env = await applyEnv(expr, v ? [v] : [], "expr", ov, scope);
       const r = await call("discriminant", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "companion": {
+      if (args.length > 2) return usage("usage: companion <polynomial>[, <var>]");
+      const v = args[1] ?? "";
+      const env = await applyEnv(expr, v ? [v] : [], "expr", ov, scope);
+      const r = await call("companion", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }
