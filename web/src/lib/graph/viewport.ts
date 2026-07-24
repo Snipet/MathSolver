@@ -170,6 +170,43 @@ export function zoomedAt(
   };
 }
 
+/**
+ * Keyboard navigation for the focused graph paper (Desmos-style): returns the
+ * new view for a key press, or null when the key is not a navigation key (so
+ * the caller can leave it to the browser). Arrows pan by `step` pixels — larger
+ * with shift; `+`/`=` and `-`/`_` zoom about the center; `0`/`Home` reset.
+ */
+export function viewForKey(
+  v: View,
+  key: string,
+  w: number,
+  h: number,
+  opts: { shift?: boolean } = {},
+): View | null {
+  const step = opts.shift ? 120 : 45; // pixels per keypress
+  switch (key) {
+    case "ArrowRight":
+      return panned(v, -step, 0);
+    case "ArrowLeft":
+      return panned(v, step, 0);
+    case "ArrowUp":
+      return panned(v, 0, step);
+    case "ArrowDown":
+      return panned(v, 0, -step);
+    case "+":
+    case "=":
+      return zoomedAt(v, 1.4, w / 2, h / 2, w, h);
+    case "-":
+    case "_":
+      return zoomedAt(v, 1 / 1.4, w / 2, h / 2, w, h);
+    case "0":
+    case "Home":
+      return { cx: 0, cy: 0, scale: 40 };
+    default:
+      return null;
+  }
+}
+
 export interface Bounds {
   xmin: number;
   xmax: number;

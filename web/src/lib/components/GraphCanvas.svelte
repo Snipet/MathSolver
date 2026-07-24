@@ -17,6 +17,7 @@
     yRange,
     panned,
     zoomedAt,
+    viewForKey,
     niceStep,
     ticks,
     tickDecimals,
@@ -795,6 +796,18 @@
     view = { cx: 0, cy: 0, scale: 40 };
   }
 
+  // Keyboard navigation (Desmos-style) when the graph paper is focused: arrows
+  // pan, +/- zoom about the center, 0/Home reset. We only preventDefault for
+  // keys we actually handle, so Tab still moves focus out of the graph and
+  // browser shortcuts (Ctrl/Cmd/Alt combos) are left alone.
+  function onKeyDown(e: KeyboardEvent): void {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const next = viewForKey(view, e.key, width, H, { shift: e.shiftKey });
+    if (!next) return; // leave unrecognised keys (Tab, etc.) to the browser
+    view = next;
+    e.preventDefault();
+  }
+
   /** Rendered graph as a PNG blob (for download). Exposed to the parent. */
   export function exportBlob(): Promise<Blob | null> {
     return new Promise((resolve) => {
@@ -812,8 +825,9 @@
 <div class="graph" bind:this={host} style:--gh={height > 0 ? `${height}px` : null}>
   <canvas
     bind:this={canvas}
+    tabindex="0"
     style:cursor={cursorStyle}
-    aria-label="Interactive graph — drag to pan, scroll to zoom, drag points to move them"
+    aria-label="Interactive graph — drag or arrow keys to pan, scroll or +/- to zoom, 0 to reset, drag points to move them"
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
@@ -823,6 +837,7 @@
       hoverPoint = false;
     }}
     onwheel={onWheel}
+    onkeydown={onKeyDown}
     ondblclick={() => zoomButton(1.6)}
   ></canvas>
 
@@ -862,6 +877,13 @@
   }
   canvas:active {
     cursor: grabbing;
+  }
+  canvas:focus {
+    outline: none;
+  }
+  canvas:focus-visible {
+    outline: 2px solid var(--accent, #2563eb);
+    outline-offset: -2px;
   }
   .zoom {
     position: absolute;
