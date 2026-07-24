@@ -30,6 +30,11 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — name the axes.** An **Axes** button in the graph toolbar opens
+  two inputs to label the x- and y-axes (e.g. "time (s)" / "height (m)"); the
+  names draw at the far end of each axis and persist with the document. Handy
+  for presentation plots and before saving a PNG.
+
 - **Console — `stirling2` and `bell` set-partition counts.** `stirling2 n, k`
   is the Stirling number of the second kind S(n, k) — the number of ways to
   partition an *n*-element set into *k* nonempty blocks (`stirling2 5, 3` → 25),
