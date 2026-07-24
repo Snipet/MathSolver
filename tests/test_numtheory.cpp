@@ -311,6 +311,20 @@ TEST_CASE("Euler numbers") {
     CHECK_THROWS_AS(euler_number(24), OverflowError);
 }
 
+TEST_CASE("Tribonacci numbers") {
+    const long long expected[] = {0, 0, 1, 1, 2, 4, 7, 13, 24, 44, 81, 149, 274};
+    for (long long n = 0; n <= 12; ++n) CHECK(tribonacci_number(n) == expected[n]);
+    // Each term is the sum of the previous three.
+    for (long long n = 3; n <= 70; ++n)
+        CHECK(tribonacci_number(n) == tribonacci_number(n - 1) +
+                                          tribonacci_number(n - 2) +
+                                          tribonacci_number(n - 3));
+    // T(74) is the largest tribonacci number fitting in a signed 64-bit int.
+    CHECK(tribonacci_number(74) == 7015254043203144209LL);
+    CHECK_THROWS_AS(tribonacci_number(-1), EvalError);
+    CHECK_THROWS_AS(tribonacci_number(75), OverflowError);
+}
+
 TEST_CASE("Catalan numbers") {
     CHECK(catalan_number(0) == 1);
     CHECK(catalan_number(1) == 1);

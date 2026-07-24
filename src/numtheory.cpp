@@ -396,6 +396,27 @@ long long euler_number(long long n) {
     return (n / 2) % 2 == 0 ? an : -an;
 }
 
+long long tribonacci_number(long long n) {
+    if (n < 0) throw EvalError{"tribonacci is defined for n >= 0"};
+    // T(0) = T(1) = 0, T(2) = 1, T(n) = T(n-1) + T(n-2) + T(n-3), rolled
+    // forward with three running values and overflow-guarded (T(74) is the
+    // largest that fits int64).
+    long long a = 0; // T(k-3)
+    long long b = 0; // T(k-2)
+    long long c = 1; // T(k-1), seeded at T(2)
+    if (n < 2) return 0;
+    if (n == 2) return 1;
+    for (long long k = 3; k <= n; ++k) {
+        long long t = 0;
+        if (__builtin_add_overflow(a, b, &t) || __builtin_add_overflow(t, c, &t))
+            throw OverflowError{"tribonacci overflows the 64-bit range"};
+        a = b;
+        b = c;
+        c = t;
+    }
+    return c;
+}
+
 long long catalan_number(long long n) {
     if (n < 0) throw EvalError{"catalan is defined for n >= 0"};
     // Iterate C(k+1) = C(k)·2(2k+1)/(k+2) — an exact division at every step

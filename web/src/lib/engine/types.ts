@@ -331,6 +331,7 @@ export interface EngineApi {
   primorial: [[n: string], TransformResult];
   motzkin: [[n: string], TransformResult];
   euler: [[n: string], TransformResult];
+  tribonacci: [[n: string], TransformResult];
   cfrac: [[value: string], TransformResult];
   discriminant: [[poly: string, variable: string], TransformResult];
   polydiv: [[dividend: string, divisor: string, variable: string], TransformResult];

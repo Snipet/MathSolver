@@ -329,6 +329,20 @@ TEST_CASE("cli: euler numbers") {
     CHECK(run_cli({"euler", "24"}).exit_code != 0);
 }
 
+TEST_CASE("cli: tribonacci numbers") {
+    const RunResult t10 = run_cli({"tribonacci", "10"});
+    CHECK(t10.exit_code == 0);
+    CHECK(contains(t10.output, "81"));
+
+    const RunResult t20 = run_cli({"tribonacci", "20"});
+    CHECK(t20.exit_code == 0);
+    CHECK(contains(t20.output, "35890"));
+
+    // Negative arg is a usage error; T(75) overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"tribonacci", "-1"}).exit_code == 2);
+    CHECK(run_cli({"tribonacci", "75"}).exit_code != 0);
+}
+
 TEST_CASE("cli: trigexpand of sums and multiples") {
     const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
     INFO(sum.output);
