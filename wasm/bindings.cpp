@@ -719,6 +719,22 @@ std::string ms_interp(std::string data) {
     });
 }
 
+/// orthopoly(family, n, variable): the exact degree-n orthogonal polynomial of
+/// the family ("chebyshev"/"chebyshevu"/"legendre"/"hermite"/"laguerre") in
+/// `variable`. Returns the rendered polynomial plus its family label and degree.
+std::string ms_orthopoly(std::string family, int n, std::string variable) {
+    return guarded([&]() -> std::string {
+        const auto fam = parse_ortho_family(trim(family));
+        if (!fam) return err_json(std::format("unknown polynomial family '{}'", family));
+        std::string var = trim(variable);
+        if (var.empty()) var = "x";
+        const OrthoPolyResult r = ortho_poly(*fam, n, var);
+        if (r.status != OrthoPolyResult::Status::Ok) return err_json(r.message);
+        return std::format("{{\"ok\":true,{},\"family\":{},\"degree\":{}}}",
+                           rendered_fields(r.expr), jstr(r.family), r.degree);
+    });
+}
+
 /// stats(data): exact summary statistics of a data list. Returns an ordered
 /// `items` array of {label, plain, latex} plus the exact flag and count.
 std::string ms_stats(std::string data) {
@@ -1560,6 +1576,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("apart", &ms_apart);
     emscripten::function("fit", &ms_fit);
     emscripten::function("interp", &ms_interp);
+    emscripten::function("orthopoly", &ms_orthopoly);
     emscripten::function("stats", &ms_stats);
     emscripten::function("dsolve", &ms_dsolve);
     emscripten::function("series", &ms_series);

@@ -87,6 +87,11 @@ export const MATH_VERBS = new Set([
   "fit",
   "regress",
   "interp",
+  "chebyshev",
+  "chebyu",
+  "legendre",
+  "hermite",
+  "laguerre",
   "stats",
   "gcd",
   "lcm",
@@ -505,6 +510,27 @@ async function runVerb(
       const notes = [
         `degree ${r.degree}${r.exact ? " (exact)" : ""} · ${r.n} point${r.n === 1 ? "" : "s"}`,
       ];
+      return {
+        kind: "transform",
+        result: { ok: true, plain: r.plain, latex: r.latex, notes },
+        computedFrom: null,
+      };
+    }
+    case "chebyshev":
+    case "chebyu":
+    case "legendre":
+    case "hermite":
+    case "laguerre": {
+      // <n> [, <var>] → the exact degree-n orthogonal polynomial. The verb name
+      // is itself a family alias the engine accepts. chebyshev 5 · legendre 3, t
+      const n = Number(args[0]);
+      if (!Number.isInteger(n) || n < 0) {
+        return usage(`usage: ${verb} <n> [, <var>]  (n a non-negative integer)`);
+      }
+      const variable = (args[1] ?? "x").trim() || "x";
+      const r = await call("orthopoly", [verb, n, variable]);
+      if (!r.ok) return err(rest, r);
+      const notes = [`${r.family}, degree ${r.degree}`];
       return {
         kind: "transform",
         result: { ok: true, plain: r.plain, latex: r.latex, notes },

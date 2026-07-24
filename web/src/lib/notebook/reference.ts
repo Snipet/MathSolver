@@ -313,6 +313,18 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "interp 1,1; 2,4; 3,9",
       },
       {
+        insert: "chebyshev",
+        usage: "chebyshev <n> [, <var>]",
+        hint: "Exact Chebyshev T_n (first kind); also chebyu, legendre, hermite, laguerre",
+        example: "chebyshev 5",
+      },
+      {
+        insert: "legendre",
+        usage: "legendre <n> [, <var>]",
+        hint: "Exact Legendre polynomial P_n over the rationals",
+        example: "legendre 4",
+      },
+      {
         insert: "stats",
         usage: "stats <v1, v2, v3, …>",
         hint: "Exact summary statistics — mean, median, quartiles, stdev (fractions & radicals)",

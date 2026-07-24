@@ -19,6 +19,7 @@
 #include "mathsolver/logexpand.hpp"
 #include "mathsolver/numtheory.hpp"
 #include "mathsolver/ode.hpp"
+#include "mathsolver/orthopoly.hpp"
 #include "mathsolver/parser.hpp"
 #include "mathsolver/polydiv.hpp"
 #include "mathsolver/printer.hpp"

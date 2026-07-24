@@ -62,6 +62,17 @@ export type InterpResult =
     } & Rendered)
   | EngineError;
 
+/** Exact orthogonal polynomial: the degree-n member of a classical family. */
+export type OrthoPolyResult =
+  | ({
+      ok: true;
+      /** Family label, e.g. "Chebyshev T", "Legendre". */
+      family: string;
+      /** Degree of the polynomial (== n). */
+      degree: number;
+    } & Rendered)
+  | EngineError;
+
 export type SeqCallResult =
   | ({
       ok: true;
@@ -272,6 +283,7 @@ export interface EngineApi {
   apart: [[input: string, variable: string], TransformResult];
   fit: [[data: string, model: string, degree: string], FitResult];
   interp: [[data: string], InterpResult];
+  orthopoly: [[family: string, n: number, variable: string], OrthoPolyResult];
   stats: [[data: string], StatsResult];
   dsolve: [[ode: string, conditionsCsv: string], DsolveResult];
   series: [

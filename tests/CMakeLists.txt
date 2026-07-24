@@ -27,6 +27,7 @@ add_executable(mathsolver_tests
     test_cfrac.cpp
     test_inequality.cpp
     test_discriminant.cpp
+    test_orthopoly.cpp
     test_trig.cpp
     test_polydiv.cpp
     test_logexpand.cpp

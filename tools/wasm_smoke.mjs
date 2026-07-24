@@ -103,6 +103,13 @@ check("interp collinear collapses", ms.interp("0,1; 1,3; 2,5"), (r) => r.ok && r
 check("interp exact fractions", ms.interp("0,0; 1,1; 2,1"), (r) => r.ok && r.exact === true && r.degree === 2, "rational coefficients");
 check("interp single point", ms.interp("5,7"), (r) => r.ok && r.plain === "7" && r.degree === 0 && r.n === 1, "constant polynomial");
 check("interp error dup x", ms.interp("1,2; 1,3"), (r) => !r.ok && r.error.includes("distinct"), "duplicate x rejected");
+// orthopoly — exact orthogonal polynomials
+check("orthopoly chebyshev T5", ms.orthopoly("chebyshev", 5, "x"), (r) => r.ok && r.plain === "16*x^5 - 20*x^3 + 5*x" && r.family === "Chebyshev T" && r.degree === 5, "T_5");
+check("orthopoly chebyshev U (second kind)", ms.orthopoly("chebyshevu", 3, "x"), (r) => r.ok && r.plain === "8*x^3 - 4*x" && r.family === "Chebyshev U", "U_3");
+check("orthopoly legendre P3", ms.orthopoly("legendre", 3, "x"), (r) => r.ok && r.plain === "5*x^3/2 - 3*x/2" && r.family === "Legendre", "P_3 exact fractions");
+check("orthopoly hermite H4", ms.orthopoly("hermite", 4, "x"), (r) => r.ok && r.plain === "16*x^4 - 48*x^2 + 12" && r.family === "Hermite", "H_4");
+check("orthopoly named variable", ms.orthopoly("chebyshev", 2, "t"), (r) => r.ok && r.plain === "2*t^2 - 1", "T_2 in t");
+check("orthopoly error bad family", ms.orthopoly("wiggle", 3, "x"), (r) => !r.ok && r.error.includes("unknown polynomial family"), "unknown family rejected");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");
