@@ -653,6 +653,20 @@ TEST_CASE("cli: diff with explicit and inferred variable") {
     CHECK(inferred.output == "2*x*cos(x^2)\n");
 }
 
+TEST_CASE("cli: steps prints a worked rule-by-rule derivative") {
+    const RunResult r = run_cli({"steps", "sin(x^2)"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "power rule"));
+    CHECK(contains(r.output, "chain rule"));
+    CHECK(contains(r.output, "d/dx(x^2) = 2*x"));
+    CHECK(contains(r.output, "result: 2*x*cos(x^2)"));
+    // The steps' final result agrees with plain diff.
+    const RunResult d = run_cli({"diff", "sin(x^2)"});
+    CHECK(contains(r.output, "2*x*cos(x^2)"));
+    CHECK(d.output == "2*x*cos(x^2)\n");
+}
+
 TEST_CASE("cli: integrate one-shot prints F(x) + C and the method") {
     const RunResult r = run_cli({"integrate", "x*sin(x)"});
     INFO(r.output);

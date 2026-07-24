@@ -27,6 +27,7 @@
 #include "mathsolver/pade.hpp"
 #include "mathsolver/series.hpp"
 #include "mathsolver/simplify.hpp"
+#include "mathsolver/steps.hpp"
 #include "mathsolver/stats.hpp"
 #include "mathsolver/sturm.hpp"
 #include "mathsolver/trig.hpp"

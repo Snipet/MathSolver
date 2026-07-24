@@ -54,6 +54,7 @@ add_library(mathsolver_core STATIC
     src/cancel.cpp
     src/together.cpp
     src/derivative.cpp
+    src/steps.cpp
     src/discrete.cpp
     src/integrate.cpp
     src/limit.cpp
