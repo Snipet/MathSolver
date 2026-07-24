@@ -231,6 +231,24 @@ TEST_CASE("Derangements (subfactorial)") {
     CHECK_THROWS_AS(derangement_count(21), OverflowError);
 }
 
+TEST_CASE("Lucas numbers") {
+    CHECK(lucas_number(0) == 2);
+    CHECK(lucas_number(1) == 1);
+    CHECK(lucas_number(2) == 3);
+    CHECK(lucas_number(3) == 4);
+    CHECK(lucas_number(4) == 7);
+    CHECK(lucas_number(5) == 11);
+    CHECK(lucas_number(10) == 123);
+    CHECK(lucas_number(20) == 15127);
+    // Each term is the sum of the previous two.
+    for (long long n = 2; n <= 80; ++n)
+        CHECK(lucas_number(n) == lucas_number(n - 1) + lucas_number(n - 2));
+    // L(90) is the largest Lucas number fitting in a signed 64-bit int.
+    CHECK(lucas_number(90) == 6440026026380244498LL);
+    CHECK_THROWS_AS(lucas_number(-1), EvalError);
+    CHECK_THROWS_AS(lucas_number(91), OverflowError);
+}
+
 TEST_CASE("Catalan numbers") {
     CHECK(catalan_number(0) == 1);
     CHECK(catalan_number(1) == 1);

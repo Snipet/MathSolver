@@ -165,6 +165,12 @@ check("derangement !10", ms.derangement("10"), (r) => r.ok && r.plain === "13349
 check("derangement !0", ms.derangement("0"), (r) => r.ok && r.plain === "1", "!0=1");
 check("derangement error negative", ms.derangement("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
 check("derangement error overflow", ms.derangement("21"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+// lucas numbers L(n)
+check("lucas L(0)", ms.lucas("0"), (r) => r.ok && r.plain === "2", "L(0)=2");
+check("lucas L(10)", ms.lucas("10"), (r) => r.ok && r.plain === "123", "L(10)=123");
+check("lucas L(20)", ms.lucas("20"), (r) => r.ok && r.plain === "15127", "L(20)=15127");
+check("lucas error negative", ms.lucas("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("lucas error overflow", ms.lucas("91"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

@@ -30,6 +30,11 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `lucas` numbers.** `lucas n` is the n-th Lucas number L(n) —
+  the companion sequence to the Fibonacci numbers (L₀ = 2, L₁ = 1,
+  L(n) = L(n−1) + L(n−2); `lucas 10` → 123). Exact over the 64-bit range and
+  errors cleanly past it. CLI too.
+
 - **Grapher — copy the graph image to the clipboard.** A **Copy image** button
   in the graph toolbar, beside **Save PNG**, writes the current plot to the
   clipboard as a PNG so it can be pasted straight into a doc or chat — no

@@ -81,6 +81,11 @@ long long bell_number(long long n);
 /// OverflowError past the 64-bit range (around n = 21).
 long long derangement_count(long long n);
 
+/// The n-th Lucas number L(n) for n >= 0: the companion sequence to the
+/// Fibonacci numbers, L(0) = 2, L(1) = 1, L(n) = L(n-1) + L(n-2). Exact;
+/// throws OverflowError past the 64-bit range (around n = 91).
+long long lucas_number(long long n);
+
 /// Euclidean remainder: the r with 0 <= r < |m| and a == r (mod m). m = 0
 /// throws DivisionByZeroError.
 long long int_mod(long long a, long long m);
