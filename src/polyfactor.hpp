@@ -85,20 +85,23 @@ inline void factor_rational_poly(std::vector<Rational> c, int outer_mult,
     }
 
     while (c.size() > 2) {
-        long long lcm = 1;
+        BigInt lcm(1);
         for (const Rational& v : c) {
-            lcm = std::lcm(lcm, v.den());
-            if (lcm > k_divisor_cap) {
+            lcm = lcm / BigInt::gcd(lcm, v.den()) * v.den();
+            if (lcm > BigInt(k_divisor_cap)) {
                 throw Error("polynomial coefficients are too large to factor");
             }
         }
-        std::vector<long long> ic(c.size());
-        for (std::size_t i = 0; i < c.size(); ++i) {
-            ic[i] = c[i].num() * (lcm / c[i].den());
+        // The rational-root search enumerates divisors of the two end
+        // coefficients (cleared to integers); those must fit 64 bits.
+        const BigInt ic_front = c.front().num() * (lcm / c.front().den());
+        const BigInt ic_back = c.back().num() * (lcm / c.back().den());
+        if (!ic_front.fits_ll() || !ic_back.fits_ll()) {
+            throw Error("polynomial coefficients are too large to factor");
         }
         bool found = false;
-        for (const long long p : divisors_of(ic.front())) {
-            for (const long long q : divisors_of(ic.back())) {
+        for (const long long p : divisors_of(ic_front.to_ll())) {
+            for (const long long q : divisors_of(ic_back.to_ll())) {
                 for (const int sign : {1, -1}) {
                     const Rational r{sign * p, q};
                     if (eval_poly(c, r).is_zero()) {

@@ -27,6 +27,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
     title: "Compute",
     items: [
       {
+        insert: "f(x) = ",
+        usage: "<name>(<params>) = <body>   define a function",
+        hint: "Define a function, then use f(3), f'(x), g(f(x)) — list them with funcs",
+        example: "f(x) = x^2 - 3",
+      },
+      {
         insert: "simplify",
         usage: "simplify <expr>   (or just type a bare expression)",
         hint: "Simplify an expression",
@@ -146,6 +152,90 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "totient 36",
       },
       {
+        insert: "sigma",
+        usage: "sigma <n> [, <k>]",
+        hint: "Divisor function σₖ(n): sum of the k-th powers of divisors (default k=1)",
+        example: "sigma 12",
+      },
+      {
+        insert: "mobius",
+        usage: "mobius <n>",
+        hint: "Möbius μ(n): 0 if n has a squared factor, else ±1 by prime count",
+        example: "mobius 30",
+      },
+      {
+        insert: "partitions",
+        usage: "partitions <n>",
+        hint: "Integer partition count p(n): ways to write n as a sum of positive integers",
+        example: "partitions 10",
+      },
+      {
+        insert: "catalan",
+        usage: "catalan <n>",
+        hint: "The n-th Catalan number C(n) = binomial(2n, n) / (n + 1)",
+        example: "catalan 8",
+      },
+      {
+        insert: "bernoulli",
+        usage: "bernoulli <n>",
+        hint: "The n-th Bernoulli number Bₙ as an exact rational (0 ≤ n ≤ 20)",
+        example: "bernoulli 12",
+      },
+      {
+        insert: "stirling2",
+        usage: "stirling2 <n>, <k>",
+        hint: "Stirling number of the second kind S(n, k): partitions of an n-set into k nonempty blocks",
+        example: "stirling2 5, 3",
+      },
+      {
+        insert: "bell",
+        usage: "bell <n>",
+        hint: "The n-th Bell number Bₙ: the number of partitions of an n-element set",
+        example: "bell 8",
+      },
+      {
+        insert: "derangement",
+        usage: "derangement <n>",
+        hint: "The subfactorial !n: permutations of n items with no fixed point",
+        example: "derangement 6",
+      },
+      {
+        insert: "lucas",
+        usage: "lucas <n>",
+        hint: "The n-th Lucas number L(n): companion to Fibonacci, L₀=2, L₁=1",
+        example: "lucas 10",
+      },
+      {
+        insert: "primorial",
+        usage: "primorial <n>",
+        hint: "The primorial n#: the product of all primes ≤ n",
+        example: "primorial 13",
+      },
+      {
+        insert: "motzkin",
+        usage: "motzkin <n>",
+        hint: "The n-th Motzkin number M(n): non-crossing chords on n circle points",
+        example: "motzkin 10",
+      },
+      {
+        insert: "euler",
+        usage: "euler <n>",
+        hint: "The n-th Euler (secant) number Eₙ: E₀=1, E₂=−1, E₄=5, odd n = 0",
+        example: "euler 8",
+      },
+      {
+        insert: "tribonacci",
+        usage: "tribonacci <n>",
+        hint: "The n-th tribonacci number: T₀=T₁=0, T₂=1, each term the sum of the previous three",
+        example: "tribonacci 10",
+      },
+      {
+        insert: "pell",
+        usage: "pell <n>",
+        hint: "The n-th Pell number: P₀=0, P₁=1, P(n)=2·P(n−1)+P(n−2) — numerators of the √2 convergents",
+        example: "pell 10",
+      },
+      {
         insert: "cfrac",
         usage: "cfrac <rational | sqrt(n) | real>",
         hint: "Continued fraction + convergents (best rational approximations)",
@@ -187,6 +277,18 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "diff sin(x^2), x",
       },
       {
+        insert: "steps",
+        usage: "steps [diff|integrate] <expr>[, <var>]",
+        hint: "Worked, rule-by-rule derivative (power/product/chain/…)",
+        example: "steps sin(x^2), x",
+      },
+      {
+        insert: "steps integrate",
+        usage: "steps integrate <expr>[, <var>]",
+        hint: "Worked integral (linearity, u-substitution, parts, …)",
+        example: "steps integrate x*sin(x), x",
+      },
+      {
         insert: "integrate",
         usage: "integrate <expr>[, <var>[, <lo>, <hi>]]",
         hint: "Antiderivative, or a definite integral with bounds",
@@ -223,6 +325,18 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "pade exp(x), 2, 2",
       },
       {
+        insert: "rootcount",
+        usage: "rootcount <poly>[, <var>[, <lo>, <hi>]]",
+        hint: "Distinct real roots of a polynomial (Sturm's theorem), exactly",
+        example: "rootcount x^5 - 3x + 1",
+      },
+      {
+        insert: "isolate",
+        usage: "isolate <poly>[, <var>]",
+        hint: "Isolate each real root in a rational interval (exact rationals shown)",
+        example: "isolate x^3 - x - 1",
+      },
+      {
         insert: "discriminant",
         usage: "discriminant <polynomial>[, <var>]",
         hint: "Discriminant of a degree 2–4 polynomial (symbolic coefficients OK)",
@@ -251,6 +365,24 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         usage: "resultant <a>, <b>[, <var>]",
         hint: "Resultant of two polynomials (0 iff they share a root)",
         example: "resultant x^2 - 1, x - 2",
+      },
+      {
+        insert: "bezout",
+        usage: "bezout <a>, <b>[, <var>]",
+        hint: "Extended gcd: monic gcd + cofactors s, t with s·a + t·b = gcd",
+        example: "bezout x^2 - 1, x^3 - 1",
+      },
+      {
+        insert: "companion",
+        usage: "companion <polynomial>[, <var>]",
+        hint: "Companion matrix of a polynomial (its eigenvalues are the roots)",
+        example: "companion x^3 - 2x + 1",
+      },
+      {
+        insert: "vandermonde",
+        usage: "vandermonde <x1, x2, x3, ...>",
+        hint: "Vandermonde matrix of a node list (the interpolation matrix)",
+        example: "vandermonde 1, 2, 3",
       },
       {
         insert: "limit",
@@ -287,6 +419,30 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         usage: "fit <x,y; x,y; …> [| <model> [degree]]",
         hint: "Least-squares regression — polynomial fits are exact; also exp/power/log",
         example: "fit 0,1; 1,2; 2,2; 3,4 | linear",
+      },
+      {
+        insert: "interp",
+        usage: "interp <x,y; x,y; …>",
+        hint: "Exact polynomial through the points (Vandermonde over the rationals)",
+        example: "interp 1,1; 2,4; 3,9",
+      },
+      {
+        insert: "newton",
+        usage: "newton <x,y; x,y; …>",
+        hint: "Interpolant in Newton divided-difference form (kept factored); also lagrange",
+        example: "newton 1,1; 2,4; 3,9",
+      },
+      {
+        insert: "chebyshev",
+        usage: "chebyshev <n> [, <var>]",
+        hint: "Exact Chebyshev T_n (first kind); also chebyu, legendre, hermite, laguerre",
+        example: "chebyshev 5",
+      },
+      {
+        insert: "legendre",
+        usage: "legendre <n> [, <var>]",
+        hint: "Exact Legendre polynomial P_n over the rationals",
+        example: "legendre 4",
       },
       {
         insert: "stats",

@@ -5,6 +5,7 @@
 // coefficients); the transcendental models are checked numerically (the fitted
 // curve reproduces the data). Error paths assert Status::Error with a message.
 
+#include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
 
@@ -70,12 +71,13 @@ TEST_CASE("rational (fractional) inputs stay exact") {
     CHECK(structurally_equal(r.expr, P("2*x")));
 }
 
-TEST_CASE("huge inputs overflow the exact path and fall back to numeric") {
-    // Σ x^4 with x ~ 1e6 overflows long long; the double path still fits x^2/1e12.
+TEST_CASE("huge inputs stay on the exact path (arbitrary precision)") {
+    // Σ x^4 with x ~ 1e6 used to overflow long long; the exact Rational path now
+    // handles it, so the fit stays exact.
     const FitResult r = fit({"1000000", "2000000", "3000000", "4000000"},
                             {"1", "4", "9", "16"}, FitModel::Poly, 2, "x");
     REQUIRE(r.status == FitResult::Status::Ok);
-    CHECK_FALSE(r.exact); // numeric fallback
+    CHECK(r.exact); // exact, no numeric fallback
     CHECK(std::abs(at(r.expr, 2500000.0) - 6.25) < 1e-6);
 }
 
@@ -135,4 +137,169 @@ TEST_CASE("model and data parsing helpers") {
     REQUIRE(ys.size() == 3);
     CHECK(xs[1] == "2");
     CHECK(ys[2] == "5");
+}
+
+TEST_CASE("interp is the exact polynomial through the points") {
+    // Through (1,1),(2,4),(3,9) → x^2, exactly.
+    const InterpResult sq = interp({"1", "2", "3"}, {"1", "4", "9"}, "x");
+    REQUIRE(sq.status == InterpResult::Status::Ok);
+    CHECK(sq.exact);
+    CHECK(sq.degree == 2);
+    CHECK(structurally_equal(sq.expr, P("x^2")));
+
+    // Collinear data collapses to a line (degree < n-1 detected).
+    const InterpResult line = interp({"0", "1", "2"}, {"1", "3", "5"}, "x");
+    REQUIRE(line.status == InterpResult::Status::Ok);
+    CHECK(line.degree == 1);
+    CHECK(structurally_equal(line.expr, P("2*x + 1")));
+
+    // Exact rational coefficients: (0,0),(1,1),(2,1) → -x^2/2 + 3x/2.
+    const InterpResult frac = interp({"0", "1", "2"}, {"0", "1", "1"}, "x");
+    REQUIRE(frac.status == InterpResult::Status::Ok);
+    CHECK(frac.exact);
+    CHECK(structurally_equal(frac.expr, P("-x^2/2 + 3*x/2")));
+
+    // The polynomial passes through every data point exactly.
+    const std::vector<std::string> xs{"-2", "0", "1", "3"};
+    const std::vector<std::string> ys{"5", "1", "0", "10"};
+    const InterpResult r = interp(xs, ys, "x");
+    REQUIRE(r.status == InterpResult::Status::Ok);
+    CHECK(r.exact);
+    for (std::size_t i = 0; i < xs.size(); ++i)
+        CHECK(at(r.expr, std::stod(xs[i])) == Catch::Approx(std::stod(ys[i])).margin(1e-9));
+
+    // A single point is the constant polynomial.
+    const InterpResult one = interp({"5"}, {"7"}, "x");
+    REQUIRE(one.status == InterpResult::Status::Ok);
+    CHECK(one.degree == 0);
+    CHECK(structurally_equal(one.expr, P("7")));
+
+    // A named variable other than x.
+    const InterpResult t = interp({"0", "1"}, {"1", "4"}, "t");
+    REQUIRE(t.status == InterpResult::Status::Ok);
+    CHECK(structurally_equal(t.expr, P("3*t + 1")));
+}
+
+TEST_CASE("interp numeric fallback for non-rational data still passes through") {
+    // sqrt(2) is not a rational number → the double path; the line still hits
+    // both points to numeric precision.
+    const InterpResult r = interp({"0", "1"}, {"0", "sqrt(2)"}, "x");
+    REQUIRE(r.status == InterpResult::Status::Ok);
+    CHECK_FALSE(r.exact);
+    CHECK(at(r.expr, 0.0) == Catch::Approx(0.0));
+    CHECK(at(r.expr, 1.0) == Catch::Approx(std::sqrt(2.0)));
+}
+
+TEST_CASE("interp error paths") {
+    CHECK(interp({"1", "1"}, {"2", "3"}, "x").status == InterpResult::Status::Error); // dup x
+    CHECK(interp({"1", "2"}, {"3"}, "x").status == InterpResult::Status::Error);       // length
+    CHECK(interp({}, {}, "x").status == InterpResult::Status::Error);                   // empty
+    CHECK(interp({"1", "2"}, {"x", "3"}, "x").status == InterpResult::Status::Error);   // non-const y
+}
+
+TEST_CASE("newton and lagrange forms expand to the interpolating polynomial") {
+    // Both forms are alternative presentations of the SAME polynomial interp
+    // finds: expanding them must reproduce it, and they must pass through the
+    // data — but they stay factored, so their text differs from the expansion.
+    const std::vector<std::pair<std::vector<std::string>, std::vector<std::string>>> cases = {
+        {{"1", "2", "3"}, {"1", "4", "9"}},   // → x^2
+        {{"0", "1", "2"}, {"0", "1", "1"}},   // → -x^2/2 + 3x/2 (fractions)
+        {{"-1", "0", "2"}, {"3", "1", "7"}},  // arbitrary
+    };
+    for (const auto& [xs, ys] : cases) {
+        const InterpResult ip = interp(xs, ys, "x");
+        REQUIRE(ip.status == InterpResult::Status::Ok);
+        for (InterpForm f : {InterpForm::Newton, InterpForm::Lagrange}) {
+            const InterpFormResult r = interp_form(xs, ys, "x", f);
+            REQUIRE(r.status == InterpFormResult::Status::Ok);
+            CHECK(r.exact);
+            CHECK(static_cast<int>(r.notes.size()) == static_cast<int>(xs.size()));
+            // Expands to interp's polynomial.
+            CHECK(structurally_equal(simplify(expand(make_sub(r.expr, ip.expr))), make_num(0)));
+            // Passes through every data point.
+            for (std::size_t i = 0; i < xs.size(); ++i) {
+                const double xi = std::stod(xs[i]);
+                const double yi = std::stod(ys[i]);
+                CHECK(std::abs(at(r.expr, xi) - yi) < 1e-9);
+            }
+            // Stays factored: its canonical form differs from the expansion.
+            CHECK(!structurally_equal(simplify(r.expr), simplify(ip.expr)));
+        }
+    }
+}
+
+TEST_CASE("newton form leads with c0 = y0; single point is the constant") {
+    const InterpFormResult nw = interp_form({"2", "5"}, {"3", "12"}, "x", InterpForm::Newton);
+    REQUIRE(nw.status == InterpFormResult::Status::Ok);
+    CHECK(nw.notes.front() == "c0 = 3");   // c0 is the first y
+
+    const InterpFormResult one = interp_form({"4"}, {"7"}, "x", InterpForm::Lagrange);
+    REQUIRE(one.status == InterpFormResult::Status::Ok);
+    CHECK(structurally_equal(simplify(one.expr), make_num(7)));
+}
+
+TEST_CASE("interp form error paths mirror interp") {
+    CHECK(interp_form({"1", "1"}, {"2", "3"}, "x", InterpForm::Newton).status ==
+          InterpFormResult::Status::Error); // dup x
+    CHECK(interp_form({"1", "2"}, {"3"}, "x", InterpForm::Lagrange).status ==
+          InterpFormResult::Status::Error); // length
+    CHECK(interp_form({}, {}, "x", InterpForm::Newton).status ==
+          InterpFormResult::Status::Error); // empty
+}
+
+namespace {
+
+std::vector<Expr> nodes(std::initializer_list<const char*> ss) {
+    std::vector<Expr> out;
+    for (const char* s : ss) out.push_back(parse_expression(s));
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("vandermonde matrix — numeric nodes") {
+    // Nodes 1, 2, 3 → rows (1, x, x^2).
+    const VandermondeResult v = vandermonde_matrix(nodes({"1", "2", "3"}));
+    REQUIRE(v.status == VandermondeResult::Status::Ok);
+    REQUIRE(v.matrix.size() == 3);
+    REQUIRE(v.matrix[0].size() == 3);
+    // Row 0: node 1 → (1, 1, 1).
+    CHECK(structurally_equal(simplify(v.matrix[0][0]), P("1")));
+    CHECK(structurally_equal(simplify(v.matrix[0][1]), P("1")));
+    CHECK(structurally_equal(simplify(v.matrix[0][2]), P("1")));
+    // Row 1: node 2 → (1, 2, 4).
+    CHECK(structurally_equal(simplify(v.matrix[1][0]), P("1")));
+    CHECK(structurally_equal(simplify(v.matrix[1][1]), P("2")));
+    CHECK(structurally_equal(simplify(v.matrix[1][2]), P("4")));
+    // Row 2: node 3 → (1, 3, 9).
+    CHECK(structurally_equal(simplify(v.matrix[2][1]), P("3")));
+    CHECK(structurally_equal(simplify(v.matrix[2][2]), P("9")));
+}
+
+TEST_CASE("vandermonde matrix — zero node keeps x^0 = 1") {
+    // Node 0 → (1, 0, 0); a 2-node list stays 2×2.
+    const VandermondeResult v = vandermonde_matrix(nodes({"0", "5"}));
+    REQUIRE(v.status == VandermondeResult::Status::Ok);
+    REQUIRE(v.matrix.size() == 2);
+    CHECK(structurally_equal(simplify(v.matrix[0][0]), P("1")));
+    CHECK(structurally_equal(simplify(v.matrix[0][1]), P("0")));
+    CHECK(structurally_equal(simplify(v.matrix[1][0]), P("1")));
+    CHECK(structurally_equal(simplify(v.matrix[1][1]), P("5")));
+}
+
+TEST_CASE("vandermonde matrix — symbolic nodes stay symbolic") {
+    // Nodes a, b → [[1, a], [1, b]].
+    const VandermondeResult v = vandermonde_matrix(nodes({"a", "b"}));
+    REQUIRE(v.status == VandermondeResult::Status::Ok);
+    CHECK(structurally_equal(simplify(v.matrix[0][1]), P("a")));
+    CHECK(structurally_equal(simplify(v.matrix[1][1]), P("b")));
+}
+
+TEST_CASE("vandermonde matrix — single node and empty") {
+    const VandermondeResult one = vandermonde_matrix(nodes({"7"}));
+    REQUIRE(one.status == VandermondeResult::Status::Ok);
+    REQUIRE(one.matrix.size() == 1);
+    CHECK(structurally_equal(simplify(one.matrix[0][0]), P("1")));
+
+    CHECK(vandermonde_matrix({}).status == VandermondeResult::Status::Empty);
 }

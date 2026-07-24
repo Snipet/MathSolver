@@ -9,6 +9,9 @@ import {
   yRange,
   panned,
   zoomedAt,
+  viewForKey,
+  isXMonotonic,
+  interpolateAtX,
   niceStep,
   ticks,
   MAX_SCALE,
@@ -100,6 +103,65 @@ check("niceStep picks 1/2/5·10^k", niceStep(10, 5) === 2 && niceStep(1, 5) === 
   const t = ticks(-1, 1, 0.5);
   check("ticks cover the range at the step", t.length === 5 && near(t[0], -1) && near(t[4], 1), JSON.stringify(t));
   check("ticks guards against explosive counts", ticks(-1e12, 1e12, 1e-6).length === 0);
+}
+
+// --- keyboard navigation ---------------------------------------------------
+{
+  // Arrow keys pan the viewport in the arrow's direction: Right increases cx,
+  // Up increases cy, and the step is 45 px (÷ scale) unless shift → 120 px.
+  const step = 45 / v.scale;
+  const right = viewForKey(v, "ArrowRight", W, H);
+  const left = viewForKey(v, "ArrowLeft", W, H);
+  const up = viewForKey(v, "ArrowUp", W, H);
+  const down = viewForKey(v, "ArrowDown", W, H);
+  check("ArrowRight pans +x", near(right.cx, v.cx + step) && near(right.cy, v.cy));
+  check("ArrowLeft pans -x", near(left.cx, v.cx - step) && near(left.cy, v.cy));
+  check("ArrowUp pans +y", near(up.cy, v.cy + step) && near(up.cx, v.cx));
+  check("ArrowDown pans -y", near(down.cy, v.cy - step) && near(down.cx, v.cx));
+  check("scale is unchanged by panning keys", right.scale === v.scale && up.scale === v.scale);
+
+  // Shift takes a larger (120 px) step.
+  const big = viewForKey(v, "ArrowRight", W, H, { shift: true });
+  check("shift+Arrow pans a larger step", near(big.cx, v.cx + 120 / v.scale));
+
+  // +/- zoom about the center, keeping the center world point fixed.
+  const zin = viewForKey(v, "+", W, H);
+  const zout = viewForKey(v, "-", W, H);
+  check("'+' zooms in about the center", zin.scale > v.scale && near(zin.cx, v.cx) && near(zin.cy, v.cy));
+  check("'=' zooms in (same as +)", viewForKey(v, "=", W, H).scale === zin.scale);
+  check("'-' zooms out about the center", zout.scale < v.scale && near(zout.cx, v.cx) && near(zout.cy, v.cy));
+
+  // 0 / Home reset to the default origin-centered view.
+  const home = viewForKey(v, "0", W, H);
+  check("'0' resets to the default view", home.cx === 0 && home.cy === 0 && home.scale === 40);
+  const homeKey = viewForKey(v, "Home", W, H);
+  check("'Home' resets to the default view", homeKey.cx === 0 && homeKey.cy === 0 && homeKey.scale === 40);
+
+  // Unrecognised keys return null so the caller ignores them.
+  check("unhandled keys return null", viewForKey(v, "a", W, H) === null && viewForKey(v, "Tab", W, H) === null);
+}
+
+// --- continuous curve trace ------------------------------------------------
+{
+  // x-monotonic detection: y=f(x) sampling is non-decreasing; x=f(y) / loops are not.
+  check("isXMonotonic: increasing xs", isXMonotonic([-2, -1, 0, 1, 2]) === true);
+  check("isXMonotonic: nulls are skipped", isXMonotonic([-1, null, 0, null, 1]) === true);
+  check("isXMonotonic: a decrease fails", isXMonotonic([0, 1, 0.5, 2]) === false);
+  check("isXMonotonic: all-null / empty is false", isXMonotonic([null, null]) === false && isXMonotonic([]) === false);
+
+  // Linear interpolation of y at a target x, on y=x^2 sampled at integer x.
+  const xs = [-2, -1, 0, 1, 2];
+  const ys = [4, 1, 0, 1, 4];
+  check("interpolateAtX hits a sample exactly", interpolateAtX(xs, ys, 1) === 1);
+  check("interpolateAtX midpoint is the chord", near(interpolateAtX(xs, ys, 0.5), 0.5)); // between (0,0),(1,1)
+  check("interpolateAtX at -1.5 is the chord", near(interpolateAtX(xs, ys, -1.5), 2.5)); // between (-2,4),(-1,1)
+  check("interpolateAtX out of range → null", interpolateAtX(xs, ys, 3) === null && interpolateAtX(xs, ys, -5) === null);
+
+  // A gap (null break, e.g. an asymptote) yields null inside the gap.
+  const gx = [0, 1, null, 3, 4];
+  const gy = [0, 1, null, 9, 16];
+  check("interpolateAtX returns null across a break", interpolateAtX(gx, gy, 2) === null);
+  check("interpolateAtX still interpolates outside the break", near(interpolateAtX(gx, gy, 3.5), 12.5));
 }
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);

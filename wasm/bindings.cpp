@@ -231,8 +231,9 @@ std::string ms_factor(std::string input) {
         // A bare integer factors into primes (2^3 · 3^2 · 5) rather than
         // echoing itself, matching FactorInteger / factorint.
         const Expr s = simplify(e);
-        if (s->kind() == Kind::Number && s->number().is_integer()) {
-            const long long n = s->number().num();
+        if (s->kind() == Kind::Number && s->number().is_integer() &&
+            s->number().num().fits_ll()) {
+            const long long n = s->number().num().to_ll();
             if (n == 0 || n == 1 || n == -1) {
                 const std::string t = std::to_string(n);
                 return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{}}}",
@@ -256,8 +257,10 @@ std::string ms_factor(std::string input) {
 /// Parse a single number-theory argument to an integer, or nullopt.
 std::optional<long long> nt_int(const std::string& tok) {
     const Expr e = simplify(parse_expression(tok));
-    if (e->kind() != Kind::Number || !e->number().is_integer()) return std::nullopt;
-    return e->number().num();
+    if (e->kind() != Kind::Number || !e->number().is_integer() ||
+        !e->number().num().fits_ll())
+        return std::nullopt;
+    return e->number().num().to_ll();
 }
 
 std::string nt_json(std::string_view plain, std::string_view latex,
@@ -323,6 +326,144 @@ std::string ms_totient(std::string arg) {
         return nt_json(s, s, {std::format("phi({})", *n)});
     });
 }
+std::string ms_sigma(std::string arg, std::string kArg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("sigma: expected an integer, got '{}'", trim(arg)));
+        if (*n < 1) return err_json("sigma is defined for positive integers");
+        int k = 1;
+        if (!trim(kArg).empty()) {
+            const auto kk = nt_int(kArg);
+            if (!kk) return err_json(std::format("sigma: exponent must be an integer, got '{}'",
+                                                 trim(kArg)));
+            if (*kk < 0) return err_json("sigma exponent must be non-negative");
+            k = static_cast<int>(*kk);
+        }
+        const std::string s = std::to_string(divisor_sigma(*n, k));
+        return nt_json(s, s, {std::format("sigma_{}({})", k, *n)});
+    });
+}
+std::string ms_mobius(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("mobius: expected an integer, got '{}'", trim(arg)));
+        if (*n < 1) return err_json("mobius is defined for positive integers");
+        const std::string s = std::to_string(mobius(*n));
+        return nt_json(s, s, {std::format("mu({})", *n)});
+    });
+}
+std::string ms_partitions(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("partitions: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("partitions is defined for n >= 0");
+        const std::string s = partition_count(*n).to_string();
+        return nt_json(s, s, {std::format("p({})", *n)});
+    });
+}
+std::string ms_catalan(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("catalan: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("catalan is defined for n >= 0");
+        const std::string s = catalan_number(*n).to_string();
+        return nt_json(s, s, {std::format("C({})", *n)});
+    });
+}
+std::string ms_stirling2(std::string nArg, std::string kArg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(nArg);
+        const auto k = nt_int(kArg);
+        if (!n) return err_json(std::format("stirling2: expected an integer n, got '{}'", trim(nArg)));
+        if (!k) return err_json(std::format("stirling2: expected an integer k, got '{}'", trim(kArg)));
+        if (*n < 0 || *k < 0) return err_json("stirling2 is defined for n, k >= 0");
+        const std::string s = stirling_second(*n, *k).to_string();
+        return nt_json(s, s, {std::format("S({}, {})", *n, *k)});
+    });
+}
+std::string ms_bell(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("bell: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("bell is defined for n >= 0");
+        const std::string s = bell_number(*n).to_string();
+        return nt_json(s, s, {std::format("B({})", *n)});
+    });
+}
+std::string ms_derangement(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("derangement: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("derangement is defined for n >= 0");
+        const std::string s = derangement_count(*n).to_string();
+        return nt_json(s, s, {std::format("!{}", *n)});
+    });
+}
+std::string ms_lucas(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("lucas: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("lucas is defined for n >= 0");
+        const std::string s = lucas_number(*n).to_string();
+        return nt_json(s, s, {std::format("L({})", *n)});
+    });
+}
+std::string ms_primorial(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("primorial: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("primorial is defined for n >= 0");
+        const std::string s = primorial(*n).to_string();
+        return nt_json(s, s, {std::format("{}#", *n)});
+    });
+}
+std::string ms_motzkin(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("motzkin: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("motzkin is defined for n >= 0");
+        const std::string s = motzkin_number(*n).to_string();
+        return nt_json(s, s, {std::format("M({})", *n)});
+    });
+}
+std::string ms_euler(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("euler: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("euler is defined for n >= 0");
+        const std::string s = euler_number(*n).to_string();
+        return nt_json(s, s, {std::format("E({})", *n)});
+    });
+}
+std::string ms_tribonacci(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("tribonacci: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("tribonacci is defined for n >= 0");
+        const std::string s = tribonacci_number(*n).to_string();
+        return nt_json(s, s, {std::format("T({})", *n)});
+    });
+}
+std::string ms_pell(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("pell: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("pell is defined for n >= 0");
+        const std::string s = pell_number(*n).to_string();
+        return nt_json(s, s, {std::format("P({})", *n)});
+    });
+}
+std::string ms_bernoulli(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("bernoulli: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0 || *n > 20) return err_json("bernoulli: the index must be in [0, 20]");
+        const Rational b = bernoulli_number(static_cast<int>(*n));
+        // Render the exact rational (fractions like 1/6, -1/30) plain and LaTeX.
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}",
+                           rendered_fields(make_num(b)), jarr_str({std::format("B_{}", *n)}));
+    });
+}
 std::string ms_divisors(std::string arg) {
     return guarded([&]() -> std::string {
         const auto n = nt_int(arg);
@@ -349,14 +490,16 @@ std::string ms_cfrac(std::string input) {
     return guarded([&]() -> std::string {
         const Expr s = simplify(parse_expression(input));
         CFrac cf;
-        if (s->kind() == Kind::Number) {
+        if (s->kind() == Kind::Number && s->number().num().fits_ll() &&
+            s->number().den().fits_ll()) {
             const Rational r = s->number();
-            cf = cf_rational(r.num(), r.den());
+            cf = cf_rational(r.num().to_ll(), r.den().to_ll());
         } else if (s->kind() == Kind::Pow && s->arg(0)->kind() == Kind::Number &&
                    s->arg(0)->number().is_integer() && s->arg(0)->number().num() >= 1 &&
+                   s->arg(0)->number().num().fits_ll() &&
                    s->arg(1)->kind() == Kind::Number &&
                    s->arg(1)->number() == Rational(1, 2)) {
-            cf = cf_sqrt(s->arg(0)->number().num());
+            cf = cf_sqrt(s->arg(0)->number().num().to_ll());
         } else {
             cf = cf_numeric(evaluate(s, Bindings{}));
         }
@@ -503,6 +646,92 @@ std::string ms_resultant(std::string a, std::string b, std::string var) {
         const PolyGcdResult r = polynomial_resultant(ea, eb, v);
         if (r.status != PolyGcdResult::Status::Ok) return err_json(r.message);
         return std::format("{{\"ok\":true,{}}}", rendered_fields(r.value));
+    });
+}
+
+/// bezout(a, b, var): extended gcd. The monic gcd is the rendered result; the
+/// Bézout cofactors s, t (with s·a + t·b = gcd) ride along as notes.
+std::string ms_bezout(std::string a, std::string b, std::string var) {
+    return guarded([&]() -> std::string {
+        const Expr ea = parse_expression(a);
+        const Expr eb = parse_expression(b);
+        std::string v = trim(var);
+        if (v.empty()) {
+            std::set<std::string> syms = free_symbols(ea);
+            for (const std::string& s : free_symbols(eb)) syms.insert(s);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json("bezout: name the variable, e.g. "
+                                 "bezout x^2 - 1, x^3 - 1, x");
+        }
+        const PolyBezoutResult r = polynomial_bezout(ea, eb, v);
+        if (r.status != PolyBezoutResult::Status::Ok) return err_json(r.message);
+        const std::vector<std::string> notes = {
+            "s = " + to_string(r.s, PrintStyle::Plain),
+            "t = " + to_string(r.t, PrintStyle::Plain)};
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}",
+                           rendered_fields(r.gcd), jarr_str(notes));
+    });
+}
+
+/// vandermonde(nodes): the square Vandermonde matrix of a comma-separated node
+/// list (row i = 1, x_i, x_i², …). Returns it rendered plain and LaTeX.
+std::string ms_vandermonde(std::string nodes) {
+    return guarded([&]() -> std::string {
+        // Split on top-level commas/semicolons (respecting brackets) so a node
+        // may be any scalar expression.
+        std::vector<Expr> xs;
+        std::string cur;
+        int depth = 0;
+        auto flush = [&]() {
+            const std::string t = trim(cur);
+            if (!t.empty()) xs.push_back(parse_expression(t));
+            cur.clear();
+        };
+        for (char ch : nodes) {
+            if (ch == '(' || ch == '[' || ch == '{') depth++;
+            else if (ch == ')' || ch == ']' || ch == '}') depth = depth > 0 ? depth - 1 : 0;
+            if ((ch == ',' || ch == ';') && depth == 0) flush();
+            else cur.push_back(ch);
+        }
+        flush();
+        const VandermondeResult r = vandermonde_matrix(xs);
+        if (r.status != VandermondeResult::Status::Ok) return err_json(r.message);
+        const int n = static_cast<int>(r.matrix.size());
+        const std::vector<std::string> notes = {
+            std::format("{}×{} Vandermonde matrix; det = ∏(x_j − x_i), the "
+                        "interpolation system's coefficient matrix",
+                        n, n)};
+        return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{},\"notes\":{}}}",
+                           jstr(mat_to_string(r.matrix, PrintStyle::Plain)),
+                           jstr(mat_to_string(r.matrix, PrintStyle::LaTeX)),
+                           jarr_str(notes));
+    });
+}
+
+/// companion(input, variable): the companion matrix of a univariate polynomial
+/// (MATLAB `compan` orientation), whose eigenvalues are the polynomial's roots.
+/// Returns the matrix rendered plain ("[a, b; c, d]") and LaTeX (pmatrix).
+std::string ms_companion(std::string input, std::string variable) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string v = trim(variable);
+        if (v.empty()) {
+            const std::set<std::string> syms = free_symbols(e);
+            if (syms.size() == 1) v = *syms.begin();
+            else return err_json("companion: name the variable, e.g. "
+                                 "companion x^2 - 3x + 2, x");
+        }
+        const CompanionResult r = companion_matrix(e, v);
+        if (r.status != CompanionResult::Status::Ok) return err_json(r.message);
+        const int n = static_cast<int>(r.matrix.size());
+        const std::vector<std::string> notes = {
+            std::format("{}×{} companion matrix; its eigenvalues are the roots "
+                        "of the polynomial",
+                        n, n)};
+        return std::format("{{\"ok\":true,\"plain\":{},\"latex\":{},\"notes\":{}}}",
+                           jstr(mat_to_string(r.matrix, PrintStyle::Plain)),
+                           jstr(mat_to_string(r.matrix, PrintStyle::LaTeX)),
+                           jarr_str(notes));
     });
 }
 
@@ -703,6 +932,53 @@ std::string ms_fit(std::string data, std::string model, std::string degree) {
             "{{\"ok\":true,{},\"model\":{},\"exact\":{},\"r2\":{},\"n\":{}}}",
             rendered_fields(r.expr), jstr(r.model), r.exact ? "true" : "false",
             jnum(r.r2), r.n);
+    });
+}
+
+/// interp(data): exact polynomial interpolation of "x,y; x,y; ..." data — the
+/// unique polynomial through the points, exact over the rationals.
+std::string ms_interp(std::string data) {
+    return guarded([&]() -> std::string {
+        auto [xs, ys] = parse_point_data(data);
+        const InterpResult r = interp(xs, ys, "x");
+        if (r.status != InterpResult::Status::Ok) return err_json(r.message);
+        return std::format(
+            "{{\"ok\":true,{},\"exact\":{},\"degree\":{},\"n\":{}}}",
+            rendered_fields(r.expr), r.exact ? "true" : "false", r.degree, r.n);
+    });
+}
+
+/// interpForm(data, form): the interpolating polynomial through the "x,y; …"
+/// points, kept in its factored Newton or Lagrange construction (form is
+/// "newton" or "lagrange"). Returns it rendered plain and LaTeX with the
+/// constant coefficients (divided differences / weights) as notes.
+std::string ms_interp_form(std::string data, std::string form) {
+    return guarded([&]() -> std::string {
+        const std::string f = trim(form);
+        if (f != "newton" && f != "lagrange")
+            return err_json("interp form must be 'newton' or 'lagrange'");
+        auto [xs, ys] = parse_point_data(data);
+        const InterpFormResult r = interp_form(
+            xs, ys, "x", f == "newton" ? InterpForm::Newton : InterpForm::Lagrange);
+        if (r.status != InterpFormResult::Status::Ok) return err_json(r.message);
+        return std::format("{{\"ok\":true,{},\"notes\":{}}}", rendered_fields(r.expr),
+                           jarr_str(r.notes));
+    });
+}
+
+/// orthopoly(family, n, variable): the exact degree-n orthogonal polynomial of
+/// the family ("chebyshev"/"chebyshevu"/"legendre"/"hermite"/"laguerre") in
+/// `variable`. Returns the rendered polynomial plus its family label and degree.
+std::string ms_orthopoly(std::string family, int n, std::string variable) {
+    return guarded([&]() -> std::string {
+        const auto fam = parse_ortho_family(trim(family));
+        if (!fam) return err_json(std::format("unknown polynomial family '{}'", family));
+        std::string var = trim(variable);
+        if (var.empty()) var = "x";
+        const OrthoPolyResult r = ortho_poly(*fam, n, var);
+        if (r.status != OrthoPolyResult::Status::Ok) return err_json(r.message);
+        return std::format("{{\"ok\":true,{},\"family\":{},\"degree\":{}}}",
+                           rendered_fields(r.expr), jstr(r.family), r.degree);
     });
 }
 
@@ -1037,6 +1313,146 @@ std::string ms_pade(std::string input, std::string variable, int m, int n) {
         }
         return std::format("{{\"ok\":true,{}}}",
                            rendered_fields(pade(e, var, m, n).approximant));
+    });
+}
+
+/// Reduce `lhs = rhs` to `(lhs) - (rhs)` so the root verbs accept an equation.
+std::string reduce_equation(const std::string& input) {
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        if (input[i] != '=') continue;
+        const char p = i > 0 ? input[i - 1] : '\0';
+        const char n = i + 1 < input.size() ? input[i + 1] : '\0';
+        if (p != '<' && p != '>' && p != '!' && p != '=' && n != '=') {
+            return "(" + input.substr(0, i) + ") - (" + input.substr(i + 1) + ")";
+        }
+    }
+    return input;
+}
+
+/// Infer the single free variable of `e`, or `""` with an error JSON written to
+/// `errOut` when it is ambiguous.
+std::string infer_var(const Expr& e, std::string variable, std::string& errOut,
+                      const char* usage) {
+    std::string var = trim(variable);
+    if (var.empty()) {
+        const std::set<std::string> syms = free_symbols(e);
+        if (syms.size() != 1) {
+            errOut = err_json(syms.empty()
+                                  ? "cannot infer the variable: no free symbols"
+                                  : usage);
+            return "";
+        }
+        var = *syms.begin();
+    }
+    return var;
+}
+
+/// rootcount(input, variable, lo, hi): the number of distinct real roots of a
+/// rational-coefficient polynomial (Sturm), over all of R or (lo, hi].
+std::string ms_rootcount(std::string input, std::string variable, std::string lo,
+                         std::string hi) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(reduce_equation(input));
+        std::string err;
+        const std::string var = infer_var(
+            e, variable, err, "give the variable explicitly: rootcount <poly>, <var>");
+        if (var.empty()) return err;
+        std::optional<Rational> a, b;
+        const std::string lt = trim(lo), ht = trim(hi);
+        if (!lt.empty() || !ht.empty()) {
+            if (lt.empty() || ht.empty()) return err_json("give both interval bounds");
+            const Expr la = simplify(parse_expression(lt));
+            const Expr hb = simplify(parse_expression(ht));
+            if (la->kind() != Kind::Number || hb->kind() != Kind::Number) {
+                return err_json("interval bounds must be rational numbers");
+            }
+            a = la->number();
+            b = hb->number();
+        }
+        const int count = sturm_root_count(e, var, a, b);
+        std::string out = std::format("{{\"ok\":true,\"count\":{}", count);
+        if (a && b) {
+            out += std::format(",\"lo\":{},\"hi\":{}", jstr(a->to_string()),
+                               jstr(b->to_string()));
+        }
+        return out + "}";
+    });
+}
+
+/// isolate(input, variable): a rational interval around every distinct real
+/// root, exact rationals reported exactly.
+std::string ms_isolate(std::string input, std::string variable) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(reduce_equation(input));
+        std::string err;
+        const std::string var = infer_var(
+            e, variable, err, "give the variable explicitly: isolate <poly>, <var>");
+        if (var.empty()) return err;
+        const std::vector<RootInterval> roots = sturm_isolate_roots(e, var);
+        std::string arr = "[";
+        for (std::size_t i = 0; i < roots.size(); ++i) {
+            const RootInterval& r = roots[i];
+            if (i) arr += ",";
+            arr += std::format(
+                "{{\"exact\":{},\"value\":{},\"lo\":{},\"hi\":{},\"approx\":{}}}",
+                r.exact ? "true" : "false",
+                r.exact ? jstr(r.lo.to_string()) : "null", jnum(r.lo.to_double()),
+                jnum(r.hi.to_double()), jnum(r.approx));
+        }
+        arr += "]";
+        return std::format("{{\"ok\":true,\"count\":{},\"roots\":{}}}", roots.size(),
+                           arr);
+    });
+}
+
+/// A worked explanation as JSON: the ordered steps plus the final result in
+/// both renderings. `solved` is false only when there is nothing to show.
+std::string explanation_json(const Explanation& ex) {
+    std::string arr = "[";
+    for (std::size_t i = 0; i < ex.steps.size(); ++i) {
+        const ExplainStep& s = ex.steps[i];
+        if (i) arr += ",";
+        arr += std::format("{{\"rule\":{},\"plain\":{},\"latex\":{}}}", jstr(s.rule),
+                           jstr(s.plain), jstr(s.latex));
+    }
+    arr += "]";
+    return std::format(
+        "{{\"ok\":true,\"solved\":true,\"steps\":{},\"plain\":{},\"latex\":{}}}", arr,
+        jstr(ex.result_plain), jstr(ex.result_latex));
+}
+
+/// explainDerivative(input, variable): the worked, rule-by-rule derivative.
+/// Returns the step list (each {rule, plain, latex}) and the final result in
+/// both renderings. The variable is inferred when it's the only free symbol.
+std::string ms_explainDerivative(std::string input, std::string variable) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string err;
+        const std::string var = infer_var(
+            e, variable, err, "give the variable explicitly: steps <expr>, <var>");
+        if (var.empty()) return err;
+        return explanation_json(explain_derivative(e, var));
+    });
+}
+
+/// explainIntegral(input, variable): the worked indefinite integral — one step
+/// per structural decision (linearity, constant multiple) with each leaf tagged
+/// by the technique the integrator used. The result equals the plain
+/// `integrate` antiderivative (the implicit "+ C" is not included). An integral
+/// with no elementary form is an honest answer (`solved:false`), not an error,
+/// exactly as the plain verb reports it.
+std::string ms_explainIntegral(std::string input, std::string variable) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string err;
+        const std::string var = infer_var(
+            e, variable, err, "give the variable explicitly: steps integrate <expr>, <var>");
+        if (var.empty()) return err;
+        if (integrate(e, var).status != IntegrateResult::Status::Integrated) {
+            return std::string(
+                "{\"ok\":true,\"solved\":false,\"steps\":[],\"plain\":\"\",\"latex\":\"\"}");
+        }
+        return explanation_json(explain_integral(e, var));
     });
 }
 
@@ -1455,12 +1871,19 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("subs", &ms_subs);
     emscripten::function("collect", &ms_collect);
     emscripten::function("derivative", &ms_derivative);
+    emscripten::function("explainDerivative", &ms_explainDerivative);
+    emscripten::function("explainIntegral", &ms_explainIntegral);
     emscripten::function("apart", &ms_apart);
     emscripten::function("fit", &ms_fit);
+    emscripten::function("interp", &ms_interp);
+    emscripten::function("interpForm", &ms_interp_form);
+    emscripten::function("orthopoly", &ms_orthopoly);
     emscripten::function("stats", &ms_stats);
     emscripten::function("dsolve", &ms_dsolve);
     emscripten::function("series", &ms_series);
     emscripten::function("pade", &ms_pade);
+    emscripten::function("rootcount", &ms_rootcount);
+    emscripten::function("isolate", &ms_isolate);
     emscripten::function("vectorOp", &ms_vector_op);
     emscripten::function("limit", &ms_limit);
     emscripten::function("mlimit", &ms_mlimit);
@@ -1472,12 +1895,29 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("nextprime", &ms_nextprime);
     emscripten::function("divisors", &ms_divisors);
     emscripten::function("totient", &ms_totient);
+    emscripten::function("sigma", &ms_sigma);
+    emscripten::function("mobius", &ms_mobius);
+    emscripten::function("partitions", &ms_partitions);
+    emscripten::function("catalan", &ms_catalan);
+    emscripten::function("bernoulli", &ms_bernoulli);
+    emscripten::function("stirling2", &ms_stirling2);
+    emscripten::function("bell", &ms_bell);
+    emscripten::function("derangement", &ms_derangement);
+    emscripten::function("lucas", &ms_lucas);
+    emscripten::function("primorial", &ms_primorial);
+    emscripten::function("motzkin", &ms_motzkin);
+    emscripten::function("euler", &ms_euler);
+    emscripten::function("tribonacci", &ms_tribonacci);
+    emscripten::function("pell", &ms_pell);
     emscripten::function("cfrac", &ms_cfrac);
     emscripten::function("discriminant", &ms_discriminant);
     emscripten::function("polydiv", &ms_polydiv);
     emscripten::function("polygcd", &ms_polygcd);
     emscripten::function("polylcm", &ms_polylcm);
     emscripten::function("resultant", &ms_resultant);
+    emscripten::function("bezout", &ms_bezout);
+    emscripten::function("companion", &ms_companion);
+    emscripten::function("vandermonde", &ms_vandermonde);
     emscripten::function("solveIneq", &ms_solve_ineq);
     emscripten::function("mod", &ms_mod);
     emscripten::function("powmod", &ms_powmod);

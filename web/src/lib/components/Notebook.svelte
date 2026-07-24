@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, onDestroy } from "svelte";
   import { notebook } from "../notebook/notebook.svelte";
   import { consoleUi } from "../notebook/console-ui.svelte";
   import { completionItems, type RefItem } from "../notebook/reference";
@@ -13,6 +13,7 @@
     type VerbSuggestion,
   } from "../notebook/suggest";
   import { splitAssignment } from "../vars/session";
+  import { serializeTranscript } from "../notebook/transcript";
   import { vars } from "../vars.svelte";
   import { untrack } from "svelte";
 
@@ -41,6 +42,11 @@
 
   /** The cell number the prompt line will become when run. */
   const promptIndex = $derived(notebook.cells.length + 1);
+
+  // Highest cell id already present when this console mounted; only cells run
+  // afterwards (id greater than this) get the entrance animation — so history
+  // restored on load, and a mode-switch remount, never re-animate.
+  const animBaseline = notebook.cells.reduce((m, c) => Math.max(m, c.id), 0);
 
   const EXAMPLE_GROUPS = [
     {
@@ -296,6 +302,45 @@
     exprInput?.focusEnd();
   }
 
+  // Download the whole session as a Markdown transcript (In[]/Out[] blocks).
+  function exportTranscript() {
+    if (notebook.cells.length === 0) return;
+    const text = serializeTranscript(notebook.cells);
+    const blob = new Blob([text], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "mathsolver-session.md";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  // Copy the whole session transcript (the same Markdown as Export) to the
+  // clipboard, for pasting into a doc or chat without the file round-trip.
+  let copyState = $state<"idle" | "copied" | "error">("idle");
+  let copyTimer: ReturnType<typeof setTimeout> | null = null;
+  async function copyTranscript() {
+    if (notebook.cells.length === 0) return;
+    const text = serializeTranscript(notebook.cells);
+    let ok = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
+    } catch {
+      ok = false;
+    }
+    copyState = ok ? "copied" : "error";
+    if (copyTimer) clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => (copyState = "idle"), 2200);
+  }
+  onDestroy(() => {
+    if (copyTimer) clearTimeout(copyTimer);
+  });
+
   // --- keyboard: suggestions, history recall, shortcuts ---------------------
   function onkeydownextra(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "l") {
@@ -371,14 +416,32 @@
         recipes — click any to drop it into the prompt.
       </span>
     </div>
-    <button
-      class="clear-btn"
-      onclick={clearConsole}
-      disabled={notebook.cells.length === 0}
-      title="Clear the console (Ctrl+L)"
-    >
-      Clear
-    </button>
+    <div class="head-actions">
+      <button
+        class="copy-btn"
+        onclick={copyTranscript}
+        disabled={notebook.cells.length === 0}
+        title="Copy the whole session transcript to the clipboard"
+      >
+        {copyState === "copied" ? "✓ Copied" : copyState === "error" ? "Copy failed" : "Copy"}
+      </button>
+      <button
+        class="export-btn"
+        onclick={exportTranscript}
+        disabled={notebook.cells.length === 0}
+        title="Download the session as a Markdown transcript"
+      >
+        Export
+      </button>
+      <button
+        class="clear-btn"
+        onclick={clearConsole}
+        disabled={notebook.cells.length === 0}
+        title="Clear the console (Ctrl+L)"
+      >
+        Clear
+      </button>
+    </div>
   </div>
 
   <details class="ref-inline">
@@ -418,6 +481,7 @@
           {cell}
           index={i + 1}
           islast={i === notebook.cells.length - 1}
+          animate={cell.id > animBaseline}
           onrerun={(t) => void runText(t)}
           onedit={editText}
           onrun={(t) => void runText(t)}
@@ -493,7 +557,7 @@
       </div>
     {/if}
 
-    <div class="prompt">
+    <div class="prompt" class:busy={computing}>
       <ConsolePrompt
         bind:this={exprInput}
         bind:value={input}
@@ -568,11 +632,18 @@
     font-size: 1.05rem;
     letter-spacing: -0.01em;
   }
+  .head-actions {
+    display: flex;
+    gap: 0.4rem;
+    flex: 0 0 auto;
+  }
   .head-hint {
     font-size: 0.82rem;
     color: var(--fg-muted);
   }
-  .clear-btn {
+  .clear-btn,
+  .export-btn,
+  .copy-btn {
     flex: 0 0 auto;
     font: inherit;
     font-size: 0.82rem;
@@ -583,11 +654,15 @@
     padding: 0.25rem 0.8rem;
     cursor: pointer;
   }
-  .clear-btn:hover:not(:disabled) {
+  .clear-btn:hover:not(:disabled),
+  .export-btn:hover:not(:disabled),
+  .copy-btn:hover:not(:disabled) {
     color: var(--accent);
     border-color: var(--accent);
   }
-  .clear-btn:disabled {
+  .clear-btn:disabled,
+  .export-btn:disabled,
+  .copy-btn:disabled {
     opacity: 0.5;
     cursor: default;
   }
@@ -853,6 +928,36 @@
     display: flex;
     flex-direction: column;
     gap: 0.35rem;
+    position: relative;
+  }
+  /* "Thinking" accent while the engine computes. The 130ms animation-delay
+     means a fast result (the common case) finishes before the bar ever shows,
+     so quick commands don't flicker; only a genuinely slow compute pulses. */
+  .prompt.busy::before {
+    content: "";
+    position: absolute;
+    left: -0.55rem;
+    top: 0.15rem;
+    bottom: 0.15rem;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--accent);
+    animation: prompt-pulse 0.75s ease-in-out 130ms infinite;
+  }
+  @keyframes prompt-pulse {
+    0%,
+    100% {
+      opacity: 0.2;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .prompt.busy::before {
+      animation: none;
+      opacity: 0.6;
+    }
   }
 
   /* Slim utility row under the prompt: symbol palette left, key hints right. */

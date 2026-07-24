@@ -171,6 +171,61 @@ try {
     "apart verb",
     (await run("apart (3x+2)/((x+1)(x+2))")).includes("4/(x + 2)"),
   );
+
+  // steps verb: a worked, rule-by-rule derivative renders as an ordered list of
+  // rule-tagged steps (innermost-first), closing on the answer.
+  const stepsOut = await run("steps sin(x^2), x");
+  check(
+    "steps verb shows the final derivative",
+    stepsOut.includes("2*x*cos(x^2)"),
+    stepsOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const stepsUi = await page.$eval(".cells .cell:last-child", (el) => ({
+    items: el.querySelectorAll("ol.steps li").length,
+    rules: [...el.querySelectorAll("ol.steps .rule")].map((r) =>
+      r.textContent.trim().toLowerCase(),
+    ),
+  }));
+  check(
+    "steps renders an ordered list with rule chips",
+    stepsUi.items >= 2 &&
+      stepsUi.rules.some((r) => r.includes("power")) &&
+      stepsUi.rules.some((r) => r.includes("chain")),
+    JSON.stringify(stepsUi),
+  );
+  // The variable can be inferred when omitted.
+  check(
+    "steps infers the variable",
+    (await run("steps x^3")).includes("3*x^2"),
+  );
+
+  // `steps integrate` works the integral instead: structural steps (linearity,
+  // constant multiple) with each leaf tagged by the technique the engine used.
+  const istepsOut = await run("steps integrate x^2 + sin(x), x");
+  check(
+    "steps integrate shows the antiderivative with + C",
+    istepsOut.includes("x^3/3 - cos(x) + C"),
+    istepsOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const istepsUi = await page.$eval(".cells .cell:last-child", (el) => ({
+    items: el.querySelectorAll("ol.steps li").length,
+    rules: [...el.querySelectorAll("ol.steps .rule")].map((r) =>
+      r.textContent.trim().toLowerCase(),
+    ),
+    label: el.querySelector(".answer-label")?.textContent.trim() ?? "",
+  }));
+  check(
+    "steps integrate renders rule chips and an integral label",
+    istepsUi.items >= 3 &&
+      istepsUi.rules.includes("linearity") &&
+      istepsUi.label.startsWith("∫"),
+    JSON.stringify(istepsUi),
+  );
+  // A non-elementary integral is an answer, not an error (like `integrate`).
+  check(
+    "steps integrate is honest about no closed form",
+    (await run("steps integrate e^(x^2), x")).includes("No closed form found"),
+  );
   check(
     "laplace verb",
     (await run("laplace e^(-t) sin(2t)")).includes("(s + 1)^2 + 4"),
@@ -538,6 +593,34 @@ try {
   check("preview surfaces parse errors with a caret", true);
   await clearPrompt();
 
+  // A recognized verb that has no bespoke typeset branch (gcd, rootcount, …)
+  // must NOT flash a false "unknown name" error — the preview stays quiet
+  // instead of mis-reading the verb head as a variable product.
+  for (const verb of ["gcd 12, 18", "rootcount x^5 - 3x + 1", "bezout x^2-1, x^3-1"]) {
+    await page.click(TA);
+    await page.type(TA, verb);
+    await new Promise((r) => setTimeout(r, 350));
+    // NONE renders no preview element at all; a false warning would render one
+    // with .has-error. Either "no element" or "element without error" passes.
+    const errEl = await page.$("[data-testid='console-preview'].has-error");
+    check(`verb preview does not flash a false error: ${verb.split(" ")[0]}`, errEl === null);
+    await clearPrompt();
+  }
+
+  // rootcount leads its result with the count, not the literal verb name.
+  // (Locally the prebuilt wasm may lack rootcount — emcc isn't available to
+  // rebuild it — so the result is an engine-unavailable error and this check
+  // is skipped; CI/deploy rebuild the wasm and exercise it.)
+  await run("rootcount x^5 - 3x + 1");
+  const rcTitle = await page
+    .$eval(".cells .cell:last-child .message-title", (el) => el.textContent.trim())
+    .catch(() => null);
+  if (rcTitle !== null) {
+    check("rootcount leads with the count, not 'rootcount'", /distinct real roots/.test(rcTitle) && rcTitle !== "rootcount", rcTitle);
+  } else {
+    console.log("SKIP  rootcount headline (local wasm lacks rootcount)");
+  }
+
   await page.click(TA);
   await page.click(".palette .palette-chip"); // π
   await page.evaluate(() => {
@@ -847,6 +930,79 @@ try {
     fracOut.includes("Butterworth") && fracOut.includes("1501.87"),
     fracOut.replace(/\s+/g, " ").slice(0, 90),
   );
+
+  // --- export: download the session as a Markdown transcript --------------
+  // Stub the blob-download plumbing (jsdom/headless can't really download) to
+  // capture the file name and the serialized text.
+  await run("2x + 3");
+  await page.evaluate(() => {
+    window.__dl = {};
+    window.__orig = {
+      create: URL.createObjectURL,
+      revoke: URL.revokeObjectURL,
+      click: HTMLAnchorElement.prototype.click,
+    };
+    URL.createObjectURL = (blob) => {
+      window.__dlBlob = blob;
+      return "blob:stub";
+    };
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = function () {
+      window.__dl.download = this.download;
+    };
+  });
+  await page.click(".console-head .export-btn");
+  const exported = await page.evaluate(async () => ({
+    download: window.__dl.download,
+    text: window.__dlBlob ? await window.__dlBlob.text() : null,
+  }));
+  // Restore the real download plumbing so later tests are unaffected.
+  await page.evaluate(() => {
+    URL.createObjectURL = window.__orig.create;
+    URL.revokeObjectURL = window.__orig.revoke;
+    HTMLAnchorElement.prototype.click = window.__orig.click;
+  });
+  check(
+    "Export downloads a .md transcript",
+    exported.download === "mathsolver-session.md",
+    String(exported.download),
+  );
+  check(
+    "the transcript contains the In/Out of a run",
+    !!exported.text &&
+      exported.text.includes("# MathSolver console session") &&
+      exported.text.includes("In[") &&
+      exported.text.includes("2*x + 3"),
+    (exported.text || "").slice(0, 80),
+  );
+
+  // --- copy: put the same transcript on the clipboard ---------------------
+  // Stub navigator.clipboard.writeText (unreliable headless) to record the text.
+  await page.evaluate(() => {
+    window.__clip = { called: false, text: null };
+    window.__origWrite = navigator.clipboard?.writeText?.bind(navigator.clipboard);
+    navigator.clipboard = navigator.clipboard || {};
+    navigator.clipboard.writeText = async (t) => {
+      window.__clip.called = true;
+      window.__clip.text = t;
+    };
+  });
+  await page.click(".console-head .copy-btn");
+  await new Promise((r) => setTimeout(r, 200));
+  const copied = await page.evaluate(() => window.__clip);
+  const copyLabel = await page.$eval(".console-head .copy-btn", (el) => el.textContent.trim());
+  await page.evaluate(() => {
+    if (window.__origWrite) navigator.clipboard.writeText = window.__origWrite;
+  });
+  check(
+    "Copy writes the transcript to the clipboard",
+    copied.called &&
+      !!copied.text &&
+      copied.text.includes("# MathSolver console session") &&
+      copied.text.includes("2*x + 3"),
+    (copied.text || "").slice(0, 80),
+  );
+  check("Copy reports success", copyLabel === "✓ Copied", copyLabel);
 
   // --- notebook documents: save / open / run in a fresh scope --------------
   await page.click(".console-head .clear-btn");

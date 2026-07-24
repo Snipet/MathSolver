@@ -255,8 +255,10 @@ TEST_CASE("expr: make_pow exact numeric folding", "[expr][pow]") {
                                    make_num(Rational(9, 4))));
         REQUIRE(structurally_equal(make_pow(make_num(-3), make_num(3)), make_num(-27)));
     }
-    SECTION("integer exponent overflow throws") {
-        REQUIRE_THROWS_AS(make_pow(make_num(2), make_num(64)), OverflowError);
+    SECTION("large integer exponents fold exactly") {
+        // 2^64 is now computed exactly (arbitrary precision), not thrown.
+        REQUIRE(structurally_equal(make_pow(make_num(2), make_num(64)),
+                                   make_num(Rational(BigInt("18446744073709551616")))));
     }
     SECTION("pow(4, 1/2) -> 2") {
         Expr e = make_pow(make_num(4), make_num(Rational(1, 2)));
@@ -332,17 +334,20 @@ TEST_CASE("expr: make_pow exact numeric folding", "[expr][pow]") {
         REQUIRE(make_pow(make_num(2), x())->kind() == Kind::Pow);
         REQUIRE(make_pow(make_const(ConstantId::E), x())->kind() == Kind::Pow);
     }
-    SECTION("rational exponent whose exact result does not fit stays symbolic") {
-        // pow(4, 101/2) = 2^101 exists mathematically but overflows 64 bits:
-        // per DESIGN.md section 2 the fold is abandoned, not thrown.
+    SECTION("rational exponent with an exact root folds exactly past 64 bits") {
+        // pow(4, 101/2) = (4^(1/2))^101 = 2^101, now exact (arbitrary precision).
         Expr e = make_pow(make_num(4), make_num(Rational(101, 2)));
-        REQUIRE(e->kind() == Kind::Pow);
-        REQUIRE(debug_string(e) == "(pow 4 101/2)");
+        REQUIRE(structurally_equal(
+            e, make_num(Rational(BigInt("2535301200456458802993406410752")))));
+        // pow(4, -101/2) = 1 / 2^101.
         Expr f = make_pow(make_num(4), make_num(Rational(-101, 2)));
-        REQUIRE(f->kind() == Kind::Pow);
-        REQUIRE(debug_string(f) == "(pow 4 -101/2)");
-        // Only the integer-exponent path throws.
-        REQUIRE_THROWS_AS(make_pow(make_num(4), make_num(101)), OverflowError);
+        REQUIRE(structurally_equal(
+            f, make_num(Rational(BigInt(1), BigInt("2535301200456458802993406410752")))));
+        // The integer-exponent path also folds exactly: 4^101 = 2^202.
+        REQUIRE(structurally_equal(
+            make_pow(make_num(4), make_num(101)),
+            make_num(Rational(BigInt(
+                "6427752177035961102167848369364650410088811975131171341205504")))));
     }
 }
 
@@ -453,9 +458,11 @@ TEST_CASE("expr: numeric folding is order-independent (128-bit accumulation)",
         INFO(debug_string(e));
         REQUIRE(structurally_equal(e, make_add({make_num(LLONG_MAX), x()})));
     }
-    SECTION("throws only if the final reduced value does not fit") {
-        REQUIRE_THROWS_AS(make_add({make_num(LLONG_MAX), make_num(1)}), OverflowError);
-        REQUIRE_THROWS_AS(make_mul({make_num(1LL << 62), make_num(4)}), OverflowError);
+    SECTION("results past 64 bits fold exactly (arbitrary precision)") {
+        REQUIRE(structurally_equal(make_add({make_num(LLONG_MAX), make_num(1)}),
+                                   make_num(Rational(BigInt("9223372036854775808"))))); // 2^63
+        REQUIRE(structurally_equal(make_mul({make_num(1LL << 62), make_num(4)}),
+                                   make_num(Rational(BigInt("18446744073709551616"))))); // 2^64
     }
     SECTION("a zero factor still annihilates before any folding") {
         Expr e = make_mul({make_num(LLONG_MAX), make_num(LLONG_MAX), make_num(0)});

@@ -44,6 +44,7 @@ else()
 endif()
 
 add_library(mathsolver_core STATIC
+    src/bigint.cpp
     src/rational.cpp
     src/expr.cpp
     src/parser.cpp
@@ -53,6 +54,7 @@ add_library(mathsolver_core STATIC
     src/cancel.cpp
     src/together.cpp
     src/derivative.cpp
+    src/steps.cpp
     src/discrete.cpp
     src/integrate.cpp
     src/limit.cpp
@@ -63,12 +65,14 @@ add_library(mathsolver_core STATIC
     src/cfrac.cpp
     src/inequality.cpp
     src/discriminant.cpp
+    src/orthopoly.cpp
     src/trig.cpp
     src/polydiv.cpp
     src/logexpand.cpp
     src/ode.cpp
     src/pade.cpp
     src/series.cpp
+    src/sturm.cpp
     src/vector_calculus.cpp
     src/solver.cpp
     src/transform.cpp
@@ -76,6 +80,19 @@ add_library(mathsolver_core STATIC
 )
 target_include_directories(mathsolver_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(mathsolver_core PRIVATE mathsolver_warnings)
+
+# The script layer (docs/proposals/console-language.md): script values, the
+# `:=` session environment, and the shape of a console input line — everything
+# a surface needs to run a session, and nothing about how a session is
+# displayed. It is the ONLY layer that knows environments exist; the
+# dependency on mathsolver_core runs one way, so the engine-purity invariant
+# (DESIGN.md §13) is a link error to violate rather than a convention.
+add_library(mathsolver_script STATIC
+    src/script/value.cpp
+    src/script/environment.cpp
+    src/script/statement.cpp
+)
+target_link_libraries(mathsolver_script PUBLIC mathsolver_core PRIVATE mathsolver_warnings)
 
 # Built-in plugins (docs/PLUGINS.md): numeric domain extensions behind the
 # uniform command surface in include/mathsolver/plugin.hpp. Hosts that link
@@ -116,7 +133,7 @@ if(EMSCRIPTEN)
     )
 else()
     add_executable(mathsolver apps/main.cpp)
-    target_link_libraries(mathsolver PRIVATE mathsolver_core mathsolver_warnings)
+    target_link_libraries(mathsolver PRIVATE mathsolver_script mathsolver_warnings)
 
     option(MATHSOLVER_BUILD_TESTS "Build MathSolver unit tests" ON)
     if(MATHSOLVER_BUILD_TESTS)

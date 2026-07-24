@@ -21,7 +21,9 @@ export type RowKind =
   | { t: "polar"; expr: string; restrict?: string[] } // r = f(θ)
   | { t: "slopefield"; expr: string; restrict?: string[] } // y' = f(x, y) / dy/dx = …
   | { t: "pointish"; coords: [string, string][]; restrict?: string[] } // points or parametric
-  | { t: "define"; name: string; expr: string; restrict?: string[] } // name = expr
+  | { t: "define"; name: string; expr: string; params?: string[]; restrict?: string[] } // name = expr, or name(params) = expr
+  | { t: "listdef"; name: string; expr: string; restrict?: string[] } // name = <list> ([…], sort(L), L[a...b], …)
+  | { t: "piecewise"; branches: { cond: string; value: string }[]; otherwise?: string; restrict?: string[] } // {cond: val, …[, else]}
   | { t: "area"; expr: string; lo: string; hi: string; restrict?: string[] } // ∫ f dx shaded over [a, b]
   | { t: "relation"; lhs: string; rhs: string; op: RelOp; restrict?: string[] }; // implicit / ineq
 
@@ -213,7 +215,69 @@ function matchArea(text: string): { expr: string; lo: string; hi: string } | nul
   return { expr: parts[0], lo: parts[1], hi: parts[2] };
 }
 
+/** Index of the first top-level `:` (outside any bracket), or -1. */
+function topLevelColon(s: string): number {
+  let depth = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "(" || ch === "[" || ch === "{") depth++;
+    else if (ch === ")" || ch === "]" || ch === "}") depth = Math.max(0, depth - 1);
+    else if (ch === ":" && depth === 0) return i;
+  }
+  return -1;
+}
+
+/**
+ * Match a Desmos-style piecewise: a whole row that is one `{ … }` group whose
+ * segments carry `condition: value` (with an optional bare final `value` as the
+ * else). A leading `y =` is allowed. A brace group with no `:` is a domain
+ * restriction, not a piecewise, so `{x > 0}` is left to splitRestrictions.
+ */
+function matchPiecewise(text: string): RowKind | null {
+  let t = text.trim();
+  const ym = /^y\s*=\s*([\s\S]*)$/.exec(t);
+  if (ym) t = ym[1].trim();
+  if (!t.startsWith("{") || !t.endsWith("}")) return null;
+  // The braces must be a single group spanning the whole (post-`y =`) text.
+  let depth = 0;
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] === "{") depth++;
+    else if (t[i] === "}") {
+      depth--;
+      if (depth === 0 && i !== t.length - 1) return null;
+    }
+  }
+  if (depth !== 0) return null;
+  const branches: { cond: string; value: string }[] = [];
+  let otherwise: string | undefined;
+  for (const seg of splitTopLevelCommas(t.slice(1, -1))) {
+    const colon = topLevelColon(seg);
+    if (colon >= 0) {
+      branches.push({ cond: seg.slice(0, colon).trim(), value: seg.slice(colon + 1).trim() });
+    } else if (seg.trim()) {
+      otherwise = seg.trim(); // a bare value is the else branch
+    }
+  }
+  if (!branches.length) return null; // no `cond: value` → a restriction, not this
+  return { t: "piecewise", branches, otherwise };
+}
+
+// Is an assignment RHS list-valued by syntax? Kept local so the classifier
+// stays dependency-free; lists.ts has the deeper evaluation.
+function looksListValued(rhs: string): boolean {
+  const t = rhs.trim();
+  if (t.startsWith("[")) return true;
+  if (/^(sort|unique|reverse|join)\s*\(/.test(t)) return true;
+  // A whole-expression slice `name[ … a...b … ]`.
+  const m = /^[A-Za-z][A-Za-z0-9_]*\s*\[(.*)\]$/.exec(t);
+  return m !== null && m[1].includes("...");
+}
+
 export function classifyRow(text: string): RowKind {
+  // A piecewise `{cond: val, …}` must be recognized before splitRestrictions,
+  // which would otherwise peel the whole brace group off as a restriction.
+  const pw = matchPiecewise(text);
+  if (pw) return pw;
   const { body, restrict } = splitRestrictions(text);
   const kind = classifyBody(body);
   return restrict.length && kind.t !== "empty" ? { ...kind, restrict } : kind;
@@ -246,12 +310,26 @@ function classifyBody(text: string): RowKind {
       if (isVar(rhs, "x")) return { t: "functionY", expr: lhs.trim() };
       if (isVar(lhs, "r")) return { t: "polar", expr: rhs.trim() };
       if (isVar(rhs, "r")) return { t: "polar", expr: lhs.trim() };
-      // A definition: `name = expr` or `name(args) = expr` where `name` is a
-      // bare identifier other than the graph variables — becomes a reusable
-      // named value/expression (a session variable).
-      const dm = /^([A-Za-z][A-Za-z0-9_]*)\s*(?:\([^()]*\))?$/.exec(lhs.trim());
+      // A definition: `name = expr` (a reusable session value) or
+      // `name(params) = expr` (a user function). The parameter list is captured
+      // so `f(x) = x^2` can later be applied as `f(3)`, `f'(x)`, `g(f(x))`.
+      const dm = /^([A-Za-z][A-Za-z0-9_]*)\s*(?:\(\s*([^()]*)\s*\))?$/.exec(lhs.trim());
       if (dm && !["x", "y", "r"].includes(dm[1])) {
-        return { t: "define", name: dm[1], expr: rhs.trim() };
+        if (dm[2] !== undefined) {
+          const params = splitTopLevelCommas(dm[2]).map((p) => p.trim()).filter(Boolean);
+          // Empty parens `f() = …` is not a function (a function needs ≥1
+          // parameter); fall through to a relation so it reads as an error/plot.
+          if (params.length) return { t: "define", name: dm[1], expr: rhs.trim(), params };
+        } else {
+          // `name = <list>` is a list definition, not a scalar value: a `[ … ]`
+          // literal/range/comprehension (any RHS opening a bracket, even
+          // mid-type, so a partial `[1,` never commits as a broken scalar
+          // variable), a list-returning call (`sort`/`unique`/`reverse`/`join`),
+          // or a slice `L[a...b]`. The whole RHS is kept and materialized later.
+          const rt = rhs.trim();
+          if (looksListValued(rt)) return { t: "listdef", name: dm[1], expr: rt };
+          return { t: "define", name: dm[1], expr: rhs.trim() };
+        }
       }
       return { t: "relation", lhs: lhs.trim(), rhs: rhs.trim(), op };
     }

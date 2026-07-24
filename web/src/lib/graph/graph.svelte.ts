@@ -14,6 +14,9 @@ export interface DataPoint {
 /** Regression model for a table row ("" = plot the points only). */
 export type FitModelName = "" | "linear" | "quadratic" | "cubic" | "exp" | "power" | "log";
 
+import { LINE_STYLES, LINE_WEIGHTS, type LineStyle, type LineWeight } from "./style";
+export { LINE_STYLES, LINE_WEIGHTS, type LineStyle, type LineWeight };
+
 export interface ExprRow {
   id: number;
   /** "expr" rows plot `text`; "table" rows plot `points` (+ optional `fit`). */
@@ -26,6 +29,17 @@ export interface ExprRow {
   fit: FitModelName;
   /** Series color. */
   color: string;
+  /** Line dash style and stroke/point weight (per-row, Desmos-like). */
+  lineStyle: LineStyle;
+  weight: LineWeight;
+  /** Optional text label drawn at the point(s) / along the curve (empty = off). */
+  label: string;
+  /** Pixel offset of the label from its anchor, set by dragging it (default 0,0). */
+  labelDx?: number;
+  labelDy?: number;
+  /** Column names for table rows (display + copy headers; default x / y). */
+  xName?: string;
+  yName?: string;
   visible: boolean;
 }
 
@@ -52,6 +66,13 @@ interface PersistedRow {
   text: string;
   color: string;
   visible: boolean;
+  lineStyle?: string;
+  weight?: string;
+  label?: string;
+  labelDx?: number;
+  labelDy?: number;
+  xName?: string;
+  yName?: string;
   kind?: "expr" | "table";
   points?: DataPoint[];
   /** Loose `string` (not FitModelName) so decoded share data is assignable;
@@ -61,6 +82,26 @@ interface PersistedRow {
 interface Persisted {
   rows: PersistedRow[];
   view: View;
+  showGrid?: boolean;
+  /** Optional names drawn at the ends of the x- and y-axes. */
+  axisLabels?: { x: string; y: string };
+  /** Optional title drawn centered at the top of the plot. */
+  title?: string;
+}
+
+/** An axis name: trimmed and length-capped; empty means "no label". */
+export function cleanAxisLabel(raw: unknown): string {
+  return typeof raw === "string" ? raw.slice(0, 24) : "";
+}
+
+/** A graph title: trimmed and length-capped; empty means "no title". */
+export function cleanTitle(raw: unknown): string {
+  return typeof raw === "string" ? raw.slice(0, 60) : "";
+}
+
+function loadAxisLabels(raw: unknown): { x: string; y: string } {
+  const a = (raw ?? {}) as Record<string, unknown>;
+  return { x: cleanAxisLabel(a.x), y: cleanAxisLabel(a.y) };
 }
 
 const FIT_MODELS: FitModelName[] = ["", "linear", "quadratic", "cubic", "exp", "power", "log"];
@@ -86,6 +127,12 @@ function withTrailingBlank(points: DataPoint[]): DataPoint[] {
   return points;
 }
 
+/** A column name: trimmed, length-capped, falling back to a default. */
+export function cleanColName(raw: unknown, fallback: string): string {
+  const s = typeof raw === "string" ? raw.slice(0, 16) : "";
+  return s.trim() === "" ? fallback : s;
+}
+
 function normalizeRow(r: PersistedRow): ExprRow {
   const kind = r.kind === "table" ? "table" : "expr";
   return {
@@ -95,14 +142,23 @@ function normalizeRow(r: PersistedRow): ExprRow {
     points: kind === "table" ? sanitizePoints(r.points) : [],
     fit: kind === "table" && FIT_MODELS.includes(r.fit as FitModelName) ? (r.fit as FitModelName) : "",
     color: typeof r.color === "string" ? r.color : GRAPH_COLORS[0],
+    lineStyle: LINE_STYLES.includes(r.lineStyle as LineStyle) ? (r.lineStyle as LineStyle) : "solid",
+    weight: LINE_WEIGHTS.includes(r.weight as LineWeight) ? (r.weight as LineWeight) : "normal",
+    label: typeof r.label === "string" ? r.label.slice(0, 60) : "",
+    labelDx: Number.isFinite(r.labelDx) ? (r.labelDx as number) : 0,
+    labelDy: Number.isFinite(r.labelDy) ? (r.labelDy as number) : 0,
+    ...(kind === "table"
+      ? { xName: cleanColName(r.xName, "x"), yName: cleanColName(r.yName, "y") }
+      : {}),
     visible: r.visible !== false,
   };
 }
 
-function load(): { rows: ExprRow[]; view: View } {
+function load(): { rows: ExprRow[]; view: View; showGrid: boolean; axisLabels: { x: string; y: string }; title: string } {
+  const emptyLabels = { x: "", y: "" };
   try {
     const raw = localStorage.getItem(KEY);
-    if (!raw) return { rows: [seedRow()], view: { ...DEFAULT_VIEW } };
+    if (!raw) return { rows: [seedRow()], view: { ...DEFAULT_VIEW }, showGrid: true, axisLabels: emptyLabels, title: "" };
     const p = JSON.parse(raw) as Partial<Persisted>;
     const rows: ExprRow[] = Array.isArray(p.rows)
       ? p.rows
@@ -115,24 +171,48 @@ function load(): { rows: ExprRow[]; view: View } {
       v && Number.isFinite(v.cx) && Number.isFinite(v.cy) && Number.isFinite(v.scale) && v.scale > 0
         ? { cx: v.cx, cy: v.cy, scale: v.scale }
         : { ...DEFAULT_VIEW };
-    return { rows: rows.length ? rows : [seedRow()], view };
+    return { rows: rows.length ? rows : [seedRow()], view, showGrid: p.showGrid !== false, axisLabels: loadAxisLabels(p.axisLabels), title: cleanTitle(p.title) };
   } catch {
-    return { rows: [seedRow()], view: { ...DEFAULT_VIEW } };
+    return { rows: [seedRow()], view: { ...DEFAULT_VIEW }, showGrid: true, axisLabels: emptyLabels, title: "" };
   }
 }
 
 function seedRow(): ExprRow {
-  return { id: nextId++, kind: "expr", text: "", points: [], fit: "", color: GRAPH_COLORS[0], visible: true };
+  return { id: nextId++, kind: "expr", text: "", points: [], fit: "", color: GRAPH_COLORS[0], lineStyle: "solid", weight: "normal", label: "", visible: true };
 }
 
 class GraphStore {
   rows = $state<ExprRow[]>([]);
   view = $state<View>({ ...DEFAULT_VIEW });
+  showGrid = $state(true);
+  axisLabels = $state<{ x: string; y: string }>({ x: "", y: "" });
+  title = $state("");
 
   constructor() {
-    const { rows, view } = load();
+    const { rows, view, showGrid, axisLabels, title } = load();
     this.rows = rows;
     this.view = view;
+    this.showGrid = showGrid;
+    this.axisLabels = axisLabels;
+    this.title = title;
+  }
+
+  /** Toggle the background gridlines (axes and number labels are unaffected). */
+  toggleGrid(): void {
+    this.showGrid = !this.showGrid;
+    this.persist();
+  }
+
+  /** Set the x- or y-axis name drawn at the axis end (empty string clears it). */
+  setAxisLabel(axis: "x" | "y", text: string): void {
+    this.axisLabels = { ...this.axisLabels, [axis]: text.slice(0, 24) };
+    this.persistSoon();
+  }
+
+  /** Set the graph title drawn at the top of the plot (empty string clears it). */
+  setTitle(text: string): void {
+    this.title = text.slice(0, 60);
+    this.persistSoon();
   }
 
   #nextColor(): string {
@@ -142,7 +222,7 @@ class GraphStore {
 
   addRow(text = ""): number {
     if (this.rows.length >= CAP) return -1;
-    const row: ExprRow = { id: nextId++, kind: "expr", text, points: [], fit: "", color: this.#nextColor(), visible: true };
+    const row: ExprRow = { id: nextId++, kind: "expr", text, points: [], fit: "", color: this.#nextColor(), lineStyle: "solid", weight: "normal", label: "", visible: true };
     this.rows.push(row);
     this.persist();
     return row.id;
@@ -162,6 +242,11 @@ class GraphStore {
       ],
       fit: "",
       color: this.#nextColor(),
+      lineStyle: "solid",
+      weight: "normal",
+      label: "",
+      xName: "x",
+      yName: "y",
       visible: true,
     };
     this.rows.push(row);
@@ -173,6 +258,36 @@ class GraphStore {
     this.rows = this.rows.filter((r) => r.id !== id);
     if (this.rows.length === 0) this.rows = [seedRow()];
     this.persist();
+  }
+
+  /** Move a row one slot up (dir = -1) or down (dir = +1). No-op at the ends. */
+  moveRow(id: number, dir: -1 | 1): void {
+    const i = this.rows.findIndex((r) => r.id === id);
+    if (i < 0) return;
+    const j = i + dir;
+    if (j < 0 || j >= this.rows.length) return;
+    const next = [...this.rows];
+    [next[i], next[j]] = [next[j], next[i]];
+    this.rows = next;
+    this.persist();
+  }
+
+  /** Insert a copy of a row (new id, fresh colour, deep-copied points) right
+   *  after it. Returns the new row's id, or -1 if it's missing or at the cap. */
+  duplicateRow(id: number): number {
+    if (this.rows.length >= CAP) return -1;
+    const i = this.rows.findIndex((r) => r.id === id);
+    if (i < 0) return -1;
+    const src = this.rows[i];
+    const copy: ExprRow = {
+      ...src,
+      id: nextId++,
+      color: this.#nextColor(),
+      points: src.points.map((p) => ({ ...p })),
+    };
+    this.rows.splice(i + 1, 0, copy);
+    this.persist();
+    return copy.id;
   }
 
   setText(id: number, text: string): void {
@@ -224,6 +339,37 @@ class GraphStore {
       this.persist();
     }
   }
+  /** Update a row's line dash style and/or stroke weight. */
+  setStyle(id: number, patch: { lineStyle?: LineStyle; weight?: LineWeight }): void {
+    const r = this.rows.find((x) => x.id === id);
+    if (!r) return;
+    if (patch.lineStyle) r.lineStyle = patch.lineStyle;
+    if (patch.weight) r.weight = patch.weight;
+    this.persist();
+  }
+  /** Set a row's display label (empty string clears it). */
+  setLabel(id: number, label: string): void {
+    const r = this.rows.find((x) => x.id === id);
+    if (!r) return;
+    r.label = label.slice(0, 60);
+    this.persistSoon();
+  }
+  /** Set the label's pixel offset from its anchor (from dragging the label). */
+  setLabelOffset(id: number, dx: number, dy: number): void {
+    const r = this.rows.find((x) => x.id === id);
+    if (!r) return;
+    r.labelDx = Number.isFinite(dx) ? dx : 0;
+    r.labelDy = Number.isFinite(dy) ? dy : 0;
+    this.persistSoon();
+  }
+  /** Rename a table column (kept short; blank falls back to x/y on reload). */
+  setColName(id: number, axis: "x" | "y", name: string): void {
+    const r = this.rows.find((x) => x.id === id);
+    if (!r || r.kind !== "table") return;
+    if (axis === "x") r.xName = name.slice(0, 16);
+    else r.yName = name.slice(0, 16);
+    this.persistSoon();
+  }
   toggleVisible(id: number): void {
     const r = this.rows.find((x) => x.id === id);
     if (r) {
@@ -231,11 +377,29 @@ class GraphStore {
       this.persist();
     }
   }
+  /** Show or hide every row at once (a bulk visibility toggle). */
+  setAllVisible(v: boolean): void {
+    let changed = false;
+    for (const r of this.rows) {
+      if (r.visible !== v) {
+        r.visible = v;
+        changed = true;
+      }
+    }
+    if (changed) this.persist();
+  }
 
   #rowSnapshot(r: ExprRow): PersistedRow {
+    const style = {
+      lineStyle: r.lineStyle,
+      weight: r.weight,
+      label: r.label,
+      labelDx: r.labelDx ?? 0,
+      labelDy: r.labelDy ?? 0,
+    };
     return r.kind === "table"
-      ? { kind: "table", text: "", color: r.color, visible: r.visible, points: r.points.map((p) => ({ x: p.x, y: p.y })), fit: r.fit }
-      : { text: r.text, color: r.color, visible: r.visible };
+      ? { kind: "table", text: "", color: r.color, visible: r.visible, ...style, points: r.points.map((p) => ({ x: p.x, y: p.y })), fit: r.fit, xName: r.xName ?? "x", yName: r.yName ?? "y" }
+      : { text: r.text, color: r.color, visible: r.visible, ...style };
   }
 
   /** The rows + viewport as a plain snapshot (for a share link). */
@@ -269,7 +433,13 @@ class GraphStore {
       this.#persistTimer = null;
     }
     try {
-      const data: Persisted = { rows: this.rows.map((r) => this.#rowSnapshot(r)), view: this.view };
+      const data: Persisted = {
+        rows: this.rows.map((r) => this.#rowSnapshot(r)),
+        view: this.view,
+        showGrid: this.showGrid,
+        axisLabels: this.axisLabels,
+        title: this.title,
+      };
       localStorage.setItem(KEY, JSON.stringify(data));
     } catch {
       /* storage unavailable */

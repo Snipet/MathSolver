@@ -101,9 +101,10 @@ Expr proper_term_in_u(const Expr& term, const std::string& v,
             factor->arg(1)->kind() == Kind::Number &&
             factor->arg(1)->number().is_integer() &&
             factor->arg(1)->number().num() < 0 &&
+            factor->arg(1)->number().num().fits_ll() &&
             contains_symbol(factor->arg(0), v)) {
             base = factor->arg(0);
-            k = -factor->arg(1)->number().num();
+            k = (-factor->arg(1)->number().num()).to_ll();
         } else {
             num_factors.push_back(factor);
         }
@@ -223,6 +224,11 @@ std::vector<Rational> bernoulli_numbers(int m) {
         b.push_back(-acc / Rational(n + 1));
     }
     return b;
+}
+
+Rational bernoulli_number(int n) {
+    // bernoulli_numbers validates the range and returns B_0 .. B_n.
+    return bernoulli_numbers(n).at(static_cast<std::size_t>(n));
 }
 
 StirlingResult stirling_series(std::string_view var, int terms) {

@@ -32,6 +32,10 @@ check("analyze equation", ms.analyze("x^2 = 4"), (r) => r.ok && r.kind === "equa
 check("analyze system", ms.analyze("x + y = 3; x - y = 1"), (r) => r.ok && r.kind === "system", "system");
 check("parse error span", ms.simplify("2 + \\fraq{1}{2}"), (r) => !r.ok && r.begin === 4 && r.end > r.begin, "span at \\fraq");
 check("derivative", ms.derivative("sin(x^2)", "x"), (r) => r.ok && r.plain === "2*x*cos(x^2)", "2*x*cos(x^2)");
+check("explainDerivative steps", ms.explainDerivative("sin(x^2)", "x"), (r) => r.ok && r.plain === "2*x*cos(x^2)" && r.steps.length === 2 && r.steps.some((s) => s.rule === "chain rule") && r.steps[0].latex.includes("\\frac{d}{dx}"), "2 steps, chain rule, latex");
+check("explainDerivative infers var", ms.explainDerivative("x^3", ""), (r) => r.ok && r.plain === "3*x^2" && r.steps.some((s) => s.rule === "power rule"), "power rule, var inferred");
+check("explainIntegral steps", ms.explainIntegral("x^2 + sin(x)", "x"), (r) => r.ok && r.solved && r.plain === "x^3/3 - cos(x)" && r.steps.length >= 3 && r.steps.at(-1).rule === "linearity" && r.steps[0].latex.includes("\\int"), "3 steps, linearity last, latex");
+check("explainIntegral honesty", ms.explainIntegral("e^(x^2)", "x"), (r) => r.ok && !r.solved && r.steps.length === 0, "unsolved, no steps");
 check("integrate", ms.integrate("x*sin(x)", "x"), (r) => r.ok && r.solved && r.plain.includes("-x*cos(x)"), "-x*cos(x) + sin(x)");
 check("integrate honesty", ms.integrate("e^(x^2)", "x"), (r) => r.ok && !r.solved, "unsolved");
 check("definite exact", ms.integrateDefinite("sin(x)", "x", "0", "pi"), (r) => r.ok && r.status === "exact" && r.plain === "2", "value 2");
@@ -97,6 +101,110 @@ check("fit exact fractions", ms.fit("0,1; 1,2; 2,2; 3,4", "linear", ""), (r) => 
 check("fit exponential", ms.fit("0,1; 1,2.71828; 2,7.38906", "exp", ""), (r) => r.ok && r.model === "exponential" && r.r2 > 0.999, "a*e^(bx)");
 check("fit error few points", ms.fit("0,0", "linear", ""), (r) => !r.ok && r.error.includes("at least 2"), "needs 2 points");
 check("fit error bad model", ms.fit("0,0; 1,1", "wiggle", ""), (r) => !r.ok && r.error.includes("unknown fit model"), "unknown model rejected");
+// interp — exact polynomial through the points
+check("interp exact quadratic", ms.interp("1,1; 2,4; 3,9"), (r) => r.ok && r.plain === "x^2" && r.exact === true && r.degree === 2 && r.n === 3, "x^2 through 3 points");
+check("interp collinear collapses", ms.interp("0,1; 1,3; 2,5"), (r) => r.ok && r.plain === "2*x + 1" && r.degree === 1, "degree drops to 1");
+check("interp exact fractions", ms.interp("0,0; 1,1; 2,1"), (r) => r.ok && r.exact === true && r.degree === 2, "rational coefficients");
+check("interp single point", ms.interp("5,7"), (r) => r.ok && r.plain === "7" && r.degree === 0 && r.n === 1, "constant polynomial");
+check("interp error dup x", ms.interp("1,2; 1,3"), (r) => !r.ok && r.error.includes("distinct"), "duplicate x rejected");
+// newton / lagrange interpolation forms (factored construction, not expanded)
+check("newton form factored", ms.interpForm("1,1; 2,4; 3,9", "newton"), (r) => r.ok && r.plain.includes("(x - 1)") && r.notes.includes("c0 = 1"), "Newton form + c0=1");
+check("lagrange form factored", ms.interpForm("1,1; 2,4; 3,9", "lagrange"), (r) => r.ok && r.plain.includes("(x - 3)") && r.notes.some((n) => n === "w1 = -4"), "Lagrange form + w1=-4");
+check("interpForm error dup x", ms.interpForm("1,1; 1,2", "newton"), (r) => !r.ok && r.error.includes("distinct"), "duplicate x rejected");
+check("interpForm error bad form", ms.interpForm("1,1; 2,4", "cubic"), (r) => !r.ok && r.error.includes("newton"), "unknown form rejected");
+// orthopoly — exact orthogonal polynomials
+check("orthopoly chebyshev T5", ms.orthopoly("chebyshev", 5, "x"), (r) => r.ok && r.plain === "16*x^5 - 20*x^3 + 5*x" && r.family === "Chebyshev T" && r.degree === 5, "T_5");
+check("orthopoly chebyshev U (second kind)", ms.orthopoly("chebyshevu", 3, "x"), (r) => r.ok && r.plain === "8*x^3 - 4*x" && r.family === "Chebyshev U", "U_3");
+check("orthopoly legendre P3", ms.orthopoly("legendre", 3, "x"), (r) => r.ok && r.plain === "5*x^3/2 - 3*x/2" && r.family === "Legendre", "P_3 exact fractions");
+check("orthopoly hermite H4", ms.orthopoly("hermite", 4, "x"), (r) => r.ok && r.plain === "16*x^4 - 48*x^2 + 12" && r.family === "Hermite", "H_4");
+check("orthopoly named variable", ms.orthopoly("chebyshev", 2, "t"), (r) => r.ok && r.plain === "2*t^2 - 1", "T_2 in t");
+check("orthopoly error bad family", ms.orthopoly("wiggle", 3, "x"), (r) => !r.ok && r.error.includes("unknown polynomial family"), "unknown family rejected");
+// bezout — extended polynomial gcd with cofactors
+check("bezout shared factor", ms.bezout("x^2 - 1", "x^3 - 1", "x"), (r) => r.ok && r.plain === "x - 1" && r.notes.some((n) => n === "s = -x") && r.notes.some((n) => n === "t = 1"), "gcd x-1 with cofactors");
+check("bezout coprime → gcd 1", ms.bezout("x^2 + 1", "x - 1", "x"), (r) => r.ok && r.plain === "1" && r.notes.length === 2, "coprime gcd 1");
+check("bezout error non-poly", ms.bezout("sin(x)", "x", "x"), (r) => !r.ok && r.error.includes("polynomial"), "non-polynomial rejected");
+// companion — companion matrix of a polynomial (MATLAB compan orientation)
+check("companion quadratic", ms.companion("x^2 - 3x + 2", "x"), (r) => r.ok && r.plain === "[3, -2; 1, 0]" && r.latex.includes("pmatrix"), "[3,-2;1,0]");
+check("companion normalizes leading coeff", ms.companion("2x^2 + 4x - 6", "x"), (r) => r.ok && r.plain === "[-2, 3; 1, 0]", "monic-normalized");
+check("companion cubic subdiagonal", ms.companion("x^3 - 1", "x"), (r) => r.ok && r.plain === "[0, 0, 1; 1, 0, 0; 0, 1, 0]", "subdiagonal ones");
+check("companion infers single variable", ms.companion("t^2 - 5t + 6", ""), (r) => r.ok && r.plain === "[5, -6; 1, 0]", "var inferred");
+check("companion error degree 0", ms.companion("7", "x"), (r) => !r.ok && r.error.includes("degree"), "constant rejected");
+check("companion error non-poly", ms.companion("sin(x)", "x"), (r) => !r.ok && r.error.includes("polynomial"), "non-polynomial rejected");
+// vandermonde — Vandermonde matrix of a node list
+check("vandermonde numeric nodes", ms.vandermonde("1, 2, 3"), (r) => r.ok && r.plain === "[1, 1, 1; 1, 2, 4; 1, 3, 9]" && r.latex.includes("pmatrix"), "[1,1,1;1,2,4;1,3,9]");
+check("vandermonde symbolic nodes", ms.vandermonde("a, b"), (r) => r.ok && r.plain === "[1, a; 1, b]", "symbolic stays symbolic");
+check("vandermonde zero node", ms.vandermonde("0, 5"), (r) => r.ok && r.plain === "[1, 0; 1, 5]", "x^0 = 1");
+check("vandermonde error empty", ms.vandermonde(""), (r) => !r.ok && r.error.includes("node"), "empty rejected");
+// sigma (divisor function σ_k) and mobius (μ)
+check("sigma sum of divisors", ms.sigma("12", ""), (r) => r.ok && r.plain === "28", "σ(12)=28");
+check("sigma of squares", ms.sigma("6", "2"), (r) => r.ok && r.plain === "50", "σ_2(6)=50");
+check("sigma count of divisors", ms.sigma("12", "0"), (r) => r.ok && r.plain === "6", "σ_0(12)=6");
+check("sigma error non-positive", ms.sigma("0", ""), (r) => !r.ok && r.error.includes("positive"), "n≥1 required");
+check("mobius three primes", ms.mobius("30"), (r) => r.ok && r.plain === "-1", "μ(30)=-1");
+check("mobius squared factor", ms.mobius("12"), (r) => r.ok && r.plain === "0", "μ(12)=0");
+check("mobius of one", ms.mobius("1"), (r) => r.ok && r.plain === "1", "μ(1)=1");
+// partitions p(n) and catalan numbers
+check("partitions of 10", ms.partitions("10"), (r) => r.ok && r.plain === "42", "p(10)=42");
+check("partitions of 100", ms.partitions("100"), (r) => r.ok && r.plain === "190569292", "p(100)");
+check("partitions error negative", ms.partitions("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("catalan of 10", ms.catalan("10"), (r) => r.ok && r.plain === "16796", "C(10)=16796");
+check("catalan C(40) big", ms.catalan("40"), (r) => r.ok && r.plain === "2622127042276492108820", "arbitrary precision");
+// bernoulli numbers as exact rationals
+check("bernoulli B_2", ms.bernoulli("2"), (r) => r.ok && r.plain === "1/6", "B_2=1/6");
+check("bernoulli B_1 convention", ms.bernoulli("1"), (r) => r.ok && r.plain === "-1/2", "B_1=-1/2");
+check("bernoulli B_12", ms.bernoulli("12"), (r) => r.ok && r.plain === "-691/2730", "B_12");
+check("bernoulli odd vanishes", ms.bernoulli("3"), (r) => r.ok && r.plain === "0", "B_3=0");
+check("bernoulli error range", ms.bernoulli("21"), (r) => !r.ok && r.error.includes("[0, 20]"), "index capped");
+// stirling numbers of the second kind S(n, k) and bell numbers B(n)
+check("stirling2 S(4,2)", ms.stirling2("4", "2"), (r) => r.ok && r.plain === "7", "S(4,2)=7");
+check("stirling2 S(5,3)", ms.stirling2("5", "3"), (r) => r.ok && r.plain === "25", "S(5,3)=25");
+check("stirling2 k>n", ms.stirling2("3", "5"), (r) => r.ok && r.plain === "0", "S(3,5)=0");
+check("stirling2 error negative", ms.stirling2("-1", "2"), (r) => !r.ok && r.error.includes(">= 0"), "n,k≥0 required");
+check("bell B(5)", ms.bell("5"), (r) => r.ok && r.plain === "52", "B(5)=52");
+check("bell B(10)", ms.bell("10"), (r) => r.ok && r.plain === "115975", "B(10)=115975");
+check("bell error negative", ms.bell("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+// derangements (subfactorial !n)
+check("derangement !4", ms.derangement("4"), (r) => r.ok && r.plain === "9", "!4=9");
+check("derangement !10", ms.derangement("10"), (r) => r.ok && r.plain === "1334961", "!10=1334961");
+check("derangement !0", ms.derangement("0"), (r) => r.ok && r.plain === "1", "!0=1");
+check("derangement error negative", ms.derangement("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("derangement !21 big", ms.derangement("21"), (r) => r.ok && r.plain === "18795307255050944540", "arbitrary precision");
+// lucas numbers L(n)
+check("lucas L(0)", ms.lucas("0"), (r) => r.ok && r.plain === "2", "L(0)=2");
+check("lucas L(10)", ms.lucas("10"), (r) => r.ok && r.plain === "123", "L(10)=123");
+check("lucas L(20)", ms.lucas("20"), (r) => r.ok && r.plain === "15127", "L(20)=15127");
+check("lucas error negative", ms.lucas("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("lucas L(91) big", ms.lucas("91"), (r) => r.ok && r.plain === "10420180999117162549", "arbitrary precision");
+// primorial n# (product of primes ≤ n)
+check("primorial 7#", ms.primorial("7"), (r) => r.ok && r.plain === "210", "7#=210");
+check("primorial 13#", ms.primorial("13"), (r) => r.ok && r.plain === "30030", "13#=30030");
+check("primorial 10# = 7#", ms.primorial("10"), (r) => r.ok && r.plain === "210", "no prime in (7,10]");
+check("primorial error negative", ms.primorial("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("primorial 53# big", ms.primorial("53"), (r) => r.ok && r.plain === "32589158477190044730", "arbitrary precision");
+// motzkin numbers M(n)
+check("motzkin M(6)", ms.motzkin("6"), (r) => r.ok && r.plain === "51", "M(6)=51");
+check("motzkin M(10)", ms.motzkin("10"), (r) => r.ok && r.plain === "2188", "M(10)=2188");
+check("motzkin M(20)", ms.motzkin("20"), (r) => r.ok && r.plain === "50852019", "M(20)");
+check("motzkin error negative", ms.motzkin("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("motzkin M(45) big", ms.motzkin("45"), (r) => r.ok && r.plain === "13603677110519480289", "arbitrary precision");
+// euler (secant) numbers E(n)
+check("euler E(6)", ms.euler("6"), (r) => r.ok && r.plain === "-61", "E(6)=-61");
+check("euler E(8)", ms.euler("8"), (r) => r.ok && r.plain === "1385", "E(8)=1385");
+check("euler odd vanishes", ms.euler("7"), (r) => r.ok && r.plain === "0", "E(7)=0");
+check("euler error negative", ms.euler("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("euler E(24) big", ms.euler("24"), (r) => r.ok && r.plain === "15514534163557086905", "arbitrary precision");
+// tribonacci numbers T(n)
+check("tribonacci T(10)", ms.tribonacci("10"), (r) => r.ok && r.plain === "81", "T(10)=81");
+check("tribonacci T(20)", ms.tribonacci("20"), (r) => r.ok && r.plain === "35890", "T(20)=35890");
+check("tribonacci T(2)", ms.tribonacci("2"), (r) => r.ok && r.plain === "1", "T(2)=1");
+check("tribonacci error negative", ms.tribonacci("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("tribonacci T(75) big", ms.tribonacci("75"), (r) => r.ok && r.plain === "12903063846126135669", "arbitrary precision");
+// pell numbers P(n)
+check("pell P(2)", ms.pell("2"), (r) => r.ok && r.plain === "2", "P(2)=2");
+check("pell P(10)", ms.pell("10"), (r) => r.ok && r.plain === "2378", "P(10)=2378");
+check("pell P(20)", ms.pell("20"), (r) => r.ok && r.plain === "15994428", "P(20)=15994428");
+check("pell error negative", ms.pell("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("pell P(51) big", ms.pell("51"), (r) => r.ok && r.plain === "11749380235262596085", "arbitrary precision");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");
@@ -246,6 +354,23 @@ check("ilaplace sin", ms.ilaplace("3/(s^2 + 9)", "s"), (r) => r.ok && r.plain ==
 check("ilaplace cos", ms.ilaplace("s/(s^2 + 9)", "s"), (r) => r.ok && r.plain === "cos(3*t)", "cos(3t)");
 check("ilaplace default s", ms.ilaplace("1/(s - 2)", ""), (r) => r.ok && r.plain.includes("e^(2*t)"), "empty var defaults to s");
 check("ilaplace error", ms.ilaplace("s^2 + 1", "s"), (r) => !r.ok && r.error.length > 0, "polynomial has no inverse");
+
+// User-function beta-reduction: the two-phase capture-avoiding `subs` the
+// grapher runs for f(args). The multi-arg swap is the exact case a naive
+// sequential subs CSV (a=b,b=a) would corrupt to a/a.
+const beta = (params, body, args) => {
+  const used = new Set(((body + " " + args.join(" ")).match(/[A-Za-z]/g) || []));
+  const ph = [];
+  for (const c of "ZQWJKVUXYHGNMBTRCPLOSDAF") {
+    if (ph.length === params.length) break;
+    if (!used.has(c)) ph.push(c);
+  }
+  const r1 = JSON.parse(ms.subs(body, params.map((p, k) => `${p}=${ph[k]}`).join(","), false));
+  const r2 = JSON.parse(ms.subs(r1.plain, ph.map((z, k) => `${z}=(${args[k]})`).join(","), false));
+  return r2.plain;
+};
+check("fn reduce parenthesizes", JSON.stringify({ ok: true, p: beta(["x"], "x^2", ["x+1"]) }), (r) => r.p === "(x + 1)^2", "(x + 1)^2");
+check("fn reduce multi-arg swap", JSON.stringify({ ok: true, p: beta(["a", "b"], "a/b", ["b", "a"]) }), (r) => r.p === "b/a", "b/a (capture-safe, not a/a)");
 
 function b_series_ok(r) {
   const s = r.blocks.find((b) => b.type === "series");

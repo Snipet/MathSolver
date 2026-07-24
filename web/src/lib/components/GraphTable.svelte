@@ -3,7 +3,9 @@
   // Points plot as a scatter; choosing a model overlays the fitted curve and
   // shows its equation + R² (polynomial fits come back exact, via the CAS
   // `fit` verb — see GraphCalculator.buildTable).
+  import { onDestroy } from "svelte";
   import { graph, type ExprRow, type FitModelName } from "../graph/graph.svelte";
+  import { tableToTSV } from "../graph/table";
 
   interface ColStats {
     n: number;
@@ -40,17 +42,57 @@
     const value = (e.currentTarget as HTMLInputElement).value;
     graph.setPoint(row.id, index, axis === "x" ? { x: value } : { y: value });
   }
+  function onName(axis: "x" | "y", e: Event): void {
+    graph.setColName(row.id, axis, (e.currentTarget as HTMLInputElement).value);
+  }
   function isBlank(index: number): boolean {
     const p = row.points[index];
     return !!p && p.x.trim() === "" && p.y.trim() === "";
   }
+
+  const xName = $derived(row.xName ?? "x");
+  const yName = $derived(row.yName ?? "y");
+
+  let copyState = $state<"idle" | "copied" | "error">("idle");
+  let copyTimer: ReturnType<typeof setTimeout> | undefined;
+  async function copyTSV(): Promise<void> {
+    const tsv = tableToTSV(xName, yName, row.points);
+    try {
+      await navigator.clipboard.writeText(tsv);
+      copyState = "copied";
+    } catch {
+      copyState = "error";
+    }
+    clearTimeout(copyTimer);
+    copyTimer = setTimeout(() => (copyState = "idle"), 1800);
+  }
+  onDestroy(() => clearTimeout(copyTimer));
 </script>
 
 <div class="table">
   <div class="grid" role="group" aria-label="Data points">
-    <div class="head">x</div>
-    <div class="head">y</div>
-    <div class="head" aria-hidden="true"></div>
+    <input
+      class="head-name"
+      value={xName}
+      maxlength="16"
+      spellcheck="false"
+      aria-label="x column name"
+      oninput={(e) => onName("x", e)}
+    />
+    <input
+      class="head-name"
+      value={yName}
+      maxlength="16"
+      spellcheck="false"
+      aria-label="y column name"
+      oninput={(e) => onName("y", e)}
+    />
+    <button
+      class="copy"
+      title="Copy the table as tab-separated values (with headers)"
+      aria-label="Copy table data"
+      onclick={copyTSV}
+    >{copyState === "copied" ? "✓" : copyState === "error" ? "!" : "⧉"}</button>
     {#each row.points as p, i (i)}
       <input
         class="cell"
@@ -111,14 +153,14 @@
     <div class="col-stats" title="Exact summary statistics of each column">
       {#if info.statsX}
         <div class="stat-row">
-          <span class="stat-col">x</span>
+          <span class="stat-col">{xName}</span>
           <span>mean {info.statsX.mean}</span><span>med {info.statsX.median}</span
           ><span>s {info.statsX.stdev}</span>
         </div>
       {/if}
       {#if info.statsY}
         <div class="stat-row">
-          <span class="stat-col">y</span>
+          <span class="stat-col">{yName}</span>
           <span>mean {info.statsY.mean}</span><span>med {info.statsY.median}</span
           ><span>s {info.statsY.stdev}</span>
         </div>
@@ -140,12 +182,45 @@
     gap: 0.25rem;
     align-items: center;
   }
-  .head {
-    font-size: 0.72rem;
+  .head-name {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.15rem 0.3rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
     font-weight: 600;
-    color: var(--fg-muted);
     text-align: center;
-    padding-bottom: 0.1rem;
+    color: var(--fg-muted);
+    border: 1px solid transparent;
+    border-radius: 5px;
+    background: transparent;
+  }
+  .head-name:hover {
+    border-color: var(--border);
+  }
+  .head-name:focus {
+    outline: none;
+    border-color: var(--accent);
+    color: var(--fg);
+    background: var(--bg-inset);
+  }
+  .copy {
+    width: 1.25rem;
+    height: 1.25rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--fg-muted);
+    font-size: 0.85rem;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .copy:hover {
+    color: var(--accent);
+    background: var(--bg-inset);
   }
   .cell {
     width: 100%;

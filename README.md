@@ -202,6 +202,26 @@ $ mathsolver pade "1/(1-x)" 2 2
 1/(-x + 1)
 ```
 
+Real roots — `rootcount` and `isolate` count and bracket the distinct real
+roots of a polynomial *exactly*, by Sturm's theorem over rational
+arithmetic (no numeric root-finding). Multiplicity never inflates the
+count, rational roots come out exactly, and irrational ones are isolated
+in a rational interval and refined:
+
+```console
+$ mathsolver rootcount "x^5 - 3x + 1"
+3 distinct real roots
+$ mathsolver rootcount "x^2 - 2" x 0 5
+1 distinct real root in (0, 5]
+$ mathsolver isolate "2x^2 - 3x + 1"
+2 distinct real roots:
+  x = 1/2
+  x = 1
+$ mathsolver isolate "x^3 - x - 1"
+1 distinct real root:
+  x ≈ 1.324717957   in (1.324717522, 1.324718475)
+```
+
 Limits — exact where the structure allows (substitution guarded by
 defined-at-the-point checks, L'Hôpital on 0/0 quotients, rational degree
 analysis at infinity), with an honest numeric-extrapolation fallback that
@@ -268,6 +288,54 @@ $ mathsolver fit "0,1; 1,2.72; 2,7.39" exp
 e^x
 model: exponential
 R^2: 1
+```
+
+Exact interpolation — `interp` returns the unique polynomial that passes
+**through** every point (as opposed to `fit`, which minimizes the error).
+The Vandermonde system is solved over the rationals, so perfectly
+polynomial data comes back as the exact polynomial and its true degree —
+collinear points collapse to a line, and fractional coefficients stay
+fractions. Non-rational data falls back to a numeric solve that still hits
+every point:
+
+```console
+$ mathsolver interp "1,1; 2,4; 3,9"
+x^2
+degree: 2 (exact)
+$ mathsolver interp "0,0; 1,1; 2,1"
+-x^2/2 + 3*x/2
+degree: 2 (exact)
+```
+
+For the *construction* rather than the expanded result, `newton` and
+`lagrange` present the same interpolant kept factored — the Newton
+divided-difference form `1 + 3(x−1) + (x−1)(x−2)` or the Lagrange weighted
+basis `Σ wᵢ·Π(x−xⱼ)` — each listing its constant coefficients:
+
+```console
+$ mathsolver newton "1,1; 2,4; 3,9"
+(x - 2)*(x - 1) + 3*(x - 1) + 1
+  c0 = 1
+  c1 = 3
+  c2 = 1
+```
+
+Orthogonal polynomials — `chebyshev`, `chebyu` (second kind), `legendre`,
+`hermite`, and `laguerre` generate the exact degree-n member of each
+classical family from its three-term recurrence over the rationals, so the
+coefficients are exact integers or fractions rather than decimals. An
+optional second argument names the variable:
+
+```console
+$ mathsolver chebyshev 5
+16*x^5 - 20*x^3 + 5*x
+Chebyshev T, degree 5
+$ mathsolver legendre 3
+5*x^3/2 - 3*x/2
+Legendre, degree 3
+$ mathsolver hermite 4 t
+16*t^4 - 48*t^2 + 12
+Hermite, degree 4
 ```
 
 Summary statistics — `stats` reports the mean, median, quartiles (Moore &
@@ -549,8 +617,14 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   power and exp/ln rules, trig special values and identities; plus `expand`,
   `collect`, best-effort `factor`, `polydiv` (polynomial long division →
   quotient and remainder, e.g. `polydiv x^3 - 1, x - 1` → `x² + x + 1`), and
-  `polygcd`/`polylcm` (monic polynomial GCD/LCM), and `resultant` (zero iff two
-  polynomials share a root). **`trigexpand`** expands trig of sums
+  `polygcd`/`polylcm` (monic polynomial GCD/LCM), `resultant` (zero iff two
+  polynomials share a root), and `bezout` (the extended GCD — the monic gcd
+  plus Bézout cofactors `s`, `t` with `s·a + t·b = gcd`, e.g.
+  `bezout x^2 - 1, x^3 - 1` → gcd `x - 1`, `s = -x`, `t = 1`), and `companion`
+  (the companion matrix of a polynomial, whose eigenvalues are its roots —
+  `companion x^2 - 3x + 2` → `[3, -2; 1, 0]`), and `vandermonde` (the
+  Vandermonde matrix of a node list — the interpolation system's matrix,
+  `vandermonde 1, 2, 3` → `[1, 1, 1; 1, 2, 4; 1, 3, 9]`). **`trigexpand`** expands trig of sums
   and multiples into single angles (`sin(a+b)` → `sin(a)cos(b) + cos(a)sin(b)`,
   `cos(2x)` → `cos(x)² - sin(x)²`); **`trigreduce`** inverts it, turning
   products and powers back into multiple angles (`sin(x)²` → `1/2 - cos(2x)/2`,
@@ -594,8 +668,24 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   inconsistency detection.
 - **Number theory** — integer `factor` (prime factorization), `gcd`/`lcm`
   of a list, deterministic `isprime` (Miller–Rabin over the whole 64-bit
-  range), `nextprime`, `divisors`, and Euler's `totient` — all exact,
-  factoring via trial division + Pollard's rho:
+  range), `nextprime`, `divisors`, Euler's `totient`, the divisor function
+  `sigma` (σ_k, with `sigma n, 0` counting divisors and `sigma n, 2` summing
+  squares), the Möbius function `mobius`, the integer partition count
+  `partitions` (p(n) via Euler's pentagonal recurrence), the Catalan
+  numbers `catalan`, the Bernoulli numbers `bernoulli` (exact rationals,
+  B₁ = −1/2), the Stirling numbers of the second kind `stirling2` (S(n, k),
+  set partitions into k blocks), the Bell numbers `bell` (total set
+  partitions), the derangement counts `derangement` (subfactorial !n,
+  permutations with no fixed point), the Lucas numbers `lucas`
+  (companion to Fibonacci), the primorial `primorial` (n#, the product
+  of primes ≤ n), the Motzkin numbers `motzkin` (non-crossing chords), and
+  the Euler numbers `euler` (secant numbers, companion to Bernoulli),
+  the tribonacci numbers `tribonacci` (three-term Fibonacci), and the Pell
+  numbers `pell` (P(n) = 2·P(n−1) + P(n−2), numerators of the √2 convergents)
+  — all exact, factoring via trial division + Pollard's rho. The combinatorial
+  sequence counts (`partitions`, `catalan`, `stirling2`, `bell`, `derangement`,
+  `lucas`, `primorial`, `motzkin`, `euler`, `tribonacci`, `pell`) are
+  arbitrary precision — no 64-bit ceiling (`catalan 100`, `pell 200`):
 
   ```console
   $ mathsolver factor 360
@@ -608,6 +698,30 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   1, 2, 4, 7, 14, 28
   $ mathsolver totient 36
   12
+  $ mathsolver sigma 12
+  28
+  $ mathsolver mobius 30
+  -1
+  $ mathsolver partitions 10
+  42
+  $ mathsolver catalan 10
+  16796
+  $ mathsolver bernoulli 12
+  -691/2730
+  $ mathsolver derangement 10
+  1334961
+  $ mathsolver lucas 10
+  123
+  $ mathsolver primorial 13
+  30030
+  $ mathsolver motzkin 10
+  2188
+  $ mathsolver euler 8
+  1385
+  $ mathsolver tribonacci 10
+  81
+  $ mathsolver pell 10
+  2378
   ```
 - **Modular arithmetic** — `mod`, `powmod` (modular exponentiation that
   handles huge exponents no plain evaluation could), `modinv` (modular
@@ -648,13 +762,17 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   complex values, numeric evaluation containing `i`) is not supported.
 - Variables are single letters (optionally subscripted: `x_1`) or greek
   names; `e` always means Euler's number and `i` the imaginary unit.
-- Exact arithmetic is 64-bit rational, overflow-checked (throws rather than
-  silently wrapping).
+- Exact arithmetic is arbitrary precision (bignum rationals): sums, products,
+  powers, and exact integer sequences grow without a 64-bit ceiling — e.g.
+  `expand (x+1)^100`, `2^200`, and `factorial 100` are all exact. A few
+  bounded numeric subroutines (rational-root divisor search, perfect-root
+  extraction) still operate in 64 bits and quietly skip their optimization for
+  larger operands rather than erroring.
 - Formal cancellations such as `x/x → 1` assume nonzero denominators.
 - Numeric root search only covers its interval (default `[-100, 100]`,
   override with `--range`).
-- Scientific-notation literals are exact and must fit 64-bit rationals
-  (`1e300` is a clean parse error); `2e` with no digits after it is still
+- Scientific-notation literals are exact and arbitrary precision
+  (`1e300` is the exact integer 10^300); `2e` with no digits after it is still
   `2·e` with Euler's number.
 
 ## Architecture

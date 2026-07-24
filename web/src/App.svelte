@@ -28,6 +28,7 @@
   import ResultCard from "./lib/components/ResultCard.svelte";
   import WaveField from "./lib/components/WaveField.svelte";
   import GraphCalculator from "./lib/components/GraphCalculator.svelte";
+  import GraphReference from "./lib/components/GraphReference.svelte";
   import History from "./lib/components/History.svelte";
   import VariablesPanel from "./lib/components/VariablesPanel.svelte";
   import VarChips, { type Chip } from "./lib/components/VarChips.svelte";
@@ -890,17 +891,7 @@
         <NotebooksPanel />
         <ConsoleReference />
       {:else if mode === "graph"}
-        <p class="graph-tip">
-          Type functions, points, or relations on the left. Undefined
-          variables (like <code>a</code>) become sliders here and in the app;
-          define reusable expressions with <code>f = x^2</code>, and plot
-          <code>diff(f)</code> or <code>integral(f)</code>. Shade the signed area
-          under a curve with <code>integral(f, a, b)</code> — the exact ∫ value
-          is labelled from the CAS. Restrict a curve's
-          domain with a trailing clause, e.g. <code>{"{"}0 &lt;= t &lt;= 6pi{"}"}</code>.
-          Drag a point to move it — a point like <code>(a, b)</code> moves its
-          variables everywhere.
-        </p>
+        <GraphReference />
       {:else}
         <History onrestore={restore} />
       {/if}
@@ -1160,21 +1151,6 @@
       scrollbar-width: thin;
     }
   }
-  .graph-tip {
-    margin: 0;
-    font-size: 0.8rem;
-    line-height: 1.5;
-    color: var(--fg-muted);
-  }
-  .graph-tip code {
-    font-family: var(--font-mono);
-    font-size: 0.9em;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0.02em 0.3em;
-  }
-
   .loading-note {
     margin: -0.35rem 0 0;
     font-size: 0.82rem;

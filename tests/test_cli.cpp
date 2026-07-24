@@ -169,6 +169,194 @@ TEST_CASE("cli: number-theory verbs") {
     CHECK(bad.exit_code == 2);
 }
 
+TEST_CASE("cli: sigma (divisor function) and mobius") {
+    const RunResult s = run_cli({"sigma", "12"});
+    CHECK(s.exit_code == 0);
+    CHECK(contains(s.output, "28")); // 1+2+3+4+6+12
+
+    const RunResult s2 = run_cli({"sigma", "6, 2"});
+    CHECK(s2.exit_code == 0);
+    CHECK(contains(s2.output, "50")); // 1+4+9+36
+
+    const RunResult mu = run_cli({"mobius", "30"});
+    CHECK(mu.exit_code == 0);
+    CHECK(contains(mu.output, "-1")); // 2·3·5, three primes
+
+    const RunResult mu0 = run_cli({"mobius", "12"});
+    CHECK(mu0.exit_code == 0);
+    CHECK(contains(mu0.output, "0")); // squared factor
+
+    // Non-positive / bad inputs are usage errors (exit 2).
+    CHECK(run_cli({"sigma", "0"}).exit_code == 2);
+    CHECK(run_cli({"mobius", "x"}).exit_code == 2);
+}
+
+TEST_CASE("cli: partitions and catalan numbers") {
+    const RunResult p = run_cli({"partitions", "10"});
+    CHECK(p.exit_code == 0);
+    CHECK(contains(p.output, "42"));
+
+    const RunResult p100 = run_cli({"partitions", "100"});
+    CHECK(p100.exit_code == 0);
+    CHECK(contains(p100.output, "190569292"));
+
+    const RunResult c = run_cli({"catalan", "10"});
+    CHECK(c.exit_code == 0);
+    CHECK(contains(c.output, "16796"));
+
+    // n < 0 is a usage error (exit 2); an out-of-range value is a runtime
+    // overflow error (nonzero exit). Both fail cleanly rather than wrapping.
+    CHECK(run_cli({"partitions", "-1"}).exit_code == 2);
+    CHECK(contains(run_cli({"catalan", "40"}).output, "2622127042276492108820")); // exact (bigint)
+}
+
+TEST_CASE("cli: bernoulli numbers as exact rationals") {
+    const RunResult b2 = run_cli({"bernoulli", "2"});
+    CHECK(b2.exit_code == 0);
+    CHECK(contains(b2.output, "1/6"));
+
+    const RunResult b1 = run_cli({"bernoulli", "1"});
+    CHECK(b1.exit_code == 0);
+    CHECK(contains(b1.output, "-1/2")); // B_1 = -1/2 convention
+
+    const RunResult b12 = run_cli({"bernoulli", "12"});
+    CHECK(b12.exit_code == 0);
+    CHECK(contains(b12.output, "-691/2730"));
+
+    // LaTeX renders the fraction.
+    const RunResult tex = run_cli({"bernoulli", "4", "--latex"});
+    CHECK(tex.exit_code == 0);
+    CHECK(contains(tex.output, "\\frac"));
+
+    // Out of range is a usage error (exit 2).
+    CHECK(run_cli({"bernoulli", "21"}).exit_code == 2);
+}
+
+TEST_CASE("cli: stirling2 and bell numbers") {
+    const RunResult s = run_cli({"stirling2", "4, 2"});
+    CHECK(s.exit_code == 0);
+    CHECK(contains(s.output, "7"));
+
+    const RunResult s2 = run_cli({"stirling2", "5, 3"});
+    CHECK(s2.exit_code == 0);
+    CHECK(contains(s2.output, "25"));
+
+    const RunResult b = run_cli({"bell", "5"});
+    CHECK(b.exit_code == 0);
+    CHECK(contains(b.output, "52"));
+
+    const RunResult b10 = run_cli({"bell", "10"});
+    CHECK(b10.exit_code == 0);
+    CHECK(contains(b10.output, "115975"));
+
+    // Errors: negative arg is a usage error; a huge Bell overflows (nonzero).
+    CHECK(run_cli({"stirling2", "-1, 2"}).exit_code == 2);
+    CHECK(contains(run_cli({"bell", "100"}).output, "47585391276764833658790768841387207826363669686825611466616334637559114497892442622672724044217756306953557882560751")); // exact (bigint)
+}
+
+TEST_CASE("cli: derangement numbers") {
+    const RunResult d4 = run_cli({"derangement", "4"});
+    CHECK(d4.exit_code == 0);
+    CHECK(contains(d4.output, "9"));
+
+    const RunResult d10 = run_cli({"derangement", "10"});
+    CHECK(d10.exit_code == 0);
+    CHECK(contains(d10.output, "1334961"));
+
+    // Negative arg is a usage error; !21 overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"derangement", "-1"}).exit_code == 2);
+    CHECK(contains(run_cli({"derangement", "21"}).output, "18795307255050944540")); // exact (bigint)
+}
+
+TEST_CASE("cli: lucas numbers") {
+    const RunResult l10 = run_cli({"lucas", "10"});
+    CHECK(l10.exit_code == 0);
+    CHECK(contains(l10.output, "123"));
+
+    const RunResult l20 = run_cli({"lucas", "20"});
+    CHECK(l20.exit_code == 0);
+    CHECK(contains(l20.output, "15127"));
+
+    // Negative arg is a usage error; L(91) overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"lucas", "-1"}).exit_code == 2);
+    CHECK(contains(run_cli({"lucas", "91"}).output, "10420180999117162549")); // exact (bigint)
+}
+
+TEST_CASE("cli: primorial") {
+    const RunResult p13 = run_cli({"primorial", "13"});
+    CHECK(p13.exit_code == 0);
+    CHECK(contains(p13.output, "30030"));
+
+    const RunResult p10 = run_cli({"primorial", "10"});
+    CHECK(p10.exit_code == 0);
+    CHECK(contains(p10.output, "210"));
+
+    // Negative arg is a usage error; 53# overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"primorial", "-1"}).exit_code == 2);
+    CHECK(contains(run_cli({"primorial", "53"}).output, "32589158477190044730")); // exact (bigint)
+}
+
+TEST_CASE("cli: motzkin numbers") {
+    const RunResult m6 = run_cli({"motzkin", "6"});
+    CHECK(m6.exit_code == 0);
+    CHECK(contains(m6.output, "51"));
+
+    const RunResult m20 = run_cli({"motzkin", "20"});
+    CHECK(m20.exit_code == 0);
+    CHECK(contains(m20.output, "50852019"));
+
+    // Negative arg is a usage error; M(45) overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"motzkin", "-1"}).exit_code == 2);
+    CHECK(contains(run_cli({"motzkin", "45"}).output, "13603677110519480289")); // exact (bigint)
+}
+
+TEST_CASE("cli: euler numbers") {
+    const RunResult e6 = run_cli({"euler", "6"});
+    CHECK(e6.exit_code == 0);
+    CHECK(contains(e6.output, "-61"));
+
+    const RunResult e8 = run_cli({"euler", "8"});
+    CHECK(e8.exit_code == 0);
+    CHECK(contains(e8.output, "1385"));
+
+    // Odd index is zero.
+    const RunResult e7 = run_cli({"euler", "7"});
+    CHECK(e7.exit_code == 0);
+    CHECK(contains(e7.output, "0"));
+
+    // Negative arg is a usage error; E(24) overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"euler", "-1"}).exit_code == 2);
+    CHECK(contains(run_cli({"euler", "24"}).output, "15514534163557086905")); // exact (bigint)
+}
+
+TEST_CASE("cli: tribonacci numbers") {
+    const RunResult t10 = run_cli({"tribonacci", "10"});
+    CHECK(t10.exit_code == 0);
+    CHECK(contains(t10.output, "81"));
+
+    const RunResult t20 = run_cli({"tribonacci", "20"});
+    CHECK(t20.exit_code == 0);
+    CHECK(contains(t20.output, "35890"));
+
+    // Negative arg is a usage error; T(75) overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"tribonacci", "-1"}).exit_code == 2);
+    CHECK(contains(run_cli({"tribonacci", "75"}).output, "12903063846126135669")); // exact (bigint)
+}
+
+TEST_CASE("cli: pell numbers") {
+    const RunResult p10 = run_cli({"pell", "10"});
+    CHECK(p10.exit_code == 0);
+    CHECK(contains(p10.output, "2378"));
+
+    const RunResult p20 = run_cli({"pell", "20"});
+    CHECK(p20.exit_code == 0);
+    CHECK(contains(p20.output, "15994428"));
+
+    // Negative arg is a usage error; P(51) overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"pell", "-1"}).exit_code == 2);
+    CHECK(contains(run_cli({"pell", "51"}).output, "11749380235262596085")); // exact (bigint)
+}
+
 TEST_CASE("cli: trigexpand of sums and multiples") {
     const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
     INFO(sum.output);
@@ -254,6 +442,65 @@ TEST_CASE("cli: discriminant of a polynomial") {
 
     // Degree 5 is unsupported (usage error, exit 2).
     const RunResult bad = run_cli({"discriminant", "x^5 + 1", "x"});
+    CHECK(bad.exit_code == 2);
+}
+
+TEST_CASE("cli: companion matrix of a polynomial") {
+    // x^2 - 3x + 2 → [3, -2; 1, 0] (MATLAB compan orientation).
+    const RunResult quad = run_cli({"companion", "x^2 - 3x + 2"});
+    INFO(quad.output);
+    CHECK(quad.exit_code == 0);
+    CHECK(contains(quad.output, "[3, -2; 1, 0]"));
+
+    // Non-monic leading coefficient is normalized: 2x^2+4x-6 → x^2+2x-3.
+    const RunResult scaled = run_cli({"companion", "2x^2 + 4x - 6"});
+    CHECK(scaled.exit_code == 0);
+    CHECK(contains(scaled.output, "[-2, 3; 1, 0]"));
+
+    // LaTeX renders a pmatrix.
+    const RunResult tex = run_cli({"companion", "x^2 - 3x + 2", "--latex"});
+    CHECK(tex.exit_code == 0);
+    CHECK(contains(tex.output, "pmatrix"));
+
+    // A bare constant has degree 0 → usage error, exit 2.
+    const RunResult bad = run_cli({"companion", "7"});
+    CHECK(bad.exit_code == 2);
+}
+
+TEST_CASE("cli: vandermonde matrix of a node list") {
+    // Nodes 1, 2, 3 → rows (1, x, x^2).
+    const RunResult v = run_cli({"vandermonde", "1, 2, 3"});
+    INFO(v.output);
+    CHECK(v.exit_code == 0);
+    CHECK(contains(v.output, "[1, 1, 1; 1, 2, 4; 1, 3, 9]"));
+
+    // Symbolic nodes stay symbolic.
+    const RunResult sym = run_cli({"vandermonde", "a, b"});
+    CHECK(sym.exit_code == 0);
+    CHECK(contains(sym.output, "[1, a; 1, b]"));
+
+    // LaTeX renders a pmatrix.
+    const RunResult tex = run_cli({"vandermonde", "1, 2, 3", "--latex"});
+    CHECK(tex.exit_code == 0);
+    CHECK(contains(tex.output, "pmatrix"));
+}
+
+TEST_CASE("cli: newton and lagrange interpolation forms") {
+    // Data through x^2 → both forms stay factored (a product of (x - …) terms)
+    // and list their constant coefficients.
+    const RunResult nw = run_cli({"newton", "1,1; 2,4; 3,9"});
+    INFO(nw.output);
+    CHECK(nw.exit_code == 0);
+    CHECK(contains(nw.output, "(x - 1)")); // a factored binomial, not the bare x^2
+    CHECK(contains(nw.output, "c0 = 1"));
+
+    const RunResult lg = run_cli({"lagrange", "1,1; 2,4; 3,9"});
+    CHECK(lg.exit_code == 0);
+    CHECK(contains(lg.output, "(x - 3)"));
+    CHECK(contains(lg.output, "w1 = -4"));
+
+    // Duplicate x is a usage error, exit 2.
+    const RunResult bad = run_cli({"newton", "1,1; 1,2"});
     CHECK(bad.exit_code == 2);
 }
 
@@ -404,6 +651,20 @@ TEST_CASE("cli: diff with explicit and inferred variable") {
     const RunResult inferred = run_cli({"diff", "sin(x^2)"});
     CHECK(inferred.exit_code == 0);
     CHECK(inferred.output == "2*x*cos(x^2)\n");
+}
+
+TEST_CASE("cli: steps prints a worked rule-by-rule derivative") {
+    const RunResult r = run_cli({"steps", "sin(x^2)"});
+    INFO(r.output);
+    CHECK(r.exit_code == 0);
+    CHECK(contains(r.output, "power rule"));
+    CHECK(contains(r.output, "chain rule"));
+    CHECK(contains(r.output, "d/dx(x^2) = 2*x"));
+    CHECK(contains(r.output, "result: 2*x*cos(x^2)"));
+    // The steps' final result agrees with plain diff.
+    const RunResult d = run_cli({"diff", "sin(x^2)"});
+    CHECK(contains(r.output, "2*x*cos(x^2)"));
+    CHECK(d.output == "2*x*cos(x^2)\n");
 }
 
 TEST_CASE("cli: integrate one-shot prints F(x) + C and the method") {
@@ -676,10 +937,12 @@ TEST_CASE("cli: caret span underlines the offending token") {
 }
 
 TEST_CASE("cli: math errors exit 1") {
-    const RunResult overflow = run_cli({"simplify", "2^200"});
-    INFO(overflow.output);
-    CHECK(overflow.exit_code == 1);
-    CHECK(contains(overflow.output, "error:"));
+    // 2^200 used to overflow; it is now computed exactly (exit 0).
+    const RunResult big = run_cli({"simplify", "2^200"});
+    INFO(big.output);
+    CHECK(big.exit_code == 0);
+    CHECK(contains(big.output,
+                   "1606938044258990275541962092341162602522202993782792835301376"));
 
     const RunResult unbound = run_cli({"eval", "x^2"});
     INFO(unbound.output);
@@ -1285,16 +1548,15 @@ TEST_CASE("repl assign: definite-integral bounds resolve from the environment") 
     CHECK(contains(r.output, "method: FTC"));
 }
 
-TEST_CASE("repl assign: overflow during resolution keeps the session alive") {
+TEST_CASE("repl assign: large values stay exact and keep the session alive") {
     const RunResult r = run_repl("k := 10^18\n"
-                                 "k^2\n"  // (10^18)^2 overflows 64-bit rationals
+                                 "k^2\n"  // (10^18)^2 = 10^36, now exact
                                  "6 * 7\n"
                                  "quit\n");
     INFO(r.output);
     CHECK(r.exit_code == 0);
-    CHECK(contains(r.output, "error:"));
-    CHECK(contains(r.output, "overflow"));
-    CHECK(contains(r.output, "42"));  // recovered
+    CHECK(contains(r.output, "1000000000000000000000000000000000000")); // 10^36
+    CHECK(contains(r.output, "42"));
 }
 
 namespace {
@@ -1522,4 +1784,33 @@ TEST_CASE("cli: pade approximant") {
     // REPL form with an explicit variable.
     const RunResult repl = run_repl("pade exp(t), 1, 1, t\nquit\n");
     CHECK(contains(repl.output, "t/2"));
+}
+
+TEST_CASE("cli: rootcount and isolate") {
+    const RunResult c = run_cli({"rootcount", "(x-1)(x-2)(x-3)"});
+    INFO(c.output);
+    CHECK(c.exit_code == 0);
+    CHECK(contains(c.output, "3 distinct real roots"));
+
+    // Interval count: only +sqrt(2) lies in (0, 5].
+    const RunResult ci = run_cli({"rootcount", "x^2 - 2", "x", "0", "5"});
+    CHECK(contains(ci.output, "1 distinct real root in (0, 5]"));
+
+    // Exact rational roots reported exactly.
+    const RunResult iso = run_cli({"isolate", "2x^2 - 3x + 1"});
+    CHECK(iso.exit_code == 0);
+    CHECK(contains(iso.output, "x = 1/2"));
+    CHECK(contains(iso.output, "x = 1"));
+
+    // Irrational root approximated (plastic number ~1.3247).
+    const RunResult plastic = run_cli({"isolate", "x^3 - x - 1"});
+    CHECK(contains(plastic.output, "1.32471"));
+
+    // Equation form via the REPL (roots of x^2 = 2).
+    const RunResult repl = run_repl("isolate x^2 = 2\nquit\n");
+    CHECK(contains(repl.output, "1.41421"));
+
+    // Symbolic coefficients are a usage-style error.
+    const RunResult bad = run_cli({"rootcount", "x^2 + a"}, "2>&1 1>/dev/null");
+    CHECK(bad.exit_code != 0);
 }

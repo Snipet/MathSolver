@@ -397,14 +397,16 @@ TEST_CASE("simplify: equations simplify both sides") {
 // Robustness: factory throws are contained (DESIGN §2 notes)
 // ---------------------------------------------------------------------------
 
-TEST_CASE("simplify: overflow during a rule leaves the node unchanged") {
-    // x^HUGE * x^HUGE: the exponent sum overflows; the factors stay separate.
+TEST_CASE("simplify: exponents past 64 bits combine exactly") {
+    // x^HUGE * x^HUGE = x^(2*HUGE): the exponent sum is now exact (arbitrary
+    // precision), so the factors combine.
     const Expr huge = make_pow(make_sym("x"), make_num(Rational(9223372036854775807LL)));
     const Expr e = make_mul({huge, huge});
     Expr out;
     REQUIRE_NOTHROW(out = simplify(e));
     INFO(debug_string(out));
-    CHECK(structurally_equal(out, e));
+    CHECK(structurally_equal(
+        out, make_pow(make_sym("x"), make_num(Rational(BigInt("18446744073709551614"))))));
 }
 
 TEST_CASE("simplify: division-by-zero fold is contained") {

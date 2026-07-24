@@ -72,8 +72,8 @@ Expr product_of(std::vector<Expr> fs) {
 
 std::optional<long long> as_integer(const Expr& e) {
     const auto r = as_num(simplify(e));
-    if (r && r->is_integer()) {
-        return r->num();
+    if (r && r->is_integer() && r->num().fits_ll()) {
+        return r->num().to_ll();
     }
     return std::nullopt;
 }

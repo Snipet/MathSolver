@@ -5,11 +5,416 @@ per-feature specs are under docs/proposals/.
 
 ## Unreleased (v0.6)
 
+### Changed
+
+- **Exact arithmetic is now arbitrary precision — no 64-bit ceiling.** The whole
+  exact-number tower (`Rational`) runs on a new bignum integer, so sums,
+  products, powers, and exact symbolic coefficients grow without overflowing.
+  `expand (x+1)^100` (whose middle coefficient is a 30-digit number), `2^200`,
+  `1e300`, big linear systems, exact polynomial fits, and high-degree
+  orthogonal polynomials all compute exactly instead of erroring or falling
+  back to floating point. (Phase 3 of docs/proposals/bigint.md; a few bounded
+  64-bit numeric subroutines — rational-root divisor search, perfect-root
+  extraction — simply skip their optimization for larger operands.)
+
+- **Combinatorial sequence verbs are now arbitrary precision.** `partitions`,
+  `catalan`, `stirling2`, `bell`, `derangement`, `lucas`, `primorial`,
+  `motzkin`, `euler`, `tribonacci`, and `pell` no longer stop at the 64-bit
+  boundary — they compute exact values of any size (`catalan 100`,
+  `pell 200`, `bell 50`, …). Built on a new internal arbitrary-precision
+  integer type (Phase 2 of docs/proposals/bigint.md). A generous per-verb
+  compute guard replaces the old overflow error, so only genuinely enormous
+  inputs are declined. CLI and console alike.
+
 ### Fixed
+
+- **Grapher — toolbar buttons no longer wrap mid-label.** In a narrow graph
+  panel the toolbar squeezed its buttons until labels like "Grid off", "Save
+  PNG", and "Copy image" broke awkwardly onto two lines. Each label now stays on
+  one line and whole buttons wrap to a second row when space runs out.
+
+- **Console — Cookbook no longer crashes on open.** Expanding the "Session
+  Variables & Notebooks" category (and any recipe that shows a command twice —
+  e.g. a value before and after a redefinition) threw a Svelte
+  `each_key_duplicate` and blanked the panel: the recipe/step lists were keyed
+  by their (non-unique) command text. They're now keyed by position, so
+  repeated commands render fine.
+
+- **Console — no more false "unknown name" while typing a verb.** The live
+  typeset preview only knew a subset of verbs, so typing any other real verb
+  (`gcd`, `rootcount`, `bezout`, `crt`, `interp`, `chebyshev`, the number-theory
+  verbs, …) flashed a red "unknown name 'gcd'…" banner because the preview
+  mis-read the verb head as a variable product. The preview now recognizes the
+  full verb registry and simply shows no math preview for verbs it doesn't
+  typeset, instead of a spurious error.
+
+- **Console — `rootcount` leads with the answer.** Its result cell showed the
+  literal word "rootcount" as the output; it now shows the count summary
+  (e.g. "3 distinct real roots"), with the search interval as a note.
 
 - **Grapher — no more vertical lines through asymptotes.** A curve like `tan(x)`, `1/x`, or `sec(x)` no longer draws a spurious near-vertical connector straight through each pole: the sampler now breaks the polyline where two consecutive samples straddle zero, both sit well off-screen, and the jump dwarfs the visible span — the pen lifts at the asymptote instead. Applies to `y=f(x)` and `x=f(y)`.
 
 ### Added
+
+- **`steps integrate` — worked, rule-by-rule integrals.** The `steps` verb now
+  works integrals too: `steps integrate <expr>[, <var>]` shows the
+  antiderivative the way it's built — linearity splits a sum into a step per
+  term, a constant factor peels off (`∫ 3·x² dx = 3 ∫ x² dx`), and each leaf
+  integral is tagged with the technique the engine actually used (table, power
+  rule, u-substitution, integration by parts, partial fractions, …), innermost
+  first, closing on the answer (`+ C`). The result always matches plain
+  `integrate`. The `steps` verb takes an optional leading operation word —
+  `steps <expr>` (or `steps diff <expr>`) still works the derivative; `steps
+  integrate <expr>` works the integral. Second phase of the step-by-step
+  feature (docs/proposals/step-by-step.md). A non-elementary integrand (e.g.
+  `e^(x^2)`) reports no elementary form, exactly as the plain verb does.
+  **In the web console** the integral steps render the same way the derivative
+  ones do — a rule chip (LINEARITY, U-SUBSTITUTION, INTEGRATION BY PARTS, …)
+  beside each KaTeX line, closing on the `∫ … dx =` answer with the `+ C` and
+  copyable Plain/LaTeX source; a non-elementary integrand shows "no closed form
+  found" rather than an error. Available in the CLI and the console.
+
+- **`steps` — worked, rule-by-rule derivatives.** `steps <expr>[, <var>]`
+  shows the derivative as a student would work it: one numbered line per rule
+  applied (power, product, chain, exponential, sum, …), innermost first, then
+  the result — e.g. `steps "sin(x^2)"` prints the power-rule step for `x^2`,
+  then the chain-rule step for `sin`. The result always matches plain `diff`;
+  each step is rendered in plain text and LaTeX. First phase of the
+  step-by-step feature (docs/proposals/step-by-step.md); integrals and solving
+  follow. **In the web console** the steps render as a typeset, rule-tagged
+  list — each line carries a rule chip (POWER RULE, CHAIN RULE, …) beside the
+  KaTeX derivative, closing on the `d/dx =` answer with copyable Plain/LaTeX
+  source. Available in the CLI and the console.
+
+- **Console — `pell` numbers.** `pell n` is the n-th Pell number P(n) —
+  P₀ = 0, P₁ = 1, P(n) = 2·P(n−1) + P(n−2) (0, 1, 2, 5, 12, 29, 70, 169, …;
+  `pell 10` → 2378) — the numerators of the continued-fraction convergents to
+  √2. Exact over the 64-bit range (P₅₀ is the largest that fits) and errors
+  cleanly past it; it joins the Fibonacci/`lucas`/`tribonacci` recurrence
+  family. CLI too.
+
+- **Console — `tribonacci` numbers.** `tribonacci n` is the n-th tribonacci
+  number T(n) — the three-term analogue of Fibonacci: T₀ = T₁ = 0, T₂ = 1,
+  each term the sum of the previous three (`tribonacci 10` → 81). Exact over
+  the 64-bit range (T₇₄ is the largest that fits) and errors cleanly past it.
+  CLI too.
+
+- **Console — `euler` numbers.** `euler n` is the n-th Euler (secant) number
+  Eₙ — the integer companion to the Bernoulli numbers: E₀ = 1, E₂ = −1,
+  E₄ = 5, E₆ = −61, … with every odd-indexed value 0 (`euler 8` → 1385).
+  Built exactly from the boustrophedon (Seidel) zigzag triangle; exact over
+  the 64-bit range (E₂₂ is the largest in magnitude that fits) and errors
+  cleanly past it. CLI too.
+
+- **Console — `motzkin` numbers.** `motzkin n` is the n-th Motzkin number
+  M(n) — the number of ways to draw non-crossing chords between *n* points on
+  a circle (`motzkin 6` → 51, `motzkin 10` → 2188) — built by the exact
+  recurrence (n+2)·M(n) = (2n+1)·M(n−1) + 3(n−1)·M(n−2). Exact over the 64-bit
+  range (M(44) is the largest that fits) and errors cleanly past it; it joins
+  the combinatorial family alongside `catalan` / `bell`. CLI too.
+
+- **Grapher — add a graph title.** The graph toolbar's **Labels** button (the
+  renamed **Axes** control) now also holds a **Title** field; the title draws
+  centered along the top of the plot and persists with the document — handy for
+  presentation graphs and before saving a PNG. The x- and y-axis name inputs
+  live in the same panel.
+
+- **Console — `primorial` n#.** `primorial n` is the product of all primes
+  ≤ *n* (`primorial 7` → 210, `primorial 13` → 30030), built by folding the
+  existing deterministic primality test. Exact over the 64-bit range (52# is
+  the largest that fits) and errors cleanly past it. CLI too.
+
+- **Console — copy or export the session transcript.** **Copy** and **Export**
+  buttons in the console header render the whole session as Markdown — one
+  `In[k]` / `Out[k]` block per cell — and either place it on the clipboard or
+  download it (`mathsolver-session.md`), so a working session can be pasted or
+  saved as plain text. Complements the existing in-app `save` notebooks (which
+  store re-runnable commands) with a portable, human-readable record of inputs
+  *and* their results.
+
+- **Console — `lucas` numbers.** `lucas n` is the n-th Lucas number L(n) —
+  the companion sequence to the Fibonacci numbers (L₀ = 2, L₁ = 1,
+  L(n) = L(n−1) + L(n−2); `lucas 10` → 123). Exact over the 64-bit range and
+  errors cleanly past it. CLI too.
+
+- **Grapher — copy the graph image to the clipboard.** A **Copy image** button
+  in the graph toolbar, beside **Save PNG**, writes the current plot to the
+  clipboard as a PNG so it can be pasted straight into a doc or chat — no
+  download round-trip. Falls back to a "Copy failed" note where the browser's
+  clipboard-image API isn't available (use **Save PNG** there).
+
+- **Console — `derangement` (subfactorial) counts.** `derangement n` is the
+  subfactorial !n — the number of permutations of *n* items that leave nothing
+  in its original place (`derangement 4` → 9, `derangement 10` → 1334961) —
+  built exactly by the recurrence !n = (n−1)·(!(n−1) + !(n−2)). Exact over the
+  64-bit range and errors cleanly past it; it joins the combinatorial family
+  alongside `partitions` / `catalan` / `bell` / `stirling2`. CLI too.
+
+- **Grapher — name the axes.** An **Axes** button in the graph toolbar opens
+  two inputs to label the x- and y-axes (e.g. "time (s)" / "height (m)"); the
+  names draw at the far end of each axis and persist with the document. Handy
+  for presentation plots and before saving a PNG.
+
+- **Console — `stirling2` and `bell` set-partition counts.** `stirling2 n, k`
+  is the Stirling number of the second kind S(n, k) — the number of ways to
+  partition an *n*-element set into *k* nonempty blocks (`stirling2 5, 3` → 25),
+  built by an overflow-guarded 1-D recurrence. `bell n` is the n-th Bell number
+  Bₙ — the total over all *k* (`bell 10` → 115975) — via the Bell triangle.
+  Both are exact over the 64-bit range and error cleanly past it; they round
+  out the combinatorial family alongside `partitions` / `catalan` / `bernoulli`.
+  CLI too. (A latent CLI-REPL tokenizer bug that split digit-suffixed verb names
+  like `stirling2` at the digit boundary is fixed as part of this.)
+
+- **Grapher — gridlines on/off toggle.** A **Grid** button in the graph
+  toolbar hides or shows the background gridlines (the axes and their number
+  labels stay), for a cleaner plot — handy before saving a PNG. The choice
+  persists with the document.
+
+- **Grapher — reorder expressions.** Each row now has small **▲ / ▼** controls
+  to move it up or down the list (disabled at the ends), so you can group or
+  re-rank curves after the fact. The new order persists with the document.
+
+- **Grapher — duplicate an expression.** Each row now has a **⧉ duplicate**
+  button next to its delete control: it drops an identical copy — same
+  expression, style, and (for tables) data — directly below the original,
+  with a fresh colour so the two are easy to tell apart. Handy for plotting
+  a variation of a curve without retyping it.
+
+- **Grapher — "Hide all / Show all" bulk visibility toggle.** When two or
+  more expressions are plotted, a toolbar button hides every curve at once
+  (to focus on one you're about to un-hide) or brings them all back — no
+  more clicking each colour dot in turn. The label flips to "Show all"
+  whenever anything is hidden, and the state persists with the document.
+
+- **Console — `bernoulli` numbers.** `bernoulli n` returns the n-th Bernoulli
+  number Bₙ as an exact rational (`bernoulli 12` → `-691/2730`), using the
+  B₁ = −1/2 convention — the same exact rationals that already drive the
+  Stirling/gamma asymptotics, now available directly (0 ≤ n ≤ 20). CLI too.
+
+- **Console — `partitions` and `catalan` combinatorial counts.** `partitions n`
+  is the integer partition function p(n) — the number of ways to write *n* as
+  a sum of positive integers (`partitions 10` → 42), computed exactly via
+  Euler's pentagonal recurrence. `catalan n` is the n-th Catalan number
+  C(n) = binomial(2n, n)/(n + 1) (`catalan 10` → 16796), built by an exact
+  product. Both are exact over the 64-bit range and error cleanly past it.
+
+- **Console — `sigma` and `mobius` divisor functions.** Two classic
+  multiplicative number-theory functions joining `totient` / `divisors`.
+  `sigma n` sums the divisors of *n* (`sigma 12` → 28); an optional exponent
+  gives σ_k, so `sigma 12, 0` counts divisors and `sigma 6, 2` sums their
+  squares. `mobius n` is the Möbius function μ(n) — 0 when *n* has a squared
+  prime factor, else ±1 by the parity of its distinct prime count. Both are
+  available in the CLI.
+
+- **Console — `newton` and `lagrange` interpolation forms.** Two new
+  presentations of the polynomial `interp` finds, kept **factored** so the
+  construction shows instead of the expanded result. `newton 1,1; 2,4; 3,9`
+  gives the divided-difference form `1 + 3(x−1) + (x−1)(x−2)` (with the
+  divided differences listed); `lagrange` gives the weighted basis form
+  `Σ wᵢ·Π(x−xⱼ)`. Both expand to the same polynomial `interp` returns, are
+  exact over the rationals, and are available in the CLI.
+
+- **Grapher — keyboard trace with spoken coordinates (accessibility).** Focus
+  the graph and press **T** to start a trace: the **left/right arrows** walk a
+  `y = f(x)` curve and each coordinate is announced through an `aria-live`
+  region, so screen-reader and keyboard-only users can read a curve's values
+  without a mouse. **N / P** jump the trace to the next / previous point of
+  interest — roots, extrema, and intercepts — announced with their exact
+  labels (e.g. *"point of interest, (√2, 0)"*). **Up/down** switch between
+  curves, **Escape** (or T again) ends the trace, and the view scrolls to keep
+  the traced point on screen. Tracing rides world-x, so it stays put as the
+  plot resamples on pan/zoom; outside the trace, the arrows pan as before.
+
+- **Console — `vandermonde` matrix of a node list.** `vandermonde x1, x2, …`
+  builds the square Vandermonde matrix whose row *i* is `(1, xᵢ, xᵢ², …)` —
+  the coefficient matrix of the polynomial-interpolation system `interp`
+  solves, with determinant `∏(xⱼ − xᵢ)`. `vandermonde 1, 2, 3` →
+  `[1, 1, 1; 1, 2, 4; 1, 3, 9]`. Exact over the rationals; symbolic nodes
+  stay symbolic. Available in the CLI too.
+
+- **Console — `companion` matrix of a polynomial.** `companion p` builds the
+  companion matrix of a univariate polynomial (MATLAB `compan` orientation,
+  normalized to monic form), rendered as a matrix — `companion x^2 - 3x + 2`
+  → `[3, -2; 1, 0]`. Its eigenvalues are exactly the polynomial's roots, so it
+  bridges a polynomial to the linear-algebra view of its roots. Exact over the
+  rationals, symbolic coefficients kept symbolic; available in the CLI too.
+
+- **Grapher — click a traced point to copy its coordinate.** While the hover
+  trace is riding a curve (or snapped to a point of interest), a plain click on
+  it copies the coordinate — `(x, y)`, or the exact CAS form for a point of
+  interest — to the clipboard, with a brief "✓ copied" confirmation. A click
+  that pans, or one away from the marker, is unaffected.
+
+- **Grapher — a scannable sidebar reference.** The graph screen's wall-of-text
+  tip is now a grouped, collapsible cheat-sheet: six categories (Functions &
+  values, Sliders & animation, Sums/products & piecewise, Area & domain,
+  Points/styling & labels, Lists), each a code chip + a one-line description.
+  Click any chip to drop that snippet in as a new row.
+
+- **Grapher — draggable labels.** A point/curve label can now be **dragged** to
+  reposition it: grab the label pill and move it anywhere, and the offset
+  persists with the document. The label rides at a fixed screen distance from
+  its anchor (so it stays put as you pan and zoom), and moving it never
+  re-samples the curve — it's a pure display nudge, independent of the plotted
+  expression. **Double-click a moved label** to snap it back to its anchor.
+
+- **Console — `bezout` extended polynomial GCD.** `bezout a, b` returns the
+  monic gcd of two polynomials *and* the Bézout cofactors `s`, `t` satisfying
+  `s·a + t·b = gcd`, computed exactly over the rationals via the extended
+  Euclidean algorithm — so `bezout x^2 - 1, x^3 - 1` gives gcd `x - 1` with
+  `s = -x`, `t = 1`. Available in the CLI too. Useful for polynomial
+  Diophantine equations and partial-fraction/CRT constructions.
+
+- **Grapher — continuous curve trace.** The hover readout now *follows* a
+  `y=f(x)` curve at the cursor's x — interpolating between samples — instead of
+  only snapping to the nearest sampled vertex when the pointer happened to be
+  within a few pixels of one. Move the mouse across a curve and the marker rides
+  along it, showing the coordinate at that x; the trace lifts across asymptote
+  breaks just like the curve. Points-of-interest keep their exact-label snap,
+  and non-monotonic curves (x=f(y), parametric, polar) keep nearest-vertex
+  snapping.
+
+- **Grapher — named table columns + copy.** A data table's two column headers
+  are now editable text fields (default `x` / `y`); the names persist with the
+  document and label the per-column summary statistics. A **copy** button next
+  to the headers exports the table as tab-separated values — with the header
+  row — straight to the clipboard, ready to paste into a spreadsheet.
+
+- **Console — orthogonal polynomial generators.** `chebyshev n`, `chebyu n`
+  (second kind), `legendre n`, `hermite n`, and `laguerre n` return the exact
+  degree-n member of each classical family, generated by its three-term
+  recurrence over the rationals — so `chebyshev 5` is `16x⁵ − 20x³ + 5x` and
+  `legendre 3` is `5x³/2 − 3x/2`, not a decimal approximation. An optional
+  second argument names the variable (`hermite 4, t`). All five are available
+  in the CLI too, and the results are ordinary polynomials you can plot.
+
+- **Grapher — keyboard navigation.** The graph paper is now focusable and
+  responds to the keyboard (Desmos-style): the **arrow keys** pan (hold Shift
+  for a larger step), **`+`/`=`** and **`-`** zoom about the center, and
+  **`0`** (or **Home**) resets the view. A focus ring shows when the graph has
+  keyboard focus, and unhandled keys (Tab, etc.) still pass through to the
+  browser — so the whole plane is now usable without a mouse.
+
+- **Console — `interp` exact polynomial interpolation.** `interp 1,1; 2,4; 3,9`
+  returns the unique polynomial through the points — solved exactly over the
+  rationals (Vandermonde system), so `x^2` comes back as `x^2`, not a float
+  approximation. Collinear or otherwise degenerate data collapses to the true
+  lower degree, fractional data stays exact, and non-rational data (e.g. a
+  `sqrt(2)` ordinate) falls back to a numeric solve that still passes through
+  every point. Also available as `interp` in the CLI.
+
+- **Grapher — point & curve labels.** Each row's style popover now has a
+  **label** field; the text is drawn on the graph — next to every point of a
+  point/scatter row, or at the end of the curve for a function row — in the
+  row's color. Labels persist with the document.
+
+- **Grapher — zoom to fit.** A **Fit** button in the graph toolbar frames every
+  plotted curve, point, and shaded area in the viewport (keeping units square).
+  A single point or a flat horizontal/vertical set expands to a sensible window;
+  region fills and direction fields (which have no finite extent) are ignored.
+
+- **Console — result reveal animation.** When you press Enter, the new result
+  cell fades and slides in (~210ms) instead of popping, and the prompt shows a
+  subtle "thinking" accent while the engine computes (delayed, so quick results
+  never flicker). Only freshly-run cells animate — restored history and mode
+  switches don't — and the whole effect is disabled under the OS "reduce motion"
+  setting.
+
+- **Grapher — per-row styling.** Each row's color swatch now opens a style
+  popover: pick a **color**, a **line style** (solid / dashed / dotted), and a
+  **weight** (thin / normal / thick). The weight also scales point markers, so a
+  scatter can be made bolder or lighter. Styles persist with the document and
+  are applied to every curve the row draws (a horizontal asymptote keeps its own
+  dash regardless).
+
+- **Grapher — list transforms (sort / unique / reverse / join, slices).**
+  List-returning operations complete the list algebra: `sort(L)`, `unique(L)`
+  (first-seen order), `reverse(L)`, `join(A, B, …)` (concatenate), and slices
+  `L[a...b]` (1-based, inclusive). Assign them (`S = sort(L)`), plot them
+  (`(sort(U), [1...length(U)])` ranks a scatter), feed them to aggregates
+  (`median(sort(L))`, `total(L[2...4])`), and nest them (`sort(unique(L))`).
+
+- **Grapher — plot a list as constant lines.** A list-valued function row draws
+  one line per value: `y = [1, 2, 3]` draws three horizontal lines, `x = [-2, 0,
+  2]` three vertical lines, and `y = L` / `y = L^2` a line at each element of the
+  list. It composes with list operations — `y = [mean(A), mean(B)]` draws a line
+  at each mean — while a scalar like `y = mean(L)` stays a single line. (A row
+  whose value reduces to a scalar still samples as an ordinary curve.)
+
+- **Grapher — list operations (comprehensions, aggregates, indexing).** Building
+  on lists: **comprehensions** `[k^2 for k = [1...5]]` (or over a named list,
+  `[2*n for n = L]`) build a list by evaluating a body per element;
+  **aggregates** reduce a list to a scalar — `total`, `mean`, `min`, `max`,
+  `median`, `stdev`, `length` — so `y = mean(L)` draws a horizontal line and
+  `(L, total(L))` is usable anywhere a number is; and **1-based indexing**
+  `L[3]` reads an element (`L[2] + L[3]`, or `(L[1], L[5])`). Aggregates
+  broadcast over expressions too (`mean(L^2)`). Bound comprehension variables
+  and list names never leak out as sliders, while a real range-bound slider
+  (`[1...n]`) still does.
+
+- **Grapher — lists + list-of-points plotting.** Define a list with
+  `L = [1, 2, 3]` or a range `[1...10]` / stepped range `[0, 2...10]`, then plot
+  it: a point row whose coordinates are list-valued becomes a scatter. Any
+  expression broadcasts element-wise over a list, so `(L, L^2)` scatters a
+  parabola, `(L, 2L + 1)` a line, and `(L, f(L))` maps a defined function over
+  the list. Scalars broadcast against a list (`(L, 0)`, `(2, L)`), two lists zip
+  by index (shortest wins), and inline literals/ranges work directly
+  (`([1,2,3], [4,5,6])`). A range bound can be a slider — `[1...n]` grows with
+  `n` — and a list name never turns into a slider. (Lists are data: a bare
+  `L = […]` row draws nothing until you plot it.)
+
+- **Grapher — animated sliders (play button) + slider step.** Each auto-created
+  slider now has a ▶ button that sweeps the variable back and forth between its
+  bounds (ping-pong), and an optional **step** field that snaps it to a
+  `lo + k·step` grid. The two combine into a live explorer: give
+  `sum(x^k, k, 0, n)` a slider `n` with step `1` and press play to watch the
+  Taylor/partial sum build up one term at a time; a continuous slider sweeps
+  smoothly. Multiple sliders can animate at once, the moving value writes
+  through so every dependent curve re-plots each frame, and pausing keeps the
+  value it stopped on.
+
+- **Grapher — inline `sum` / `product`.** A plotted row can now contain a
+  summation or product: `y = sum(x^k, k, 0, 5)` draws the geometric partial sum
+  `1 + x + … + x⁵`, and `product(x, j, 1, 4)` draws `x⁴`. The CAS closes the
+  form symbolically and the result is sampled like any other curve, so nested
+  and combined forms work too (`1 + sum(x^k, k, 1, 3)`). The summation index is
+  bound — it never leaks out as a slider — while the bounds do: `sum(x^k, k, 0,
+  n)` turns `n` into a slider, so dragging it animates the number of terms
+  (a live Taylor/partial-sum explorer). Also composes with the other calc
+  operators, e.g. `diff(sum(x^k, k, 0, 5))`.
+
+- **Grapher — piecewise functions.** A Desmos-style piecewise row
+  `{condition: value, …}` plots a curve that switches between cases:
+  `{x < 0: -x, x}` draws `|x|`, `{x > 0: 1, x < 0: -1, 0}` the sign step, and
+  `{0 < x < 5: x^2}` (no else) draws `x²` only on `(0, 5)` and leaves the rest
+  undefined. Chained conditions (`0 < x < 5`) work, the first branch whose
+  condition holds owns each point (a gap where its value is undefined, matching
+  Desmos), a trailing bare value is the `else`, and sliders/session variables in
+  the conditions and values are honored. A `{ … }` clause with no colon is still
+  a domain restriction, not a piecewise.
+
+- **User-defined functions (grapher & console).** Define a function with
+  `f(x) = x^2` and use it anywhere: plot `y = f(x) + 1`, its derivative `f'(x)`
+  (or `f''(x)`), a value `f(3)`, a composition `g(f(x))`, or multi-argument
+  forms `h(x, y) = x^2 + y^2`. In the grapher a bare `f(x) = …` row plots as
+  `y = f(x)`; in the **console**, `f(x) = x^2` then `f(3)` returns `6`, and
+  `funcs` lists your definitions. Functions are beta-reduced before the engine
+  parses the input (so `f(x+1)` correctly becomes `(x+1)^2`, capture-safe even
+  for `h(a,b)=a/b` called `h(b,a)`), free variables in a body still become
+  sliders (the `a` in `f(x) = a*x^2`) while parameters never do, recursion and
+  names that shadow a built-in (`sin`, `pi`, …) are rejected with a clear
+  message, and a bare `f` without arguments reminds you to write `f(x)`.
+
+- **Exact real-root counting & isolation (`rootcount`, `isolate`).** By Sturm's
+  theorem over exact rational arithmetic: `rootcount x^5 - 3x + 1` → `3 distinct
+  real roots`; `rootcount x^2 - 2, x, 0, 5` → `1 distinct real root in (0, 5]`.
+  `isolate x^3 - x - 1` brackets the sole real root (the plastic number
+  `≈ 1.3247`) in a rational interval, and `isolate 2x^2 - 3x + 1` reports the
+  exact rational roots `x = 1/2`, `x = 1`. Multiplicity never inflates the count
+  (a double root counts once), rational roots are pulled out exactly (rational-
+  root theorem) and irrational ones bracketed then refined, and both verbs
+  accept an equation form (`isolate x^2 = 2`). Symbolic coefficients are
+  rejected with a clear message — Sturm needs concrete signs.
 
 - **Padé approximants (`pade`).** `pade exp(x), 2, 2` →
   `(x^2/12 + x/2 + 1)/(x^2/12 - x/2 + 1)`; `pade sin(x), 3, 2` →

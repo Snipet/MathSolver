@@ -1,8 +1,9 @@
 // Calculus operators inside graph expressions: diff(...) / integral(...) /
-// series(...) / tangent(...) / normal(...). These aren't engine functions —
-// GraphCalculator expands them by calling the engine's derivative / integrate /
-// series / subs, so "diff(f)", "integral(sin(x))", "series(sin(x), 0, 5)", or
-// "tangent(x^2, 1)" plot. This module holds the pure text scanning
+// series(...) / tangent(...) / normal(...) / sum(...) / product(...). These
+// aren't engine functions — GraphCalculator expands them by calling the
+// engine's derivative / integrate / series / subs / sum / product, so
+// "diff(f)", "integral(sin(x))", "series(sin(x), 0, 5)", "tangent(x^2, 1)", or
+// "sum(x^k, k, 0, 5)" plot. This module holds the pure text scanning
 // (unit-tested); the async expansion lives in the component.
 import { splitTopLevelCommas } from "./classify";
 
@@ -15,6 +16,8 @@ export const CALC_FNS = [
   "taylor",
   "tangent",
   "normal",
+  "sum",
+  "product",
 ];
 
 function nameAt(text: string, i: number, name: string): boolean {

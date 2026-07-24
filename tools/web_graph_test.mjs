@@ -402,6 +402,87 @@ try {
     check("same-variable point (a,a) drags along y=x (single value)", Math.abs(a - 3) < 0.4, `a=${a}`);
   }
 
+  // Keyboard navigation: focusing the graph paper lets arrows pan, +/= zoom,
+  // and 0 reset the viewport — persisted to localStorage like mouse pan/zoom.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({ rows: [{ text: "y=x", color: "#2563eb", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
+    );
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  await clickGraph();
+  await new Promise((r) => setTimeout(r, 400));
+  {
+    const readView = () =>
+      page.evaluate(() => JSON.parse(localStorage.getItem("mathsolver.graph")).view);
+    await page.$eval(".calc .graph canvas", (el) => el.focus());
+
+    await page.keyboard.press("ArrowRight");
+    await new Promise((r) => setTimeout(r, 350));
+    let v = await readView();
+    check("ArrowRight pans the viewport +x", v.cx > 0 && Math.abs(v.cy) < 1e-9, JSON.stringify(v));
+
+    await page.keyboard.press("ArrowUp");
+    await new Promise((r) => setTimeout(r, 350));
+    v = await readView();
+    check("ArrowUp pans the viewport +y", v.cy > 0, JSON.stringify(v));
+
+    await page.keyboard.press("=");
+    await new Promise((r) => setTimeout(r, 350));
+    v = await readView();
+    check("'=' zooms in (scale increases)", v.scale > 40, JSON.stringify(v));
+
+    await page.keyboard.press("0");
+    await new Promise((r) => setTimeout(r, 350));
+    v = await readView();
+    check("'0' resets the view to default", v.cx === 0 && v.cy === 0 && v.scale === 40, JSON.stringify(v));
+  }
+
+  // Keyboard trace (accessibility): T starts a trace whose coordinate is
+  // announced via an aria-live region; arrows walk the curve; Escape ends it.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({ rows: [{ text: "y=x^2 - 1", color: "#2563eb", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
+    );
+  });
+  await page.reload({ waitUntil: "networkidle0" });
+  await clickGraph();
+  await new Promise((r) => setTimeout(r, 900)); // let POIs (solve/derivative) compute
+  {
+    const liveText = () =>
+      page.$eval(".calc .graph [aria-live]", (el) => el.textContent.trim());
+    await page.$eval(".calc .graph canvas", (el) => el.focus());
+
+    await page.keyboard.press("t");
+    await new Promise((r) => setTimeout(r, 250));
+    const started = await liveText();
+    check(
+      "T starts a keyboard trace and announces a coordinate",
+      /tracing/i.test(started) && /x\s/.test(started) && /y\s/.test(started),
+      started,
+    );
+
+    await page.keyboard.press("ArrowRight");
+    await new Promise((r) => setTimeout(r, 250));
+    const moved = await liveText();
+    check("ArrowRight moves the trace and re-announces", moved !== started && /x\s/.test(moved), moved);
+
+    // N jumps to the next point of interest (root at x=1 for y=x^2-1).
+    await page.keyboard.press("n");
+    await new Promise((r) => setTimeout(r, 250));
+    const poi = await liveText();
+    check("N jumps to a point of interest", /point of interest/i.test(poi), poi);
+
+    await page.keyboard.press("Escape");
+    await new Promise((r) => setTimeout(r, 200));
+    const ended = await liveText();
+    check("Escape ends the trace", /trace off/i.test(ended), ended);
+  }
+
   // Share link: a #g=… hash restores the graph rows, view, and variables and
   // opens Graph mode, then clears the hash.
   {
@@ -467,6 +548,485 @@ try {
       !!decoded && decoded.vars.some((v) => v.name === "a" && Number(v.value) === 1),
       JSON.stringify(decoded?.vars),
     );
+  }
+
+  // Movable label: a row's label ("tag") can be dragged to a new offset, which
+  // persists to the row without touching the plotted expression.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({
+        rows: [{ text: "(1, 2)", color: "#2563eb", visible: true, label: "P" }],
+        view: { cx: 0, cy: 0, scale: 40 },
+      }),
+    );
+    localStorage.setItem("mathsolver.mode", "graph");
+  });
+  await page.goto("about:blank");
+  await page.goto(url, { waitUntil: "networkidle0" });
+  await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  await new Promise((r) => setTimeout(r, 500));
+  {
+    const box = await canvasBox();
+    const pt = worldToScreen(box, 1, 2, 40); // the point the label hangs off of
+    const from = { x: pt.x + 11, y: pt.y - 9 }; // inside the label pill (+8,-9 anchor)
+    const to = { x: from.x + 45, y: from.y + 25 };
+    await dragOnCanvas(from, to);
+    await new Promise((r) => setTimeout(r, 400)); // debounced persist
+    const off = await page.evaluate(() => {
+      const r = JSON.parse(localStorage.getItem("mathsolver.graph")).rows[0];
+      return { dx: r.labelDx, dy: r.labelDy };
+    });
+    const ok = off && Math.abs(off.dx - 45) < 12 && Math.abs(off.dy - 25) < 12;
+    check("dragging a row label persists its offset", !!ok, JSON.stringify(off));
+    // The plotted expression is untouched by the label move.
+    const text = await page.$eval(".calc .expr", (el) => el.value);
+    check("label drag leaves the expression unchanged", text.replace(/\s/g, "") === "(1,2)", text);
+  }
+
+  // Double-click a moved label to snap it back to its anchor (reset the offset).
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({
+        rows: [{ text: "(1, 2)", color: "#2563eb", visible: true, label: "P", labelDx: 45, labelDy: 25 }],
+        view: { cx: 0, cy: 0, scale: 40 },
+      }),
+    );
+    localStorage.setItem("mathsolver.mode", "graph");
+  });
+  await page.goto("about:blank");
+  await page.goto(url, { waitUntil: "networkidle0" });
+  await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  await new Promise((r) => setTimeout(r, 500));
+  {
+    const box = await canvasBox();
+    const pt = worldToScreen(box, 1, 2, 40);
+    // The label sits at the anchor + (8,-9) + offset (45,25); dblclick inside it.
+    const lx = pt.x + 8 + 45 + 4;
+    const ly = pt.y - 9 + 25;
+    await page.evaluate(
+      (x, y) =>
+        document
+          .querySelector(".calc .graph canvas")
+          .dispatchEvent(new MouseEvent("dblclick", { clientX: x, clientY: y, bubbles: true })),
+      lx,
+      ly,
+    );
+    await new Promise((r) => setTimeout(r, 400));
+    const off = await page.evaluate(() => {
+      const r = JSON.parse(localStorage.getItem("mathsolver.graph")).rows[0];
+      return { dx: r.labelDx, dy: r.labelDy };
+    });
+    check("double-clicking a moved label resets its offset", off.dx === 0 && off.dy === 0, JSON.stringify(off));
+  }
+
+  // Continuous curve trace: hovering along a y=f(x) curve follows it (the new
+  // interpolate-at-x path) and shows a coordinate readout, without throwing.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({ rows: [{ text: "y=x^2", color: "#2563eb", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
+    );
+    localStorage.setItem("mathsolver.mode", "graph");
+  });
+  await page.goto("about:blank");
+  await page.goto(url, { waitUntil: "networkidle0" });
+  await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  await new Promise((r) => setTimeout(r, 400));
+  {
+    const box = await page.$eval(".calc .graph canvas", (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    });
+    // Sweep the cursor along the parabola: at world x the curve sits at y=x^2,
+    // which near the center is close to the horizontal midline, so a few points
+    // just above center should attach the trace. Just assert it never throws.
+    let readoutSeen = false;
+    for (const frac of [0.42, 0.5, 0.58]) {
+      await page.mouse.move(box.x + box.w * frac, box.y + box.h * 0.5, { steps: 3 });
+      await new Promise((r) => setTimeout(r, 60));
+      readoutSeen ||= await page.$eval(".calc .graph", (el) => !!el.querySelector(".readout")).catch(() => false);
+    }
+    check("hovering a y=f(x) curve traces without error", true);
+    check("a coordinate readout appears on hover", readoutSeen);
+  }
+
+  // Clicking the hover-trace marker copies the coordinate to the clipboard.
+  {
+    const box = await page.$eval(".calc .graph canvas", (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    });
+    await page.evaluate(() => {
+      window.__copied = null;
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText: (t) => { window.__copied = t; return Promise.resolve(); } },
+        configurable: true,
+      });
+    });
+    // The parabola's vertex sits at the canvas center (world (0,0)). Hover it so
+    // the trace attaches, then click (no drag) to copy.
+    const cx = box.x + box.w * 0.5;
+    const cy = box.y + box.h * 0.5;
+    await page.mouse.move(cx - 6, cy, { steps: 2 });
+    await page.mouse.move(cx, cy, { steps: 2 });
+    await new Promise((r) => setTimeout(r, 150));
+    await page.mouse.down();
+    await page.mouse.up();
+    await new Promise((r) => setTimeout(r, 150));
+    const copied = await page.evaluate(() => window.__copied);
+    check("clicking a traced point copies its coordinate", typeof copied === "string" && /^\(.*,.*\)$/.test(copied), String(copied));
+    const toast = await page.$eval(".calc .graph", (el) => !!el.querySelector(".copied-toast")).catch(() => false);
+    check("a 'copied' toast appears", toast);
+  }
+
+  // Data table: column names are editable + persisted, and the copy button
+  // exports tab-separated values (with the renamed header) to the clipboard.
+  {
+    await page.evaluate(() => {
+      localStorage.clear();
+      localStorage.setItem(
+        "mathsolver.graph",
+        JSON.stringify({
+          rows: [{ kind: "table", color: "#2563eb", visible: true, fit: "", points: [{ x: "1", y: "2" }, { x: "3", y: "4" }] }],
+          view: { cx: 0, cy: 0, scale: 40 },
+        }),
+      );
+      localStorage.setItem("mathsolver.mode", "graph");
+    });
+    await page.goto("about:blank");
+    await page.goto(url, { waitUntil: "networkidle0" });
+    await page.waitForSelector(".calc .head-name", { timeout: 8000 });
+    // Rename the x column to "time".
+    await page.evaluate(() => {
+      const inp = document.querySelector(".calc .head-name");
+      inp.value = "time";
+      inp.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await new Promise((r) => setTimeout(r, 400)); // debounced persist
+    const xName = await page.evaluate(
+      () => JSON.parse(localStorage.getItem("mathsolver.graph")).rows[0].xName,
+    );
+    check("renaming a table column persists", xName === "time", String(xName));
+
+    // Copy → TSV with the renamed header on the clipboard.
+    const tsv = await page.evaluate(async () => {
+      window.__copied = null;
+      Object.defineProperty(navigator, "clipboard", {
+        value: { writeText: (t) => { window.__copied = t; return Promise.resolve(); } },
+        configurable: true,
+      });
+      document.querySelector(".calc .copy").click();
+      await new Promise((r) => setTimeout(r, 50));
+      return window.__copied;
+    });
+    check("copy exports TSV with the renamed header", tsv === "time\ty\n1\t2\n3\t4", JSON.stringify(tsv));
+  }
+
+  // Grapher sidebar reference: grouped cheat-sheet renders, and clicking a code
+  // chip drops it in as a new expression row.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem("mathsolver.mode", "graph");
+  });
+  await page.goto("about:blank");
+  await page.goto(url, { waitUntil: "networkidle0" });
+  await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  await page.waitForSelector(".graph-ref .gr-head", { timeout: 6000 });
+  {
+    const groups = await page.$$eval(".graph-ref .gr-head", (els) => {
+      els.forEach((b) => b.click()); // expand all groups
+      return els.length;
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const chips = await page.$$eval(".graph-ref .gr-chip", (els) => els.length);
+    check("graph reference renders grouped chips", groups >= 5 && chips > 10, `${groups} groups, ${chips} chips`);
+
+    const before = await page.$$eval(".calc .rows .row", (els) => els.length);
+    await page.click(".graph-ref .gr-chip"); // insert the first snippet as a row
+    await new Promise((r) => setTimeout(r, 300));
+    const after = await page.$$eval(".calc .rows .row", (els) => els.length);
+    check("clicking a reference chip adds a row", after === before + 1, `${before} -> ${after}`);
+  }
+
+  // Bulk visibility: a "Hide all" / "Show all" toolbar toggle for multi-row graphs.
+  {
+    await page.evaluate(() => {
+      localStorage.clear();
+      localStorage.setItem(
+        "mathsolver.graph",
+        JSON.stringify({
+          rows: [
+            { text: "y=x", color: "#2563eb", visible: true },
+            { text: "y=x^2", color: "#dc2626", visible: true },
+          ],
+          view: { cx: 0, cy: 0, scale: 40 },
+        }),
+      );
+    });
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    const clickToolBtn = (label) =>
+      page.evaluate((lbl) => {
+        const b = [...document.querySelectorAll(".calc-toolbar .tool-btn")].find(
+          (el) => el.textContent.trim() === lbl,
+        );
+        if (b) b.click();
+        return !!b;
+      }, label);
+    const visibles = () =>
+      page.evaluate(() =>
+        JSON.parse(localStorage.getItem("mathsolver.graph")).rows.map((r) => r.visible),
+      );
+
+    const hadHide = await clickToolBtn("Hide all");
+    await new Promise((r) => setTimeout(r, 200));
+    const afterHide = await visibles();
+    check(
+      "'Hide all' hides every expression",
+      hadHide && afterHide.every((v) => v === false),
+      JSON.stringify(afterHide),
+    );
+
+    const hadShow = await clickToolBtn("Show all");
+    await new Promise((r) => setTimeout(r, 200));
+    const afterShow = await visibles();
+    check(
+      "'Show all' restores every expression",
+      hadShow && afterShow.every((v) => v === true),
+      JSON.stringify(afterShow),
+    );
+  }
+
+  // Duplicate a row: the ⧉ button inserts an identical expression right after,
+  // with its own colour.
+  {
+    await page.evaluate(() => {
+      localStorage.clear();
+      localStorage.setItem(
+        "mathsolver.graph",
+        JSON.stringify({
+          rows: [{ text: "y=x^2", color: "#2563eb", visible: true }],
+          view: { cx: 0, cy: 0, scale: 40 },
+        }),
+      );
+    });
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    const before = await page.$$eval(".calc .rows .row", (els) => els.length);
+    await page.click(".calc .rows .row .row-dup");
+    await new Promise((r) => setTimeout(r, 300));
+    const rows = await page.evaluate(
+      () => JSON.parse(localStorage.getItem("mathsolver.graph")).rows,
+    );
+    check(
+      "duplicate-row inserts an identical expression after it",
+      rows.length === before + 1 && rows[0].text === "y=x^2" && rows[1].text === "y=x^2",
+      JSON.stringify(rows.map((r) => r.text)),
+    );
+    check(
+      "the duplicate gets its own colour",
+      rows[0].color !== rows[1].color,
+      `${rows[0].color} vs ${rows[1].color}`,
+    );
+  }
+
+  // Reorder rows: the ▲/▼ controls move a row up/down; disabled at the ends.
+  {
+    await page.evaluate(() => {
+      localStorage.clear();
+      localStorage.setItem(
+        "mathsolver.graph",
+        JSON.stringify({
+          rows: [
+            { text: "y=x", color: "#2563eb", visible: true },
+            { text: "y=x^2", color: "#dc2626", visible: true },
+          ],
+          view: { cx: 0, cy: 0, scale: 40 },
+        }),
+      );
+    });
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    const order = () =>
+      page.evaluate(() =>
+        JSON.parse(localStorage.getItem("mathsolver.graph")).rows.map((r) => r.text),
+      );
+    const before = await order();
+    const topUpDisabled = await page.$eval(
+      '.calc .rows .row:first-child button[title="Move up"]',
+      (b) => b.disabled,
+    );
+    check("first row's move-up is disabled", topUpDisabled && before[0] === "y=x", JSON.stringify(before));
+
+    await page.click('.calc .rows .row:first-child button[title="Move down"]');
+    await new Promise((r) => setTimeout(r, 300));
+    const after = await order();
+    check(
+      "move-down reorders the rows",
+      after[0] === "y=x^2" && after[1] === "y=x",
+      JSON.stringify(after),
+    );
+  }
+
+  // Gridlines toggle: the "Grid off"/"Grid on" toolbar button flips a
+  // persisted preference; axes/labels are unaffected.
+  {
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    const gridBtn = () =>
+      page.evaluate(() => {
+        const b = [...document.querySelectorAll(".calc-toolbar .tool-btn")].find((el) =>
+          /^Grid (on|off)$/.test(el.textContent.trim()),
+        );
+        return b ? b.textContent.trim() : null;
+      });
+    const showGrid = () =>
+      page.evaluate(() => {
+        const g = JSON.parse(localStorage.getItem("mathsolver.graph") || "{}");
+        return g.showGrid;
+      });
+    const label0 = await gridBtn();
+    check("grid toggle defaults to on ('Grid off' offered)", label0 === "Grid off", String(label0));
+    await page.evaluate(() => {
+      const b = [...document.querySelectorAll(".calc-toolbar .tool-btn")].find(
+        (el) => el.textContent.trim() === "Grid off",
+      );
+      b?.click();
+    });
+    await new Promise((r) => setTimeout(r, 300));
+    check(
+      "clicking 'Grid off' hides the grid and persists it",
+      (await showGrid()) === false && (await gridBtn()) === "Grid on",
+      `showGrid=${await showGrid()}, label=${await gridBtn()}`,
+    );
+  }
+
+  // Labels: the "Labels" toolbar button reveals the graph-title and x/y
+  // axis-name inputs whose values persist (drawn on the canvas).
+  {
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    // The panel is closed by default (nothing set) — click "Labels" to open it.
+    const opened = await page.evaluate(() => {
+      const b = [...document.querySelectorAll(".calc-toolbar .tool-btn")].find(
+        (el) => el.textContent.trim() === "Labels",
+      );
+      if (b) b.click();
+      return !!b;
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    check("'Labels' button reveals the label inputs", opened, String(opened));
+    // Type into the x-axis input and assert it persists.
+    const typed = await page.evaluate(async () => {
+      const input = document.querySelector('.axis-labels input[placeholder="x-axis label"]');
+      if (!input) return null;
+      input.focus();
+      input.value = "time (s)";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    });
+    await new Promise((r) => setTimeout(r, 400)); // debounced persistSoon
+    const savedX = await page.evaluate(() => {
+      const g = JSON.parse(localStorage.getItem("mathsolver.graph") || "{}");
+      return g.axisLabels ? g.axisLabels.x : null;
+    });
+    check(
+      "typing an x-axis name persists it",
+      typed === true && savedX === "time (s)",
+      `saved=${savedX}`,
+    );
+    // Type a graph title and assert it persists.
+    const titled = await page.evaluate(async () => {
+      const input = document.querySelector('.axis-labels input[placeholder="graph title"]');
+      if (!input) return null;
+      input.focus();
+      input.value = "Velocity vs. time";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    });
+    await new Promise((r) => setTimeout(r, 400));
+    const savedTitle = await page.evaluate(() => {
+      const g = JSON.parse(localStorage.getItem("mathsolver.graph") || "{}");
+      return g.title ?? null;
+    });
+    check(
+      "typing a graph title persists it",
+      titled === true && savedTitle === "Velocity vs. time",
+      `saved=${savedTitle}`,
+    );
+    // Both survive a reload and reopen the panel automatically.
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    const reloaded = await page.evaluate(() => ({
+      axis: document.querySelector('.axis-labels input[placeholder="x-axis label"]')?.value ?? null,
+      title: document.querySelector('.axis-labels input[placeholder="graph title"]')?.value ?? null,
+    }));
+    check(
+      "labels restored after reload",
+      reloaded.axis === "time (s)" && reloaded.title === "Velocity vs. time",
+      JSON.stringify(reloaded),
+    );
+  }
+
+  // Copy image: the "Copy image" toolbar button writes the graph PNG to the
+  // clipboard via navigator.clipboard.write. We stub that API (unreliable in
+  // headless) to record the call, then assert the button wires to it and
+  // reports success.
+  {
+    await page.evaluate(() => localStorage.clear());
+    await page.reload({ waitUntil: "networkidle0" });
+    await clickGraph();
+    await new Promise((r) => setTimeout(r, 300));
+    // Install a recording stub for the async clipboard image write.
+    await page.evaluate(() => {
+      window.__clip = { called: false, type: null };
+      // A minimal ClipboardItem stand-in that remembers its payload's type.
+      window.ClipboardItem = class {
+        constructor(items) {
+          this.types = Object.keys(items);
+        }
+      };
+      navigator.clipboard = navigator.clipboard || {};
+      navigator.clipboard.write = async (items) => {
+        window.__clip.called = true;
+        window.__clip.type = items?.[0]?.types?.[0] ?? null;
+      };
+    });
+    const hasBtn = await page.evaluate(() => {
+      const b = [...document.querySelectorAll(".calc-toolbar .tool-btn")].find(
+        (el) => el.textContent.trim() === "Copy image",
+      );
+      if (b) b.click();
+      return !!b;
+    });
+    await new Promise((r) => setTimeout(r, 400));
+    const clip = await page.evaluate(() => window.__clip);
+    const label = await page.evaluate(
+      () =>
+        [...document.querySelectorAll(".calc-toolbar .tool-btn")]
+          .map((el) => el.textContent.trim())
+          .find((t) => /Image copied|Copy failed|Copy image/.test(t)) ?? null,
+    );
+    check("'Copy image' button is present", hasBtn, String(hasBtn));
+    check(
+      "clicking 'Copy image' writes a PNG to the clipboard",
+      clip.called && clip.type === "image/png",
+      JSON.stringify(clip),
+    );
+    check("'Copy image' reports success", label === "✓ Image copied", String(label));
   }
 
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));

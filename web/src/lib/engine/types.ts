@@ -23,6 +23,22 @@ export type TransformResult =
   | ({ ok: true; notes?: string[] } & Rendered)
   | EngineError;
 
+/** One recorded step of a worked solution: a named rule and its rendered
+ *  `d/dx(before) = after` line in plain text and LaTeX. */
+export interface ExplainStep {
+  rule: string;
+  plain: string;
+  latex: string;
+}
+
+/** A worked, rule-by-rule solution: the ordered steps plus the final result
+ *  (`plain`/`latex` from Rendered), which always equals the plain verb.
+ *  `solved` is false only for an integral with no elementary antiderivative —
+ *  an answer, not an error, exactly as the plain `integrate` verb reports it. */
+export type ExplainResult =
+  | ({ ok: true; solved: boolean; steps: ExplainStep[] } & Rendered)
+  | EngineError;
+
 /** Summary statistics: an ordered list of labelled values (exact where the
  *  data are rational) plus the count and exactness flag. */
 export type StatsResult =
@@ -46,6 +62,30 @@ export type FitResult =
       r2: number;
       /** Number of data points used. */
       n: number;
+    } & Rendered)
+  | EngineError;
+
+/** Exact polynomial interpolation: the polynomial through the points. */
+export type InterpResult =
+  | ({
+      ok: true;
+      /** True when solved exactly over the rationals. */
+      exact: boolean;
+      /** Degree of the interpolating polynomial (≤ n−1). */
+      degree: number;
+      /** Number of data points. */
+      n: number;
+    } & Rendered)
+  | EngineError;
+
+/** Exact orthogonal polynomial: the degree-n member of a classical family. */
+export type OrthoPolyResult =
+  | ({
+      ok: true;
+      /** Family label, e.g. "Chebyshev T", "Legendre". */
+      family: string;
+      /** Degree of the polynomial (== n). */
+      degree: number;
     } & Rendered)
   | EngineError;
 
@@ -125,6 +165,24 @@ export type DefiniteResult =
       warnings: string[];
     } & Rendered)
   | { ok: true; status: "unsolved"; method: string; warnings: string[] }
+  | EngineError;
+
+export type RootCountResult =
+  | { ok: true; count: number; lo?: string; hi?: string }
+  | EngineError;
+
+/** One isolated real root: exact rational `value`, or the open interval
+ *  (lo, hi) with a numeric `approx` when irrational. */
+export interface IsolatedRoot {
+  exact: boolean;
+  value: string | null;
+  lo: number;
+  hi: number;
+  approx: number;
+}
+
+export type IsolateResult =
+  | { ok: true; count: number; roots: IsolatedRoot[] }
   | EngineError;
 
 export interface Solution extends Rendered {
@@ -240,6 +298,9 @@ export interface EngineApi {
   collect: [[input: string, variable: string], TransformResult];
   apart: [[input: string, variable: string], TransformResult];
   fit: [[data: string, model: string, degree: string], FitResult];
+  interp: [[data: string], InterpResult];
+  interpForm: [[data: string, form: string], TransformResult];
+  orthopoly: [[family: string, n: number, variable: string], OrthoPolyResult];
   stats: [[data: string], StatsResult];
   dsolve: [[ode: string, conditionsCsv: string], DsolveResult];
   series: [
@@ -250,6 +311,11 @@ export interface EngineApi {
     [input: string, variable: string, m: number, n: number],
     TransformResult,
   ];
+  rootcount: [
+    [input: string, variable: string, lo: string, hi: string],
+    RootCountResult,
+  ];
+  isolate: [[input: string, variable: string], IsolateResult];
   vectorOp: [[op: string, fieldSemi: string, varsCsv: string], TransformResult];
   limit: [
     [input: string, variable: string, point: string, direction: string],
@@ -269,12 +335,29 @@ export interface EngineApi {
   nextprime: [[n: string], TransformResult];
   divisors: [[n: string], TransformResult];
   totient: [[n: string], TransformResult];
+  sigma: [[n: string, k: string], TransformResult];
+  mobius: [[n: string], TransformResult];
+  partitions: [[n: string], TransformResult];
+  catalan: [[n: string], TransformResult];
+  bernoulli: [[n: string], TransformResult];
+  stirling2: [[n: string, k: string], TransformResult];
+  bell: [[n: string], TransformResult];
+  derangement: [[n: string], TransformResult];
+  lucas: [[n: string], TransformResult];
+  primorial: [[n: string], TransformResult];
+  motzkin: [[n: string], TransformResult];
+  euler: [[n: string], TransformResult];
+  tribonacci: [[n: string], TransformResult];
+  pell: [[n: string], TransformResult];
   cfrac: [[value: string], TransformResult];
   discriminant: [[poly: string, variable: string], TransformResult];
   polydiv: [[dividend: string, divisor: string, variable: string], TransformResult];
   polygcd: [[a: string, b: string, variable: string], TransformResult];
   polylcm: [[a: string, b: string, variable: string], TransformResult];
   resultant: [[a: string, b: string, variable: string], TransformResult];
+  bezout: [[a: string, b: string, variable: string], TransformResult];
+  companion: [[poly: string, variable: string], TransformResult];
+  vandermonde: [[nodes: string], TransformResult];
   solveIneq: [[lhs: string, rhs: string, op: string, variable: string], TransformResult];
   mod: [[args: string], TransformResult];
   powmod: [[args: string], TransformResult];
@@ -315,6 +398,8 @@ export interface EngineApi {
     GridResult,
   ];
   derivative: [[input: string, variable: string], TransformResult];
+  explainDerivative: [[input: string, variable: string], ExplainResult];
+  explainIntegral: [[input: string, variable: string], ExplainResult];
   laplace: [[input: string, timeVar: string], TransformResult];
   ilaplace: [[input: string, freqVar: string], TransformResult];
   integrate: [[input: string, variable: string], IntegrateResult];

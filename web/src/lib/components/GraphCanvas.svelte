@@ -4,7 +4,7 @@
   // multi-series rendering. Purely a view: it owns the viewport interaction
   // and drawing; the parent supplies already-sampled `series` and resamples
   // when `view` changes.
-  import { untrack } from "svelte";
+  import { untrack, onDestroy } from "svelte";
   import {
     type View,
     type DrawSeries,
@@ -17,6 +17,9 @@
     yRange,
     panned,
     zoomedAt,
+    viewForKey,
+    isXMonotonic,
+    interpolateAtX,
     niceStep,
     ticks,
     tickDecimals,
@@ -27,23 +30,40 @@
     series?: DrawSeries[];
     /** Draggable point handles, keyed by points-series id (aligned with xs/ys). */
     handles?: Record<string, PointHandle[]>;
+    /** Per-row label pixel offsets (from dragging), keyed by String(rowId). */
+    labelOffsets?: Record<string, { dx: number; dy: number }>;
     /** Console/compact mode uses a shorter graph. */
     height?: number;
+    /** Draw the background gridlines (axes + number labels always show). */
+    showGrid?: boolean;
+    /** Optional axis names drawn at the far end of each axis. */
+    xAxisLabel?: string;
+    yAxisLabel?: string;
+    /** Optional title drawn centered at the top of the plot. */
+    title?: string;
     onPointDragStart?: () => void;
     onPointDrag?: (rowId: number, coordIndex: number, wx: number, wy: number) => void;
     onPointCommit?: (rowId: number, coordIndex: number, wx: number, wy: number) => void;
     onPointDragCancel?: () => void;
+    /** Commit a dragged label's new pixel offset. */
+    onLabelMove?: (rowId: number, dx: number, dy: number) => void;
   }
 
   let {
     view = $bindable(),
     series = [],
     handles = {},
+    labelOffsets = {},
     height = 0,
+    showGrid = true,
+    xAxisLabel = "",
+    yAxisLabel = "",
+    title = "",
     onPointDragStart,
     onPointDrag,
     onPointCommit,
     onPointDragCancel,
+    onLabelMove,
   }: Props = $props();
 
   let host: HTMLDivElement | undefined = $state();
@@ -93,6 +113,12 @@
     void dragging; // redraw the trace when a drag ends
     void pointDrag; // and while dragging a point
     void ghost;
+    void labelDrag; // redraw the moving label live
+    void labelOffsets; // and when a committed offset changes
+    void showGrid; // toggle the background grid
+    void xAxisLabel; // redraw when an axis name changes
+    void yAxisLabel;
+    void title; // redraw when the graph title changes
     const c = canvas;
     const w = width;
     const h = H;
@@ -134,15 +160,18 @@
     const majX = niceStep(xhi - xlo, Math.max(2, w / 90));
     const majY = niceStep(yhi - ylo, Math.max(2, h / 90));
 
-    // Minor gridlines (major / 5).
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = gridMinor;
-    ctx.globalAlpha = 0.5;
-    drawGrid(ctx, v, w, h, xlo, xhi, ylo, yhi, majX / 5, majY / 5);
-    // Major gridlines.
-    ctx.globalAlpha = 0.9;
-    drawGrid(ctx, v, w, h, xlo, xhi, ylo, yhi, majX, majY);
-    ctx.globalAlpha = 1;
+    // Background gridlines (optional; axes + number labels are drawn regardless).
+    if (showGrid) {
+      // Minor gridlines (major / 5).
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = gridMinor;
+      ctx.globalAlpha = 0.5;
+      drawGrid(ctx, v, w, h, xlo, xhi, ylo, yhi, majX / 5, majY / 5);
+      // Major gridlines.
+      ctx.globalAlpha = 0.9;
+      drawGrid(ctx, v, w, h, xlo, xhi, ylo, yhi, majX, majY);
+      ctx.globalAlpha = 1;
+    }
 
     // Axes: the x-axis (y=0) and y-axis (x=0), clamped to the edge when the
     // origin is off-screen so labels stay attached to the axis line.
@@ -182,6 +211,37 @@
       ctx.textAlign = "right";
       ctx.textBaseline = "top";
       ctx.fillText("0", axisX - 4, axisY + 4);
+    }
+
+    // Axis names, drawn at the far end of each axis (x at the right, y at the
+    // top), nudged to the inside of the panel so they stay visible when the
+    // origin is off-screen. Skipped when blank.
+    if (xAxisLabel || yAxisLabel) {
+      ctx.fillStyle = label;
+      ctx.font =
+        "italic 13px " + (cssColor(c, "--font-sans", "") || "system-ui, sans-serif");
+      if (xAxisLabel) {
+        const ty = Math.max(14, Math.min(h - 6, axisY - 6));
+        ctx.textAlign = "right";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(xAxisLabel, w - 6, ty);
+      }
+      if (yAxisLabel) {
+        const tx = Math.max(6, Math.min(w - 6, axisX + 6));
+        ctx.textAlign = tx > w - 60 ? "right" : "left";
+        ctx.textBaseline = "top";
+        ctx.fillText(yAxisLabel, ctx.textAlign === "right" ? w - 6 : tx, 6);
+      }
+    }
+
+    // Graph title, centered along the top edge. Skipped when blank.
+    if (title) {
+      ctx.fillStyle = label;
+      ctx.font =
+        "600 15px " + (cssColor(c, "--font-sans", "") || "system-ui, sans-serif");
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(title, w / 2, 6, w - 16);
     }
 
     // Drawables, clipped to the panel: regions (under) → lines → points.
@@ -228,11 +288,14 @@
       ctx.globalAlpha = 1;
     }
 
-    ctx.lineWidth = 2.2;
     for (const s of series) {
       if (!s.visible || s.kind !== "line" || s.xs.length === 0) continue;
       ctx.strokeStyle = s.color;
-      ctx.setLineDash(s.dash ? [6, 5] : []);
+      ctx.lineWidth = s.width ?? 2.2;
+      // An explicit dash pattern (per-row style) wins; else the legacy `dash`
+      // flag (asymptotes) draws a fixed dash; else solid.
+      ctx.setLineDash(s.dashArr ?? (s.dash ? [6, 5] : []));
+      ctx.lineCap = s.dashArr && s.dashArr[0] <= 2 ? "round" : "butt"; // dotted → round caps
       ctx.beginPath();
       let pen = false;
       for (let i = 0; i < s.xs.length; i++) {
@@ -255,11 +318,13 @@
       ctx.stroke();
     }
     ctx.setLineDash([]); // don't let an asymptote's dash leak into later strokes
+    ctx.lineCap = "butt";
 
     let ghostDrawn = false;
     for (const s of series) {
       if (!s.visible || s.kind !== "points") continue;
       ctx.fillStyle = s.color;
+      const r = s.width ? 4 * (s.width / 2.2) : 4; // scale marker radius with weight
       for (let i = 0; i < s.xs.length; i++) {
         const isGhost = !!ghost && ghost.sid === s.id && handles[s.id]?.[i]?.coordIndex === ghost.ci;
         let x = s.xs[i];
@@ -270,7 +335,7 @@
           ghostDrawn = true;
         }
         if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
-        drawPointDot(ctx, xToPx(x, v, w), yToPx(y, v, h), s.color, isGhost);
+        drawPointDot(ctx, xToPx(x, v, w), yToPx(y, v, h), s.color, isGhost, r);
       }
     }
     // The ghost's source point may not be in `series` yet (e.g. just committed);
@@ -300,8 +365,80 @@
       }
     }
 
+    // Row labels ("tags"): user-set text drawn at each point (point rows) or at
+    // the last on-screen sample of a curve (function rows), shifted by the row's
+    // drag offset. Each drawn rect is recorded so the label can be grabbed.
+    labelHits = [];
+    for (const s of series) {
+      if (!s.visible || !s.tag) continue;
+      const rowId = Number(s.id);
+      // The active drag shows its live offset; otherwise use the stored one.
+      const off =
+        labelDrag && labelDrag.rowId === rowId
+          ? { dx: labelDrag.curDx, dy: labelDrag.curDy }
+          : labelOffsets[s.id] ?? { dx: 0, dy: 0 };
+      const ok = (i: number) => {
+        const x = s.xs[i];
+        const y = s.ys[i];
+        return x !== null && y !== null && Number.isFinite(x) && Number.isFinite(y);
+      };
+      if (s.kind === "points") {
+        for (let i = 0; i < s.xs.length; i++) {
+          if (!ok(i)) continue;
+          drawTag(ctx, xToPx(s.xs[i] as number, v, w) + 8 + off.dx, yToPx(s.ys[i] as number, v, h) - 9 + off.dy, s.tag, s.color, bg, rowId);
+        }
+      } else if (s.kind === "line") {
+        let ai = -1;
+        for (let i = 0; i < s.xs.length; i++) {
+          if (!ok(i)) continue;
+          const px = xToPx(s.xs[i] as number, v, w);
+          const py = yToPx(s.ys[i] as number, v, h);
+          if (px >= 0 && px <= w && py >= 0 && py <= h) ai = i;
+        }
+        if (ai >= 0) drawTag(ctx, xToPx(s.xs[ai] as number, v, w) + 6 + off.dx, yToPx(s.ys[ai] as number, v, h) - 9 + off.dy, s.tag, s.color, bg, rowId);
+      }
+    }
+
     drawTrace(ctx, v, w, h, label, bg);
+    drawKbTrace(ctx, v, w, h, label, bg);
     ctx.restore();
+  }
+
+  // A small pill-backed text label in the series color, clamped on-screen. The
+  // drawn rect is recorded (with its rowId) so the label can be grabbed + moved.
+  function drawTag(
+    ctx: CanvasRenderingContext2D,
+    px: number,
+    py: number,
+    text: string,
+    color: string,
+    bg: string,
+    rowId: number,
+  ): void {
+    ctx.font = "12px " + (cssColor(canvas!, "--font-sans", "") || "system-ui, sans-serif");
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    const tw = ctx.measureText(text).width;
+    const w = canvas ? canvas.clientWidth : 1e4;
+    const x = Math.max(2, Math.min(px, w - tw - 10));
+    const y = Math.max(10, py);
+    ctx.fillStyle = bg;
+    ctx.globalAlpha = 0.85;
+    roundRect(ctx, x - 3, y - 9, tw + 8, 18, 5);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = color;
+    ctx.fillText(text, x + 1, y);
+    labelHits.push({ rowId, x0: x - 3, y0: y - 9, x1: x - 3 + tw + 8, y1: y - 9 + 18 });
+  }
+
+  // The rowId of the topmost label whose rect contains p, or null.
+  function hitLabel(p: { x: number; y: number }): number | null {
+    for (let i = labelHits.length - 1; i >= 0; i--) {
+      const r = labelHits[i];
+      if (p.x >= r.x0 && p.x <= r.x1 && p.y >= r.y0 && p.y <= r.y1) return r.rowId;
+    }
+    return null;
   }
 
   function drawPointDot(
@@ -310,10 +447,11 @@
     py: number,
     color: string,
     emphasized: boolean,
+    radius = 4,
   ): void {
     ctx.fillStyle = color;
     ctx.beginPath();
-    ctx.arc(px, py, emphasized ? 6 : 4, 0, 2 * Math.PI);
+    ctx.arc(px, py, emphasized ? radius + 2 : radius, 0, 2 * Math.PI);
     ctx.fill();
     if (emphasized) {
       ctx.beginPath();
@@ -447,8 +585,10 @@
     ctx.globalAlpha = 1;
   }
 
-  /** Snap a marker + coordinate label to the sampled curve point nearest the
-   *  cursor (hover trace). */
+  /** Hover trace: follow a `y=f(x)` curve continuously at the cursor's x, snap
+   *  to points-of-interest markers (which carry an exact CAS label), and fall
+   *  back to the nearest sampled vertex for non-monotonic curves (x=f(y),
+   *  parametric, polar). */
   function drawTrace(
     ctx: CanvasRenderingContext2D,
     v: View,
@@ -457,47 +597,99 @@
     label: string,
     bg: string,
   ): void {
-    if (!cursor || dragging || pointDrag) return;
-    let best: {
-      px: number;
-      py: number;
-      x: number;
-      y: number;
-      color: string;
-      label?: string;
-    } | null = null;
-    let bestD = 24 * 24;
+    lastTraceHit = null;
+    if (kbTrace) return; // keyboard trace takes over the marker
+    if (!cursor || dragging || pointDrag || labelDrag) return;
+    type Hit = { px: number; py: number; x: number; y: number; color: string; label?: string };
+
+    // 1) Points of interest snap to the nearest marker (exact coordinate label).
+    let poi: Hit | null = null;
+    let poiD = 24 * 24;
     for (const s of series) {
-      // Snap to sampled curve vertices and to points-of-interest markers; the
-      // latter carry an exact coordinate label from the CAS.
-      if (!s.visible || (s.kind !== "line" && s.kind !== "poi")) continue;
+      if (!s.visible || s.kind !== "poi") continue;
       for (let i = 0; i < s.xs.length; i++) {
-        const y = s.ys[i];
         const x = s.xs[i];
+        const y = s.ys[i];
         if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
         const px = xToPx(x, v, w);
         const py = yToPx(y, v, h);
         const d = (px - cursor.x) ** 2 + (py - cursor.y) ** 2;
-        if (d < bestD) {
-          bestD = d;
-          best = { px, py, x, y, color: s.color, label: s.kind === "poi" ? s.labels?.[i] ?? undefined : undefined };
+        if (d < poiD) {
+          poiD = d;
+          poi = { px, py, x, y, color: s.color, label: s.labels?.[i] ?? undefined };
         }
       }
     }
+
+    // 2) Continuous trace: the y=f(x) curve nearest the cursor at its x.
+    let curve: Hit | null = null;
+    if (!poi) {
+      const wx = pxToX(cursor.x, v, w);
+      let bestDy = 30; // px — how close vertically the cursor must be to attach
+      for (const s of series) {
+        if (!s.visible || s.kind !== "line" || !isXMonotonic(s.xs)) continue;
+        const wy = interpolateAtX(s.xs, s.ys, wx);
+        if (wy === null || !Number.isFinite(wy)) continue;
+        const py = yToPx(wy, v, h);
+        const dy = Math.abs(py - cursor.y);
+        if (dy < bestDy) {
+          bestDy = dy;
+          curve = { px: cursor.x, py, x: wx, y: wy, color: s.color };
+        }
+      }
+    }
+
+    // 3) Fallback: nearest sampled vertex on any remaining curve.
+    let vertex: Hit | null = null;
+    if (!poi && !curve) {
+      let vD = 24 * 24;
+      for (const s of series) {
+        if (!s.visible || s.kind !== "line") continue;
+        for (let i = 0; i < s.xs.length; i++) {
+          const x = s.xs[i];
+          const y = s.ys[i];
+          if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+          const px = xToPx(x, v, w);
+          const py = yToPx(y, v, h);
+          const d = (px - cursor.x) ** 2 + (py - cursor.y) ** 2;
+          if (d < vD) {
+            vD = d;
+            vertex = { px, py, x, y, color: s.color };
+          }
+        }
+      }
+    }
+
+    const best = poi ?? curve ?? vertex;
     if (!best) return;
+    const txt = best.label ?? `(${fmtCoord(best.x)}, ${fmtCoord(best.y)})`;
+    lastTraceHit = { px: best.px, py: best.py, text: txt };
+    drawMarker(ctx, best.px, best.py, best.color, txt, w, label, bg);
+  }
+
+  /** Draw a filled trace dot + a pill-backed coordinate label, clamped on-screen. */
+  function drawMarker(
+    ctx: CanvasRenderingContext2D,
+    px: number,
+    py: number,
+    dot: string,
+    txt: string,
+    w: number,
+    label: string,
+    bg: string,
+  ): void {
     ctx.beginPath();
-    ctx.arc(best.px, best.py, 4.5, 0, 2 * Math.PI);
-    ctx.fillStyle = best.color;
+    ctx.arc(px, py, 4.5, 0, 2 * Math.PI);
+    ctx.fillStyle = dot;
     ctx.fill();
     ctx.lineWidth = 2;
     ctx.strokeStyle = bg;
     ctx.stroke();
-    const txt = best.label ?? `(${fmtCoord(best.x)}, ${fmtCoord(best.y)})`;
     ctx.font = "12px " + (cssColor(canvas!, "--font-mono", "") || "monospace");
     const tw = ctx.measureText(txt).width;
-    let lx = best.px + 10;
-    if (lx + tw + 10 > w) lx = best.px - tw - 18;
-    const ly = best.py - 14;
+    let lx = px + 10;
+    if (lx + tw + 10 > w) lx = px - tw - 18;
+    const ly = py - 14;
     ctx.fillStyle = color_mix(bg);
     roundRect(ctx, lx - 5, ly - 12, tw + 12, 20, 5);
     ctx.fill();
@@ -505,6 +697,26 @@
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillText(txt, lx + 1, ly - 1);
+  }
+
+  /** Keyboard trace: a marker at the current world-x on the active curve. */
+  function drawKbTrace(
+    ctx: CanvasRenderingContext2D,
+    v: View,
+    w: number,
+    h: number,
+    label: string,
+    bg: string,
+  ): void {
+    if (!kbTrace) return;
+    const y = traceY(kbTrace.si, kbTrace.x);
+    const s = series[kbTrace.si];
+    if (y === null || !s) return;
+    const px = xToPx(kbTrace.x, v, w);
+    const py = yToPx(y, v, h);
+    const txt = `(${fmtCoord(kbTrace.x)}, ${fmtCoord(y)})`;
+    lastTraceHit = { px, py, text: txt };
+    drawMarker(ctx, px, py, s.color, txt, w, label, bg);
   }
 
   function fmtCoord(v: number): string {
@@ -552,9 +764,33 @@
 
   // --- pointer interaction ---------------------------------------------------
   let dragging = $state(false);
+  let panMoved = false; // did the current pan actually move (vs. a plain click)?
   let lastX = 0;
   let lastY = 0;
   const pointers = new Map<number, { x: number; y: number }>();
+  // The hover-trace marker's last screen position + coordinate text, so a click
+  // on it can copy the coordinate. Plain (non-reactive) — read on pointerup.
+  let lastTraceHit: { px: number; py: number; text: string } | null = null;
+  let clickHit: { px: number; py: number; text: string } | null = null; // captured at press
+  // Keyboard trace (accessibility): follow a y=f(x) curve by world-x with the
+  // arrow keys and announce the coordinate via an aria-live region. Tracing by
+  // world-x (not sample index) stays stable when the parent resamples on pan.
+  let kbTrace = $state<{ si: number; x: number } | null>(null);
+  let announce = $state(""); // aria-live text for screen readers
+  // Brief "copied (x, y)" confirmation toast.
+  let copiedToast = $state<string | null>(null);
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  async function copyCoord(text: string): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(text);
+      copiedToast = text;
+    } catch {
+      return;
+    }
+    clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => (copiedToast = null), 1400);
+  }
+  onDestroy(() => clearTimeout(copiedTimer));
   let pinchDist = 0;
 
   // Draggable-point state: the grabbed handle and a live ghost position drawn
@@ -566,8 +802,25 @@
   let ghost = $state<null | { sid: string; ci: number; x: number; y: number }>(null);
   let grabMoved = false;
   let hoverPoint = $state(false); // cursor hint: hovering a draggable point
+
+  // Draggable row labels ("tags"): each drawn label's on-screen rect (populated
+  // during the tag pass, most-recent last), and the active drag — a live pixel
+  // offset shown immediately and committed to the store once on release.
+  let labelHits: { rowId: number; x0: number; y0: number; x1: number; y1: number }[] = [];
+  let labelDrag = $state<null | {
+    rowId: number;
+    startDx: number;
+    startDy: number;
+    curDx: number;
+    curDy: number;
+    startX: number;
+    startY: number;
+    pointerId: number;
+  }>(null);
+  let hoverLabel = $state(false); // cursor hint: hovering a draggable label
+
   const cursorStyle = $derived(
-    pointDrag || dragging ? "grabbing" : hoverPoint ? "grab" : "crosshair",
+    pointDrag || labelDrag || dragging ? "grabbing" : hoverPoint || hoverLabel ? "grab" : "crosshair",
   );
 
   function localXY(e: PointerEvent): { x: number; y: number } {
@@ -641,7 +894,7 @@
   function onPointerDown(e: PointerEvent): void {
     canvas!.setPointerCapture(e.pointerId);
     const p = localXY(e);
-    if (pointDrag) return; // ignore extra fingers while dragging a point
+    if (pointDrag || labelDrag) return; // ignore extra fingers mid-drag
     pointers.set(e.pointerId, p);
     if (pointers.size === 1) {
       const hit = hitPoint(p);
@@ -656,7 +909,27 @@
           return; // do NOT arm pan
         }
       }
+      // A row label under the cursor starts a label drag (grabs its offset).
+      const labelRow = hitLabel(p);
+      if (labelRow !== null) {
+        const off = labelOffsets[String(labelRow)] ?? { dx: 0, dy: 0 };
+        labelDrag = {
+          rowId: labelRow,
+          startDx: off.dx,
+          startDy: off.dy,
+          curDx: off.dx,
+          curDy: off.dy,
+          startX: p.x,
+          startY: p.y,
+          pointerId: e.pointerId,
+        };
+        return; // do NOT arm pan
+      }
       dragging = true;
+      panMoved = false;
+      // Capture the trace marker now — arming pan will blank lastTraceHit on the
+      // next redraw, so a plain click needs the hit as it was at press time.
+      clickHit = lastTraceHit;
       lastX = p.x;
       lastY = p.y;
     } else if (pointers.size === 2) {
@@ -666,11 +939,21 @@
   }
 
   function onPointerMove(e: PointerEvent): void {
-    // While dragging a point, ignore every other pointer's moves.
+    // While dragging a point or label, ignore every other pointer's moves.
     if (pointDrag && e.pointerId !== pointDrag.pointerId) return;
+    if (labelDrag && e.pointerId !== labelDrag.pointerId) return;
     const p = localXY(e);
     if (pointers.has(e.pointerId)) pointers.set(e.pointerId, p);
     cursor = { x: p.x, y: p.y };
+
+    if (labelDrag) {
+      labelDrag = {
+        ...labelDrag,
+        curDx: labelDrag.startDx + (p.x - labelDrag.startX),
+        curDy: labelDrag.startDy + (p.y - labelDrag.startY),
+      };
+      return;
+    }
 
     if (pointDrag) {
       const h = pointDrag.h;
@@ -700,8 +983,10 @@
     }
     if (!dragging) {
       hoverPoint = !!hitPoint(p); // grab-cursor hint when over a draggable point
+      hoverLabel = !hoverPoint && hitLabel(p) !== null; // or over a draggable label
       return;
     }
+    panMoved = true;
     view = panned(view, p.x - lastX, p.y - lastY);
     lastX = p.x;
     lastY = p.y;
@@ -712,6 +997,20 @@
     // Only the pointer that started the drag can finish it — a stray second
     // finger lifting must not commit/cancel the gesture.
     if (pointDrag && pointDrag.pointerId === e.pointerId) finishPointDrag(e.type === "pointercancel");
+    if (labelDrag && labelDrag.pointerId === e.pointerId) {
+      // Commit the label's final offset once (a cancel keeps the live value).
+      onLabelMove?.(labelDrag.rowId, labelDrag.curDx, labelDrag.curDy);
+      labelDrag = null;
+    }
+    // A plain click (pan armed but never moved) on the hover-trace marker copies
+    // its coordinate to the clipboard.
+    if (dragging && !panMoved && !pointDrag && !labelDrag && clickHit) {
+      const q = localXY(e);
+      if (Math.hypot(clickHit.px - q.x, clickHit.py - q.y) < 22) {
+        void copyCoord(clickHit.text);
+      }
+    }
+    clickHit = null;
     if (pointers.size < 2) pinchDist = 0;
     if (pointers.size === 1) {
       // Lifting one finger of a pinch: reseat the pan anchor to the remaining
@@ -738,6 +1037,197 @@
     view = { cx: 0, cy: 0, scale: 40 };
   }
 
+  // Double-click: reset a moved label to its anchor if the pointer is over one,
+  // otherwise zoom in (the default).
+  function onDblClick(e: MouseEvent): void {
+    const r = canvas!.getBoundingClientRect();
+    const p = { x: e.clientX - r.left, y: e.clientY - r.top };
+    const row = hitLabel(p);
+    if (row !== null && labelOffsets[String(row)]) {
+      onLabelMove?.(row, 0, 0); // snap the label back to its anchor
+      return;
+    }
+    zoomButton(1.6);
+  }
+
+  // --- keyboard trace (accessibility) ---------------------------------------
+  /** Visible, x-monotonic "line" series — the curves traceable by world-x. */
+  function traceableSeries(): number[] {
+    const out: number[] = [];
+    series.forEach((s, i) => {
+      if (s.visible && s.kind === "line" && isXMonotonic(s.xs)) out.push(i);
+    });
+    return out;
+  }
+  function seriesName(si: number, order: number[]): string {
+    const s = series[si];
+    if (s?.tag) return s.tag;
+    return `curve ${order.indexOf(si) + 1}`;
+  }
+  /** y of series `si` at world-x, or null (outside the sampled range / a gap). */
+  function traceY(si: number, x: number): number | null {
+    const s = series[si];
+    if (!s) return null;
+    const y = interpolateAtX(s.xs, s.ys, x);
+    return y !== null && Number.isFinite(y) ? y : null;
+  }
+  function announceTrace(prefix: string): void {
+    if (!kbTrace) return;
+    const y = traceY(kbTrace.si, kbTrace.x);
+    announce =
+      y === null
+        ? `${prefix}x ${fmtCoord(kbTrace.x)}, no value`
+        : `${prefix}x ${fmtCoord(kbTrace.x)}, y ${fmtCoord(y)}`;
+  }
+  /** Pan minimally so world point (x, y) sits inside an 8% screen margin. */
+  function bringIntoView(x: number, y: number): void {
+    const [xlo, xhi] = xRange(view, width);
+    const [ylo, yhi] = yRange(view, H);
+    const mx = (xhi - xlo) * 0.08;
+    const my = (yhi - ylo) * 0.08;
+    let cx = view.cx;
+    let cy = view.cy;
+    if (x < xlo + mx) cx -= xlo + mx - x;
+    else if (x > xhi - mx) cx += x - (xhi - mx);
+    if (y < ylo + my) cy -= ylo + my - y;
+    else if (y > yhi - my) cy += y - (yhi - my);
+    if (cx !== view.cx || cy !== view.cy) view = { ...view, cx, cy };
+  }
+  function startTrace(): void {
+    const order = traceableSeries();
+    if (!order.length) {
+      announce = "no curve to trace";
+      return;
+    }
+    const si = order[0];
+    let x = view.cx; // start at the view center, snapped to where the curve exists
+    if (traceY(si, x) === null) {
+      const s = series[si];
+      for (let i = 0; i < s.xs.length; i++) {
+        const xi = s.xs[i];
+        if (xi !== null && Number.isFinite(xi) && traceY(si, xi) !== null) {
+          x = xi;
+          break;
+        }
+      }
+    }
+    kbTrace = { si, x };
+    const y = traceY(si, x);
+    if (y !== null) bringIntoView(x, y);
+    announceTrace(`tracing ${seriesName(si, order)}. `);
+  }
+  function stopTrace(): void {
+    if (!kbTrace) return;
+    kbTrace = null;
+    announce = "trace off";
+  }
+  function stepTrace(dir: -1 | 1, big: boolean): void {
+    if (!kbTrace) return;
+    const [xlo, xhi] = xRange(view, width);
+    const x = kbTrace.x + dir * (xhi - xlo) * (big ? 0.1 : 0.02);
+    kbTrace = { si: kbTrace.si, x };
+    const y = traceY(kbTrace.si, x);
+    if (y !== null) bringIntoView(x, y);
+    announceTrace("");
+  }
+  function cycleSeries(dir: -1 | 1): void {
+    if (!kbTrace) return;
+    const order = traceableSeries();
+    if (order.length < 2) return;
+    const si = order[(order.indexOf(kbTrace.si) + dir + order.length) % order.length];
+    kbTrace = { si, x: kbTrace.x };
+    const y = traceY(si, kbTrace.x);
+    if (y !== null) bringIntoView(kbTrace.x, y);
+    announceTrace(`tracing ${seriesName(si, order)}. `);
+  }
+  /** The points-of-interest series (roots, extrema, intercepts) for a line
+   *  series, matched by the `${id}:poi` convention the calculator emits. */
+  function poiSeriesFor(si: number): DrawSeries | null {
+    const s = series[si];
+    if (!s) return null;
+    return series.find((p) => p.kind === "poi" && p.visible && p.id === `${s.id}:poi`) ?? null;
+  }
+  /** Jump the trace to the next/previous point of interest and announce it. */
+  function jumpPOI(dir: -1 | 1): void {
+    if (!kbTrace) return;
+    const poi = poiSeriesFor(kbTrace.si);
+    if (!poi || !poi.xs.length) {
+      announce = "no points of interest on this curve";
+      return;
+    }
+    let best: { x: number; i: number } | null = null;
+    for (let i = 0; i < poi.xs.length; i++) {
+      const px = poi.xs[i];
+      if (px === null || !Number.isFinite(px)) continue;
+      const ahead = dir > 0 ? px > kbTrace.x + 1e-9 : px < kbTrace.x - 1e-9;
+      if (!ahead) continue;
+      if (!best || (dir > 0 ? px < best.x : px > best.x)) best = { x: px, i };
+    }
+    if (!best) {
+      announce = dir > 0 ? "no later points of interest" : "no earlier points of interest";
+      return;
+    }
+    kbTrace = { si: kbTrace.si, x: best.x };
+    const y = poi.ys[best.i];
+    if (y !== null && Number.isFinite(y)) bringIntoView(best.x, y);
+    const label = poi.labels?.[best.i];
+    announce = label ? `point of interest, ${label}` : `x ${fmtCoord(best.x)}`;
+  }
+
+  // Keyboard navigation (Desmos-style) when the graph paper is focused: arrows
+  // pan, +/- zoom about the center, 0/Home reset. `t` toggles a keyboard trace
+  // where the arrows walk a curve and the coordinate is announced. We only
+  // preventDefault for keys we handle, so Tab still moves focus out of the
+  // graph and browser shortcuts (Ctrl/Cmd/Alt combos) are left alone.
+  function onKeyDown(e: KeyboardEvent): void {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "t" || e.key === "T") {
+      if (kbTrace) stopTrace();
+      else startTrace();
+      e.preventDefault();
+      return;
+    }
+    if (kbTrace) {
+      // While tracing, the arrows walk the curve instead of panning.
+      switch (e.key) {
+        case "ArrowLeft":
+          stepTrace(-1, e.shiftKey);
+          e.preventDefault();
+          return;
+        case "ArrowRight":
+          stepTrace(1, e.shiftKey);
+          e.preventDefault();
+          return;
+        case "ArrowUp":
+          cycleSeries(-1);
+          e.preventDefault();
+          return;
+        case "ArrowDown":
+          cycleSeries(1);
+          e.preventDefault();
+          return;
+        case "n":
+        case "N":
+          jumpPOI(1);
+          e.preventDefault();
+          return;
+        case "p":
+        case "P":
+          jumpPOI(-1);
+          e.preventDefault();
+          return;
+        case "Escape":
+          stopTrace();
+          e.preventDefault();
+          return;
+      }
+    }
+    const next = viewForKey(view, e.key, width, H, { shift: e.shiftKey });
+    if (!next) return; // leave unrecognised keys (Tab, etc.) to the browser
+    view = next;
+    e.preventDefault();
+  }
+
   /** Rendered graph as a PNG blob (for download). Exposed to the parent. */
   export function exportBlob(): Promise<Blob | null> {
     return new Promise((resolve) => {
@@ -747,7 +1237,11 @@
   }
 
   const readout = $derived.by(() => {
-    if (!cursor || dragging || pointDrag) return null;
+    if (kbTrace) {
+      const y = traceY(kbTrace.si, kbTrace.x);
+      return y === null ? null : { x: kbTrace.x, y };
+    }
+    if (!cursor || dragging || pointDrag || labelDrag) return null;
     return { x: pxToX(cursor.x, view, width), y: pxToY(cursor.y, view, H) };
   });
 </script>
@@ -755,8 +1249,9 @@
 <div class="graph" bind:this={host} style:--gh={height > 0 ? `${height}px` : null}>
   <canvas
     bind:this={canvas}
+    tabindex="0"
     style:cursor={cursorStyle}
-    aria-label="Interactive graph — drag to pan, scroll to zoom, drag points to move them"
+    aria-label="Interactive graph — drag or arrow keys to pan, scroll or +/- to zoom, 0 to reset, drag points to move them, click a traced point to copy its coordinate. Press T then the left/right arrows to trace a curve and hear its coordinates; N and P jump to the next and previous points of interest (roots, extrema, intercepts); up/down switch curves; Escape ends the trace."
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
@@ -766,7 +1261,8 @@
       hoverPoint = false;
     }}
     onwheel={onWheel}
-    ondblclick={() => zoomButton(1.6)}
+    onkeydown={onKeyDown}
+    ondblclick={onDblClick}
   ></canvas>
 
   <div class="zoom" role="group" aria-label="Zoom">
@@ -782,6 +1278,13 @@
       ({fmtCoord(readout.x)}, {fmtCoord(readout.y)})
     </div>
   {/if}
+
+  {#if copiedToast}
+    <div class="copied-toast" role="status">✓ copied {copiedToast}</div>
+  {/if}
+
+  <!-- Keyboard-trace announcements for assistive tech (visually hidden). -->
+  <div class="sr-only" aria-live="polite" role="status">{announce}</div>
 </div>
 
 <style>
@@ -805,6 +1308,13 @@
   }
   canvas:active {
     cursor: grabbing;
+  }
+  canvas:focus {
+    outline: none;
+  }
+  canvas:focus-visible {
+    outline: 2px solid var(--accent, #2563eb);
+    outline-offset: -2px;
   }
   .zoom {
     position: absolute;
@@ -839,6 +1349,17 @@
   .zoom .home svg {
     display: block;
   }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   .readout {
     position: absolute;
     left: 0.6rem;
@@ -850,6 +1371,21 @@
     color: var(--fg-muted);
     background: color-mix(in srgb, var(--bg-panel) 82%, transparent);
     border: 1px solid var(--border);
+    border-radius: 999px;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  .copied-toast {
+    position: absolute;
+    right: 0.6rem;
+    bottom: 0.6rem;
+    padding: 0.15rem 0.6rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    line-height: 1.4;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--bg-panel) 90%, transparent);
+    border: 1px solid var(--accent);
     border-radius: 999px;
     pointer-events: none;
     white-space: nowrap;

@@ -60,8 +60,17 @@ export interface DrawSeries {
   labels?: (string | null)[];
   /** For "area": the exact ∫ value drawn over the shaded band (e.g. "∫ = 2"). */
   label?: string;
+  /** A user-set row label drawn at the point(s) ("points") or along the curve
+   *  ("line"). Distinct from `label` (the area ∫ readout). */
+  tag?: string;
   /** For "line": draw dashed (e.g. a horizontal asymptote). */
   dash?: boolean;
+  /** Per-row style overrides. `width` scales the stroke (lines) and, for
+   *  "points", the marker radius; `dashArr` is an explicit dash pattern (empty
+   *  = solid). Set from the row's line-style/weight; unset falls back to the
+   *  built-in defaults. */
+  width?: number;
+  dashArr?: number[];
 }
 
 /**
@@ -102,6 +111,49 @@ export function breakDiscontinuities(
     }
   }
   return out;
+}
+
+/** True when the finite x samples are monotonically non-decreasing — the order
+ *  a `y=f(x)` curve is sampled in, so tracing it continuously by x is
+ *  meaningful. `x=f(y)`, parametric, and polar curves fail this and fall back
+ *  to nearest-vertex snapping. */
+export function isXMonotonic(xs: (number | null)[]): boolean {
+  let prev = -Infinity;
+  let seen = false;
+  for (const x of xs) {
+    if (x === null || !Number.isFinite(x)) continue;
+    if (x < prev) return false;
+    prev = x;
+    seen = true;
+  }
+  return seen;
+}
+
+/**
+ * Linear-interpolated y on a sampled `y=f(x)` polyline at world x `tx`. `xs`
+ * must be non-decreasing across finite samples (the sampling order). Returns
+ * null when `tx` is outside the sampled range or lands in a gap — a segment
+ * whose endpoints aren't both finite (e.g. an asymptote break), so the trace
+ * lifts across discontinuities exactly like the drawn curve.
+ */
+export function interpolateAtX(
+  xs: (number | null)[],
+  ys: (number | null)[],
+  tx: number,
+): number | null {
+  for (let i = 0; i + 1 < xs.length; i++) {
+    const x0 = xs[i];
+    const x1 = xs[i + 1];
+    const y0 = ys[i];
+    const y1 = ys[i + 1];
+    if (x0 === null || x1 === null || y0 === null || y1 === null) continue;
+    if (!Number.isFinite(x0) || !Number.isFinite(x1) || !Number.isFinite(y0) || !Number.isFinite(y1)) continue;
+    if (x1 > x0 && tx >= x0 && tx <= x1) {
+      const t = (tx - x0) / (x1 - x0);
+      return y0 + t * (y1 - y0);
+    }
+  }
+  return null;
 }
 
 // Deep zoom is allowed, but bounded so float precision stays usable.
@@ -159,6 +211,98 @@ export function zoomedAt(
     cx: wx - (px - w / 2) / scale,
     cy: wy - (h / 2 - py) / scale,
   };
+}
+
+/**
+ * Keyboard navigation for the focused graph paper (Desmos-style): returns the
+ * new view for a key press, or null when the key is not a navigation key (so
+ * the caller can leave it to the browser). Arrows pan by `step` pixels — larger
+ * with shift; `+`/`=` and `-`/`_` zoom about the center; `0`/`Home` reset.
+ */
+export function viewForKey(
+  v: View,
+  key: string,
+  w: number,
+  h: number,
+  opts: { shift?: boolean } = {},
+): View | null {
+  const step = opts.shift ? 120 : 45; // pixels per keypress
+  switch (key) {
+    case "ArrowRight":
+      return panned(v, -step, 0);
+    case "ArrowLeft":
+      return panned(v, step, 0);
+    case "ArrowUp":
+      return panned(v, 0, step);
+    case "ArrowDown":
+      return panned(v, 0, -step);
+    case "+":
+    case "=":
+      return zoomedAt(v, 1.4, w / 2, h / 2, w, h);
+    case "-":
+    case "_":
+      return zoomedAt(v, 1 / 1.4, w / 2, h / 2, w, h);
+    case "0":
+    case "Home":
+      return { cx: 0, cy: 0, scale: 40 };
+    default:
+      return null;
+  }
+}
+
+export interface Bounds {
+  xmin: number;
+  xmax: number;
+  ymin: number;
+  ymax: number;
+}
+
+/** World-space bounding box of the finite plotted data across all visible
+ *  series (lines, points, areas, POIs). Whole-view fills (region shading,
+ *  direction fields) are ignored — they have no finite extent to frame. Null
+ *  when nothing plottable is present. */
+export function seriesBounds(series: DrawSeries[]): Bounds | null {
+  let xmin = Infinity;
+  let xmax = -Infinity;
+  let ymin = Infinity;
+  let ymax = -Infinity;
+  let any = false;
+  for (const s of series) {
+    if (!s.visible || s.kind === "region" || s.kind === "field") continue;
+    for (let i = 0; i < s.xs.length; i++) {
+      const x = s.xs[i];
+      const y = s.ys[i];
+      if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+      if (x < xmin) xmin = x;
+      if (x > xmax) xmax = x;
+      if (y < ymin) ymin = y;
+      if (y > ymax) ymax = y;
+      any = true;
+    }
+  }
+  return any ? { xmin, xmax, ymin, ymax } : null;
+}
+
+/** A view that frames `b` in a `w`×`h` canvas with a margin, keeping units
+ *  square (Desmos "zoom to fit"). A degenerate extent (single point, or a
+ *  purely horizontal/vertical set) expands to a sensible square window. */
+export function fitView(b: Bounds, w: number, h: number, marginFrac = 0.08): View {
+  const cx = (b.xmin + b.xmax) / 2;
+  const cy = (b.ymin + b.ymax) / 2;
+  let dx = b.xmax - b.xmin;
+  let dy = b.ymax - b.ymin;
+  if (!(dx > 0) && !(dy > 0)) {
+    dx = 2;
+    dy = 2; // single point → ±1 window
+  } else if (!(dx > 0)) {
+    dx = dy; // vertical extent → keep it square
+  } else if (!(dy > 0)) {
+    dy = dx; // horizontal extent → keep it square
+  }
+  const usableW = Math.max(1, w) * (1 - 2 * marginFrac);
+  const usableH = Math.max(1, h) * (1 - 2 * marginFrac);
+  const scale = clampScale(Math.min(usableW / dx, usableH / dy));
+  return { cx, cy, scale };
 }
 
 /** A "nice" step (1, 2 or 5 × 10^k) giving about `target` ticks over `range`. */

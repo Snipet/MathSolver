@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <format>
 #include <optional>
 #include <set>
 #include <string>
@@ -24,6 +25,7 @@
 #include "mathsolver/errors.hpp"
 #include "mathsolver/evaluator.hpp"
 #include "mathsolver/parser.hpp"
+#include "mathsolver/printer.hpp"
 #include "mathsolver/simplify.hpp"
 
 namespace mathsolver {
@@ -387,6 +389,227 @@ FitResult fit(const std::vector<std::string>& xs, const std::vector<std::string>
     return fit_linearized(xc, yc, model, variable);
 }
 
+InterpResult interp(const std::vector<std::string>& xs, const std::vector<std::string>& ys,
+                    std::string_view variable) {
+    InterpResult R;
+    R.variable = std::string(variable);
+    if (xs.size() != ys.size()) {
+        R.message = "x and y must have the same number of values";
+        return R;
+    }
+    if (xs.empty()) {
+        R.message = "need at least 1 data point";
+        return R;
+    }
+    const int n = static_cast<int>(xs.size());
+    R.n = n;
+
+    std::vector<Coord> xc;
+    std::vector<Coord> yc;
+    for (int i = 0; i < n; ++i) {
+        auto cx = parse_coord(xs[i]);
+        auto cy = parse_coord(ys[i]);
+        if (!cx) {
+            R.message = "could not read x value '" + xs[i] + "'";
+            return R;
+        }
+        if (!cy) {
+            R.message = "could not read y value '" + ys[i] + "'";
+            return R;
+        }
+        xc.push_back(*cx);
+        yc.push_back(*cy);
+    }
+    std::set<double> distinct;
+    for (const Coord& c : xc) distinct.insert(c.value);
+    if (static_cast<int>(distinct.size()) < n) {
+        R.message = "x values must be distinct";
+        return R;
+    }
+
+    const bool all_rational = std::ranges::all_of(xc, [](const Coord& c) { return c.has_exact; }) &&
+                              std::ranges::all_of(yc, [](const Coord& c) { return c.has_exact; });
+
+    // Solve the n×n Vandermonde system  Σ c_j · x_i^j = y_i  for c_0..c_{n-1}.
+    std::vector<Expr> coeffs;
+    int deg = 0;
+    if (all_rational) {
+        try {
+            std::vector<std::vector<Rational>> A(n, std::vector<Rational>(n, Rational(0)));
+            std::vector<Rational> b(n);
+            for (int i = 0; i < n; ++i) {
+                Rational p(1);
+                for (int j = 0; j < n; ++j) {
+                    A[i][j] = p;
+                    p = p * xc[i].exact;
+                }
+                b[i] = yc[i].exact;
+            }
+            if (auto sol = gauss_solve<Rational>(A, b)) {
+                for (int k = 0; k < n; ++k)
+                    if (!(*sol)[k].is_zero()) deg = k;
+                for (const Rational& c : *sol) coeffs.push_back(make_num(c));
+                R.exact = true;
+            }
+        } catch (const OverflowError&) {
+            coeffs.clear();
+            R.exact = false;
+        }
+    }
+    if (coeffs.empty()) {
+        // Numeric fallback (non-rational data, or exact overflow).
+        std::vector<std::vector<double>> A(n, std::vector<double>(n, 0.0));
+        std::vector<double> b(n);
+        double scale = 0.0;
+        for (int i = 0; i < n; ++i) {
+            double p = 1.0;
+            for (int j = 0; j < n; ++j) {
+                A[i][j] = p;
+                p *= xc[i].value;
+            }
+            b[i] = yc[i].value;
+            scale = std::max(scale, std::fabs(yc[i].value));
+        }
+        auto sol = gauss_solve<double>(A, b);
+        if (!sol) {
+            R.message = "interpolation failed (ill-conditioned system)";
+            return R;
+        }
+        const double tol = 1e-9 * std::max(1.0, scale);
+        for (int k = 0; k < n; ++k)
+            if (std::fabs((*sol)[k]) > tol) deg = k;
+        for (double c : *sol) coeffs.push_back(num_expr(c));
+    }
+
+    R.degree = deg;
+    R.expr = poly_expr(coeffs, variable); // simplify drops zero high-order terms
+    R.status = InterpResult::Status::Ok;
+    return R;
+}
+
+InterpFormResult interp_form(const std::vector<std::string>& xs,
+                             const std::vector<std::string>& ys,
+                             std::string_view variable, InterpForm form) {
+    InterpFormResult R;
+    R.variable = std::string(variable);
+    if (xs.size() != ys.size()) {
+        R.message = "x and y must have the same number of values";
+        return R;
+    }
+    if (xs.empty()) {
+        R.message = "need at least 1 data point";
+        return R;
+    }
+    const int n = static_cast<int>(xs.size());
+    R.n = n;
+
+    std::vector<Coord> xc;
+    std::vector<Coord> yc;
+    for (int i = 0; i < n; ++i) {
+        auto cx = parse_coord(xs[i]);
+        auto cy = parse_coord(ys[i]);
+        if (!cx) {
+            R.message = "could not read x value '" + xs[i] + "'";
+            return R;
+        }
+        if (!cy) {
+            R.message = "could not read y value '" + ys[i] + "'";
+            return R;
+        }
+        xc.push_back(*cx);
+        yc.push_back(*cy);
+    }
+    std::set<double> distinct;
+    for (const Coord& c : xc) distinct.insert(c.value);
+    if (static_cast<int>(distinct.size()) < n) {
+        R.message = "x values must be distinct";
+        return R;
+    }
+
+    const bool all_rational = std::ranges::all_of(xc, [](const Coord& c) { return c.has_exact; }) &&
+                              std::ranges::all_of(yc, [](const Coord& c) { return c.has_exact; });
+    bool use_exact = all_rational;
+    const Expr x = make_sym(std::string(variable));
+    auto cexpr = [&](const Coord& c) { return c.has_exact ? make_num(c.exact) : num_expr(c.value); };
+
+    // The constant coefficients (divided differences for Newton, weights for
+    // Lagrange), computed exactly over the rationals when possible.
+    std::vector<Expr> coef(n);
+    std::string coef_label;
+    if (form == InterpForm::Newton) {
+        coef_label = "c";
+        if (use_exact) {
+            try {
+                std::vector<Rational> d(n);
+                for (int i = 0; i < n; ++i) d[i] = yc[i].exact;
+                for (int j = 1; j < n; ++j)
+                    for (int i = n - 1; i >= j; --i)
+                        d[i] = (d[i] - d[i - 1]) / (xc[i].exact - xc[i - j].exact);
+                for (int k = 0; k < n; ++k) coef[k] = make_num(d[k]);
+            } catch (const OverflowError&) {
+                use_exact = false;
+            }
+        }
+        if (!use_exact) {
+            std::vector<double> d(n);
+            for (int i = 0; i < n; ++i) d[i] = yc[i].value;
+            for (int j = 1; j < n; ++j)
+                for (int i = n - 1; i >= j; --i)
+                    d[i] = (d[i] - d[i - 1]) / (xc[i].value - xc[i - j].value);
+            for (int k = 0; k < n; ++k) coef[k] = num_expr(d[k]);
+        }
+    } else {
+        coef_label = "w";
+        if (use_exact) {
+            try {
+                for (int i = 0; i < n; ++i) {
+                    Rational den(1);
+                    for (int j = 0; j < n; ++j)
+                        if (j != i) den = den * (xc[i].exact - xc[j].exact);
+                    coef[i] = make_num(yc[i].exact / den);
+                }
+            } catch (const OverflowError&) {
+                use_exact = false;
+            }
+        }
+        if (!use_exact) {
+            for (int i = 0; i < n; ++i) {
+                double den = 1.0;
+                for (int j = 0; j < n; ++j)
+                    if (j != i) den *= (xc[i].value - xc[j].value);
+                coef[i] = num_expr(yc[i].value / den);
+            }
+        }
+    }
+    R.exact = use_exact;
+
+    std::vector<Expr> terms;
+    if (form == InterpForm::Newton) {
+        // c₀ + c₁(x−x₀) + c₂(x−x₀)(x−x₁) + …
+        Expr prod = make_num(1);
+        for (int k = 0; k < n; ++k) {
+            terms.push_back(k == 0 ? coef[0] : make_mul({coef[k], prod}));
+            prod = make_mul({prod, simplify(make_sub(x, cexpr(xc[k])))});
+        }
+    } else {
+        // Σ wᵢ · Π_{j≠i}(x − xⱼ)
+        for (int i = 0; i < n; ++i) {
+            std::vector<Expr> factors{coef[i]};
+            for (int j = 0; j < n; ++j)
+                if (j != i) factors.push_back(simplify(make_sub(x, cexpr(xc[j]))));
+            terms.push_back(make_mul(factors));
+        }
+    }
+    // simplify tidies each term's canonical form but never distributes the
+    // products, so the factored construction stays visible.
+    R.expr = simplify(make_add(terms));
+    for (int k = 0; k < n; ++k)
+        R.notes.push_back(std::format("{}{} = {}", coef_label, k,
+                                      to_string(coef[k], PrintStyle::Plain)));
+    R.status = InterpFormResult::Status::Ok;
+    return R;
+}
+
 std::optional<std::pair<FitModel, int>> parse_fit_model(std::string_view name) {
     if (name == "linear") return std::pair{FitModel::Poly, 1};
     if (name == "quadratic" || name == "quad") return std::pair{FitModel::Poly, 2};
@@ -428,6 +651,29 @@ std::pair<std::vector<std::string>, std::vector<std::string>> parse_point_data(
     }
     flush(record);
     return {xs, ys};
+}
+
+VandermondeResult vandermonde_matrix(const std::vector<Expr>& nodes) {
+    VandermondeResult out;
+    const int n = static_cast<int>(nodes.size());
+    if (n < 1) {
+        out.status = VandermondeResult::Status::Empty;
+        out.message = "vandermonde: give at least one node";
+        return out;
+    }
+    // Row i is (1, x_i, x_i^2, …, x_i^{n-1}); x_i^0 = 1 even when x_i = 0.
+    std::vector<std::vector<Expr>> m(
+        static_cast<std::size_t>(n), std::vector<Expr>(static_cast<std::size_t>(n)));
+    for (int i = 0; i < n; ++i) {
+        const Expr xi = simplify(nodes[static_cast<std::size_t>(i)]);
+        for (int j = 0; j < n; ++j) {
+            m[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] =
+                j == 0 ? make_num(1) : simplify(make_pow(xi, make_num(static_cast<long long>(j))));
+        }
+    }
+    out.status = VandermondeResult::Status::Ok;
+    out.matrix = std::move(m);
+    return out;
 }
 
 } // namespace mathsolver

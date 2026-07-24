@@ -162,6 +162,50 @@ PolyGcdResult polynomial_resultant(const Expr& a, const Expr& b, std::string_vie
     return out;
 }
 
+PolyBezoutResult polynomial_bezout(const Expr& a, const Expr& b, std::string_view var) {
+    PolyBezoutResult out;
+    if (!polynomial_coefficients(simplify(a), var) ||
+        !polynomial_coefficients(simplify(b), var)) {
+        out.status = PolyBezoutResult::Status::NotPolynomial;
+        out.message = "bezout: both arguments must be polynomials in the variable";
+        return out;
+    }
+    // Extended Euclidean algorithm. Invariant: s_i·a + t_i·b = r_i throughout,
+    // so when r reaches the gcd its (s, t) are the Bézout cofactors.
+    Expr r0 = simplify(a), r1 = simplify(b);
+    Expr s0 = make_num(1), s1 = make_num(0);
+    Expr t0 = make_num(0), t1 = make_num(1);
+    // Degree strictly drops each step, so the loop terminates; the cap is a
+    // safety net against a division that fails to reduce.
+    for (int guard = 0; !is_zero_poly(r1, var) && guard < 4096; ++guard) {
+        const PolyDivResult d = polynomial_divide(r0, r1, var);
+        if (d.status != PolyDivResult::Status::Ok) break;
+        const Expr q = d.quotient;
+        Expr r2 = simplify(d.remainder);
+        Expr s2 = simplify(make_sub(s0, make_mul({q, s1})));
+        Expr t2 = simplify(make_sub(t0, make_mul({q, t1})));
+        r0 = r1; r1 = r2;
+        s0 = s1; s1 = s2;
+        t0 = t1; t1 = t2;
+    }
+
+    out.status = PolyBezoutResult::Status::Ok;
+    if (is_zero_poly(r0, var)) { // a = b = 0
+        out.gcd = make_num(0);
+        out.s = make_num(0);
+        out.t = make_num(0);
+        return out;
+    }
+    // Normalize to a monic gcd, scaling the cofactors by the same leading factor.
+    const auto co = polynomial_coefficients(simplify(r0), var);
+    const int deg = co ? effective_degree(*co) : -1;
+    const Expr lead = (deg >= 0) ? (*co)[deg] : make_num(1);
+    out.gcd = simplify(make_div(r0, lead));
+    out.s = simplify(make_div(s0, lead));
+    out.t = simplify(make_div(t0, lead));
+    return out;
+}
+
 PolyGcdResult polynomial_lcm(const Expr& a, const Expr& b, std::string_view var) {
     const PolyGcdResult g = polynomial_gcd(a, b, var);
     if (g.status != PolyGcdResult::Status::Ok) return g;
@@ -175,6 +219,40 @@ PolyGcdResult polynomial_lcm(const Expr& a, const Expr& b, std::string_view var)
     const PolyDivResult q =
         polynomial_divide(simplify(make_mul({a, b})), g.value, var);
     out.value = monic(q.quotient, var);
+    return out;
+}
+
+CompanionResult companion_matrix(const Expr& poly, std::string_view var) {
+    CompanionResult out;
+    const auto co = polynomial_coefficients(simplify(poly), var);
+    if (!co) {
+        out.status = CompanionResult::Status::NotPolynomial;
+        out.message = "companion: input must be a polynomial in the variable";
+        return out;
+    }
+    const int n = effective_degree(*co);
+    if (n < 1) {
+        out.status = CompanionResult::Status::DegreeTooLow;
+        out.message = "companion: polynomial must have degree ≥ 1";
+        return out;
+    }
+    const Expr lead = (*co)[n];  // nonzero by construction of effective_degree
+
+    // n×n, top row = (-a_{n-1}, ..., -a_1, -a_0) with a_k = c[k]/lead,
+    // first subdiagonal all ones, everything else zero.
+    std::vector<std::vector<Expr>> m(
+        static_cast<std::size_t>(n), std::vector<Expr>(static_cast<std::size_t>(n), make_num(0)));
+    for (int j = 0; j < n; ++j) {
+        const Expr coeff = (*co)[n - 1 - j];
+        m[0][static_cast<std::size_t>(j)] =
+            simplify(make_neg(make_div(coeff, lead)));
+    }
+    for (int i = 1; i < n; ++i) {
+        m[static_cast<std::size_t>(i)][static_cast<std::size_t>(i - 1)] = make_num(1);
+    }
+
+    out.status = CompanionResult::Status::Ok;
+    out.matrix = std::move(m);
     return out;
 }
 

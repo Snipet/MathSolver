@@ -9,10 +9,11 @@
 //
 // The REPL additionally keeps a session environment of `name := value`
 // assignments (docs/proposals/variable-assignment.md; contract condensed in
-// DESIGN.md §10). The environment is pure application state: the engine and
-// the one-shot subcommands know nothing about it, and applying it means
-// composing the existing substitute() primitive over each computing verb's
-// input.
+// DESIGN.md §10). The environment is not part of the engine: it lives in the
+// script layer (include/mathsolver/script/, DESIGN.md §13), which links the
+// engine and is never linked back. Applying it means composing the existing
+// substitute() primitive over each computing verb's input, so the one-shot
+// subcommands stay stateless by construction.
 
 #include <algorithm>
 #include <cctype>
@@ -28,10 +29,12 @@
 #include <vector>
 
 #include "mathsolver/mathsolver.hpp"
+#include "mathsolver/script/script.hpp"
 
 namespace {
 
 using namespace mathsolver;
+using namespace mathsolver::script;
 
 constexpr int k_exit_ok = 0;
 constexpr int k_exit_error = 1;  // parse/math errors
@@ -41,10 +44,9 @@ constexpr int k_exit_usage = 2;  // usage errors
 // Small helpers
 // ---------------------------------------------------------------------------
 
-/// Usage problem (bad flags, malformed bindings, ambiguous variable, ...).
-struct UsageError {
-    std::string message;
-};
+// UsageError (bad flags, malformed bindings, ambiguous variable, ...) and
+// trim() come from the script layer, which both this CLI and every other
+// surface share.
 
 /// A ParseError together with the exact source string it points into, so the
 /// caret diagnostic can be rendered at any catch site.
@@ -52,18 +54,6 @@ struct DiagnosedParseError {
     std::string source;
     ParseError error;
 };
-
-std::string trim(std::string_view s) {
-    std::size_t b = 0;
-    std::size_t e = s.size();
-    while (b < e && std::isspace(static_cast<unsigned char>(s[b])) != 0) {
-        ++b;
-    }
-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1])) != 0) {
-        --e;
-    }
-    return std::string(s.substr(b, e - b));
-}
 
 /// Render the §4 caret diagnostic:
 ///     error: unknown command '\fraq'
@@ -234,11 +224,7 @@ std::string choose_variable(const std::string& explicit_var,
         what, symbols.size(), list)};
 }
 
-std::set<std::string> equation_symbols(const Equation& eq) {
-    std::set<std::string> syms = free_symbols(eq.lhs);
-    syms.merge(free_symbols(eq.rhs));
-    return syms;
-}
+// equation_symbols() comes from the script layer (script/value.hpp).
 
 // ---------------------------------------------------------------------------
 // Command implementations (shared between one-shot mode and the REPL)
@@ -314,8 +300,9 @@ void run_factor(const std::string& input, PrintStyle style) {
         // A bare integer factors into primes (2^3 · 3^2 · 5) rather than
         // echoing itself, the way the polynomial factorer would.
         const Expr s = simplify(e);
-        if (s->kind() == Kind::Number && s->number().is_integer()) {
-            const long long n = s->number().num();
+        if (s->kind() == Kind::Number && s->number().is_integer() &&
+            s->number().num().fits_ll()) {
+            const long long n = s->number().num().to_ll();
             if (n == 0 || n == 1 || n == -1) {
                 std::println("{}", n);
             } else {
@@ -398,6 +385,56 @@ void run_diff(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(differentiate(e, var), style));
 }
 
+/// Which operation `steps` works out. Derivatives are the default (so a bare
+/// `steps <expr>` keeps working); an explicit leading `diff`/`integrate` word
+/// selects the operation. `solve` follows in a later phase.
+enum class StepsOp { Derivative, Integral };
+
+/// Split an optional leading `diff `/`integrate ` operation word off the input.
+/// Defaults to the derivative when no keyword is present (backward compatible).
+std::pair<StepsOp, std::string> split_steps_op(const std::string& input) {
+    const auto strip = [&](std::string_view kw) -> std::optional<std::string> {
+        if (input.size() <= kw.size() || input.compare(0, kw.size(), kw) != 0) return std::nullopt;
+        if (std::isspace(static_cast<unsigned char>(input[kw.size()])) == 0) return std::nullopt;
+        std::size_t i = kw.size();
+        while (i < input.size() && std::isspace(static_cast<unsigned char>(input[i])) != 0) ++i;
+        return input.substr(i);
+    };
+    if (auto rest = strip("integrate")) return {StepsOp::Integral, *rest};
+    if (auto rest = strip("diff")) return {StepsOp::Derivative, *rest};
+    return {StepsOp::Derivative, input};
+}
+
+/// `steps`: a worked, rule-by-rule solution — one numbered line per rule
+/// applied (innermost first), then the final result. `steps <expr>` (or the
+/// explicit `steps diff <expr>`) works a derivative; `steps integrate <expr>`
+/// works an indefinite integral. Same variable-selection rules as diff/integrate.
+void run_steps(StepsOp op, const std::string& input, const std::string& explicit_var,
+               PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "steps");
+    Explanation ex;
+    if (op == StepsOp::Integral) {
+        // An integral with no elementary form is an honest answer (like the
+        // `integrate` verb), not an error: report it and exit cleanly.
+        try {
+            ex = explain_integral(e, var);
+        } catch (const Error&) {
+            std::println("unable to integrate");
+            return;
+        }
+    } else {
+        ex = explain_derivative(e, var);
+    }
+    int i = 1;
+    for (const ExplainStep& s : ex.steps) {
+        std::println("{}. [{}] {}", i++, s.rule, style == PrintStyle::LaTeX ? s.latex : s.plain);
+    }
+    const std::string result = style == PrintStyle::LaTeX ? ex.result_latex : ex.result_plain;
+    // An indefinite integral carries the implicit constant of integration.
+    std::println("result: {}{}", result, op == StepsOp::Integral ? " + C" : "");
+}
+
 /// `laplace` maps f(t) -> F(s); the time variable defaults to t and may be
 /// given explicitly (any name but s). Errors from the transform (e.g. no rule
 /// for the input) propagate as normal Error diagnostics.
@@ -468,6 +505,47 @@ void run_fit(const std::string& input, const std::string& model_text,
     std::println("R^2: {:.6g}", r.r2);
 }
 
+/// `interp`: exact polynomial interpolation of "x,y; x,y; ..." data — the
+/// unique polynomial through the points (degree ≤ n−1), exact over the
+/// rationals. Prints the polynomial, then a `degree:` note.
+void run_interp(const std::string& input, PrintStyle style) {
+    auto [xs, ys] = parse_point_data(input);
+    const InterpResult r = interp(xs, ys, "x");
+    if (r.status != InterpResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", to_string(r.expr, style));
+    std::println("degree: {}{}", r.degree, r.exact ? " (exact)" : "");
+}
+
+/// `newton`/`lagrange`: the interpolating polynomial through the points, kept
+/// in its factored construction form rather than expanded.
+void run_interp_form(const std::string& input, InterpForm form, PrintStyle style) {
+    auto [xs, ys] = parse_point_data(input);
+    const InterpFormResult r = interp_form(xs, ys, "x", form);
+    if (r.status != InterpFormResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", to_string(r.expr, style));
+    for (const std::string& note : r.notes) std::println("  {}", note);
+}
+
+/// `chebyshev`/`legendre`/`hermite`/`laguerre`: the exact degree-n orthogonal
+/// polynomial of the family in the given variable (default `x`).
+void run_orthopoly(OrthoFamily fam, const std::string& n_text,
+                   const std::string& var_text, PrintStyle style) {
+    const std::string nt = trim(n_text);
+    int n = 0;
+    try {
+        std::size_t pos = 0;
+        n = std::stoi(nt, &pos);
+        if (pos != nt.size()) throw std::invalid_argument("trailing");
+    } catch (const std::exception&) {
+        throw UsageError{std::format("expected an integer degree, got '{}'", n_text)};
+    }
+    const std::string var = var_text.empty() ? "x" : trim(var_text);
+    const OrthoPolyResult r = ortho_poly(fam, n, var);
+    if (r.status != OrthoPolyResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", to_string(r.expr, style));
+    std::println("{}, degree {}", r.family, r.degree);
+}
+
 /// `stats`: exact summary statistics of a data list (mean, median, quartiles,
 /// spread). Each statistic prints as `label = value`; values are exact
 /// (fractions / radicals) when the data are rational.
@@ -478,6 +556,30 @@ void run_stats(const std::string& input, PrintStyle style) {
     for (const StatItem& s : r.items) {
         std::println("{} = {}", s.label, to_string(s.value, style));
     }
+}
+
+/// `vandermonde`: the square Vandermonde matrix of a comma-separated node list.
+void run_vandermonde(const std::string& input, PrintStyle style) {
+    // Split on top-level commas/semicolons (respecting parens) so a node may be
+    // any scalar expression, e.g. `1/2, a + 1, x^2`.
+    std::vector<Expr> nodes;
+    std::string cur;
+    int depth = 0;
+    auto flush = [&]() {
+        const std::string t = trim(cur);
+        if (!t.empty()) nodes.push_back(parse_expression_diag(t));
+        cur.clear();
+    };
+    for (char ch : input) {
+        if (ch == '(' || ch == '[' || ch == '{') depth++;
+        else if (ch == ')' || ch == ']' || ch == '}') depth = depth > 0 ? depth - 1 : 0;
+        if ((ch == ',' || ch == ';') && depth == 0) flush();
+        else cur.push_back(ch);
+    }
+    flush();
+    const VandermondeResult r = vandermonde_matrix(nodes);
+    if (r.status != VandermondeResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", mat_to_string(r.matrix, style));
 }
 
 /// `polydiv`: polynomial long division, printing the quotient and remainder.
@@ -518,6 +620,33 @@ void run_resultant(const std::string& a, const std::string& b,
     const PolyGcdResult r = polynomial_resultant(ea, eb, var);
     if (r.status != PolyGcdResult::Status::Ok) throw UsageError{r.message};
     std::println("{}", to_string(r.value, style));
+}
+
+/// `bezout`: the monic gcd of two polynomials plus the Bézout cofactors s, t
+/// with s·a + t·b = gcd.
+void run_bezout(const std::string& a, const std::string& b,
+                const std::string& explicit_var, PrintStyle style) {
+    const Expr ea = parse_expression_diag(a);
+    const Expr eb = parse_expression_diag(b);
+    std::set<std::string> syms = free_symbols(ea);
+    for (const std::string& s : free_symbols(eb)) syms.insert(s);
+    const std::string var = choose_variable(explicit_var, syms, "bezout");
+    const PolyBezoutResult r = polynomial_bezout(ea, eb, var);
+    if (r.status != PolyBezoutResult::Status::Ok) throw UsageError{r.message};
+    std::println("gcd: {}", to_string(r.gcd, style));
+    std::println("s: {}", to_string(r.s, style));
+    std::println("t: {}", to_string(r.t, style));
+}
+
+/// `companion`: the companion matrix of a univariate polynomial (MATLAB
+/// `compan` orientation), whose eigenvalues are the polynomial's roots.
+void run_companion(const std::string& input, const std::string& explicit_var,
+                   PrintStyle style) {
+    const Expr e = parse_expression_diag(input);
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "companion");
+    const CompanionResult r = companion_matrix(e, var);
+    if (r.status != CompanionResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", mat_to_string(r.matrix, style));
 }
 
 /// `discriminant`: the discriminant of a polynomial (degree 2–4), symbolic
@@ -581,6 +710,77 @@ void run_pade(const std::string& input, const std::string& m_text,
     std::println("{}", to_string(pade(e, var, m, n).approximant, style));
 }
 
+/// Reduce `lhs = rhs` to the polynomial `(lhs) - (rhs)` so root verbs accept an
+/// equation; a bare expression (roots of expr = 0) is returned unchanged.
+std::string equation_to_poly(const std::string& input) {
+    for (std::size_t i = 0; i < input.size(); ++i) {
+        if (input[i] != '=') continue;
+        const char prev = i > 0 ? input[i - 1] : '\0';
+        const char next = i + 1 < input.size() ? input[i + 1] : '\0';
+        if (prev != '<' && prev != '>' && prev != '!' && prev != '=' && next != '=') {
+            return "(" + input.substr(0, i) + ") - (" + input.substr(i + 1) + ")";
+        }
+    }
+    return input;
+}
+
+Rational bound_rational(const std::string& text) {
+    const Expr s = simplify(parse_expression_diag(text));
+    if (s->kind() != Kind::Number) {
+        throw UsageError{
+            std::format("bound must be a rational number, got '{}'", text)};
+    }
+    return s->number();
+}
+
+/// `rootcount`: the number of distinct real roots of a rational-coefficient
+/// polynomial (Sturm's theorem), over all of R or a given (lo, hi] interval.
+void run_rootcount(const std::string& input, const std::string& explicit_var,
+                   const std::string& lo_text, const std::string& hi_text) {
+    const Expr e = parse_expression_diag(equation_to_poly(input));
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "rootcount");
+    std::optional<Rational> lo, hi;
+    if (!lo_text.empty() || !hi_text.empty()) {
+        if (lo_text.empty() || hi_text.empty()) {
+            throw UsageError{"give both interval bounds: rootcount <poly>, <var>, <lo>, <hi>"};
+        }
+        lo = bound_rational(lo_text);
+        hi = bound_rational(hi_text);
+    }
+    const int n = sturm_root_count(e, var, lo, hi);
+    const char* noun = n == 1 ? "root" : "roots";
+    if (lo && hi) {
+        std::println("{} distinct real {} in ({}, {}]", n, noun, lo->to_string(),
+                     hi->to_string());
+    } else {
+        std::println("{} distinct real {}", n, noun);
+    }
+}
+
+/// `isolate`: a disjoint rational interval around every distinct real root
+/// (exact rationals reported exactly), with a numeric approximation.
+void run_isolate(const std::string& input, const std::string& explicit_var,
+                 PrintStyle style) {
+    const Expr e = parse_expression_diag(equation_to_poly(input));
+    const std::string var = choose_variable(explicit_var, free_symbols(e), "isolate");
+    const std::vector<RootInterval> roots = sturm_isolate_roots(e, var);
+    std::println("{} distinct real {}{}", roots.size(),
+                 roots.size() == 1 ? "root" : "roots", roots.empty() ? "" : ":");
+    for (const RootInterval& r : roots) {
+        if (r.exact) {
+            const std::string val = to_string(make_num(r.lo), style);
+            if (r.lo.is_integer()) {
+                std::println("  {} = {}", var, val);
+            } else {
+                std::println("  {} = {}  (≈ {:.10g})", var, val, r.approx);
+            }
+        } else {
+            std::println("  {} ≈ {:.10g}   in ({:.10g}, {:.10g})", var, r.approx,
+                         r.lo.to_double(), r.hi.to_double());
+        }
+    }
+}
+
 /// `stirling`: the Stirling asymptotic series for ln Gamma(var) with exact
 /// Bernoulli coefficients; the lgamma accuracy check prints as notes.
 void run_stirling(const std::string& var_text, const std::string& terms_text,
@@ -623,7 +823,10 @@ long long parse_integer_arg(const std::string& text, std::string_view verb) {
         throw UsageError{
             std::format("{}: expected an integer, got '{}'", verb, trim(text))};
     }
-    return e->number().num();
+    if (!e->number().num().fits_ll()) {
+        throw UsageError{std::format("{}: integer '{}' is out of range", verb, trim(text))};
+    }
+    return e->number().num().to_ll();
 }
 
 /// Split a number-theory argument blob on commas / semicolons / whitespace
@@ -673,6 +876,121 @@ void run_totient(const std::string& input) {
     if (v.size() != 1) throw UsageError{"totient takes a single integer"};
     if (v[0] < 1) throw UsageError{"totient is defined for positive integers"};
     std::println("{}", euler_totient(v[0]));
+}
+
+/// `sigma`: the divisor function σ_k(n) — sum of the k-th powers of divisors
+/// (default k = 1, the sum of divisors). Usage: `sigma n[, k]`.
+void run_sigma(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "sigma");
+    if (v.empty() || v.size() > 2) throw UsageError{"usage: sigma <n>[, <k>]"};
+    if (v[0] < 1) throw UsageError{"sigma is defined for positive integers"};
+    const long long k = v.size() == 2 ? v[1] : 1;
+    if (k < 0) throw UsageError{"sigma exponent must be non-negative"};
+    std::println("{}", divisor_sigma(v[0], static_cast<int>(k)));
+}
+
+/// `mobius`: the Möbius function μ of a single positive integer.
+void run_mobius(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "mobius");
+    if (v.size() != 1) throw UsageError{"mobius takes a single integer"};
+    if (v[0] < 1) throw UsageError{"mobius is defined for positive integers"};
+    std::println("{}", mobius(v[0]));
+}
+
+/// `partitions`: the integer partition function p(n) of a single n >= 0.
+void run_partitions(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "partitions");
+    if (v.size() != 1) throw UsageError{"partitions takes a single integer"};
+    if (v[0] < 0) throw UsageError{"partitions is defined for n >= 0"};
+    std::println("{}", partition_count(v[0]).to_string());
+}
+
+/// `catalan`: the n-th Catalan number for a single n >= 0.
+void run_catalan(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "catalan");
+    if (v.size() != 1) throw UsageError{"catalan takes a single integer"};
+    if (v[0] < 0) throw UsageError{"catalan is defined for n >= 0"};
+    std::println("{}", catalan_number(v[0]).to_string());
+}
+
+/// `stirling2`: the Stirling number of the second kind S(n, k).
+void run_stirling2(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "stirling2");
+    if (v.size() != 2) throw UsageError{"usage: stirling2 <n>, <k>"};
+    if (v[0] < 0 || v[1] < 0) throw UsageError{"stirling2 is defined for n, k >= 0"};
+    std::println("{}", stirling_second(v[0], v[1]).to_string());
+}
+
+/// `bell`: the n-th Bell number B(n) for a single n >= 0.
+void run_bell(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "bell");
+    if (v.size() != 1) throw UsageError{"bell takes a single integer"};
+    if (v[0] < 0) throw UsageError{"bell is defined for n >= 0"};
+    std::println("{}", bell_number(v[0]).to_string());
+}
+
+/// `derangement`: the n-th derangement (subfactorial !n) for a single n >= 0.
+void run_derangement(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "derangement");
+    if (v.size() != 1) throw UsageError{"derangement takes a single integer"};
+    if (v[0] < 0) throw UsageError{"derangement is defined for n >= 0"};
+    std::println("{}", derangement_count(v[0]).to_string());
+}
+
+/// `lucas`: the n-th Lucas number L(n) for a single n >= 0.
+void run_lucas(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "lucas");
+    if (v.size() != 1) throw UsageError{"lucas takes a single integer"};
+    if (v[0] < 0) throw UsageError{"lucas is defined for n >= 0"};
+    std::println("{}", lucas_number(v[0]).to_string());
+}
+
+/// `primorial`: the primorial n# (product of primes <= n) for a single n >= 0.
+void run_primorial(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "primorial");
+    if (v.size() != 1) throw UsageError{"primorial takes a single integer"};
+    if (v[0] < 0) throw UsageError{"primorial is defined for n >= 0"};
+    std::println("{}", primorial(v[0]).to_string());
+}
+
+/// `motzkin`: the n-th Motzkin number M(n) for a single n >= 0.
+void run_motzkin(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "motzkin");
+    if (v.size() != 1) throw UsageError{"motzkin takes a single integer"};
+    if (v[0] < 0) throw UsageError{"motzkin is defined for n >= 0"};
+    std::println("{}", motzkin_number(v[0]).to_string());
+}
+
+/// `euler`: the n-th Euler (secant) number E(n) for a single n >= 0.
+void run_euler(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "euler");
+    if (v.size() != 1) throw UsageError{"euler takes a single integer"};
+    if (v[0] < 0) throw UsageError{"euler is defined for n >= 0"};
+    std::println("{}", euler_number(v[0]).to_string());
+}
+
+/// `tribonacci`: the n-th tribonacci number T(n) for a single n >= 0.
+void run_tribonacci(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "tribonacci");
+    if (v.size() != 1) throw UsageError{"tribonacci takes a single integer"};
+    if (v[0] < 0) throw UsageError{"tribonacci is defined for n >= 0"};
+    std::println("{}", tribonacci_number(v[0]).to_string());
+}
+
+/// `pell`: the n-th Pell number P(n) for a single n >= 0.
+void run_pell(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "pell");
+    if (v.size() != 1) throw UsageError{"pell takes a single integer"};
+    if (v[0] < 0) throw UsageError{"pell is defined for n >= 0"};
+    std::println("{}", pell_number(v[0]).to_string());
+}
+
+/// `bernoulli`: the n-th Bernoulli number B_n (exact rational, 0 <= n <= 20).
+void run_bernoulli(const std::string& input, PrintStyle style) {
+    const std::vector<long long> v = parse_integer_list(input, "bernoulli");
+    if (v.size() != 1) throw UsageError{"bernoulli takes a single integer"};
+    if (v[0] < 0 || v[0] > 20) throw UsageError{"bernoulli: the index must be in [0, 20]"};
+    std::println("{}", to_string(make_num(bernoulli_number(static_cast<int>(v[0]))), style));
 }
 
 /// `divisors`: all positive divisors of a single non-zero integer, ascending.
@@ -728,15 +1046,17 @@ CFrac cfrac_of(const Expr& e) {
     const Expr s = simplify(e);
     if (s->kind() == Kind::Number) {
         const Rational r = s->number();
-        return cf_rational(r.num(), r.den());
+        if (r.num().fits_ll() && r.den().fits_ll()) {
+            return cf_rational(r.num().to_ll(), r.den().to_ll());
+        }
     }
     if (s->kind() == Kind::Pow) {
         const Expr& base = s->arg(0);
         const Expr& exp = s->arg(1);
         if (base->kind() == Kind::Number && base->number().is_integer() &&
-            base->number().num() >= 1 && exp->kind() == Kind::Number &&
-            exp->number() == Rational(1, 2)) {
-            return cf_sqrt(base->number().num());
+            base->number().num() >= 1 && base->number().num().fits_ll() &&
+            exp->kind() == Kind::Number && exp->number() == Rational(1, 2)) {
+            return cf_sqrt(base->number().num().to_ll());
         }
     }
     return cf_numeric(evaluate(s, Bindings{}));
@@ -1451,6 +1771,7 @@ void print_usage(std::FILE* out) {
                "  mathsolver dsolve   \"y'' + y = sin(t), y(0)=0, y'(0)=0\"\n"
                "  mathsolver series   \"sin(x)\" [x] [0] [5]\n"
                "  mathsolver pade     \"exp(x)\" 2 2\n"
+               "  mathsolver isolate  \"x^3 - x - 1\"\n"
                "  mathsolver fit      \"0,0; 1,1; 2,4\" quadratic\n"
                "  mathsolver stats    \"1, 2, 3, 4, 5\"\n"
                "  mathsolver stirling x [3]\n"
@@ -1493,21 +1814,31 @@ void print_usage(std::FILE* out) {
 bool is_known_subcommand(std::string_view s) {
     return s == "simplify" || s == "expand" || s == "factor" || s == "cancel" ||
            s == "together" ||
-           s == "solve" || s == "diff" || s == "integrate" || s == "eval" ||
+           s == "solve" || s == "diff" || s == "steps" || s == "integrate" || s == "eval" ||
            s == "latex" || s == "subs" || s == "collect" || s == "laplace" ||
            s == "ilaplace" ||
            s == "apart" || s == "dsolve" || s == "series" || s == "pade" ||
+           s == "rootcount" || s == "isolate" ||
            s == "grad" ||
            s == "div" || s == "curl" || s == "laplacian" || s == "jacobian" ||
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
            s == "rsolve" || s == "mlimit" || s == "stirling" ||
-           s == "seq" || s == "fit" || s == "regress" || s == "stats" ||
+           s == "seq" || s == "fit" || s == "regress" || s == "interp" ||
+           s == "newton" || s == "lagrange" ||
+           s == "vandermonde" || s == "stats" ||
+           s == "chebyshev" || s == "chebyu" || s == "legendre" ||
+           s == "hermite" || s == "laguerre" ||
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
-           s == "divisors" || s == "totient" || s == "cfrac" ||
+           s == "divisors" || s == "totient" || s == "sigma" || s == "mobius" ||
+           s == "partitions" || s == "catalan" || s == "bernoulli" ||
+           s == "stirling2" || s == "bell" || s == "derangement" ||
+           s == "lucas" || s == "primorial" || s == "motzkin" ||
+           s == "euler" || s == "tribonacci" || s == "pell" || s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
            s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
            s == "polydiv" || s == "polygcd" || s == "polylcm" ||
-           s == "resultant" || s == "logexpand" || s == "logcombine";
+           s == "resultant" || s == "bezout" || s == "companion" ||
+           s == "logexpand" || s == "logcombine";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1595,7 +1926,7 @@ int run_one_shot(const std::vector<std::string>& args) {
             const std::vector<std::string> vars(positionals.begin() + 1,
                                                 positionals.end());
             run_solve_system(input, vars, style);
-        } else if (sub == "solve" || sub == "diff" || sub == "integrate" ||
+        } else if (sub == "solve" || sub == "diff" || sub == "steps" || sub == "integrate" ||
                    sub == "collect" || sub == "laplace" || sub == "ilaplace" ||
                    sub == "apart" || sub == "cancel") {
             if (positionals.size() > 2) {
@@ -1608,6 +1939,9 @@ int run_one_shot(const std::vector<std::string>& args) {
                 run_solve(input, var, opts, style);
             } else if (sub == "diff") {
                 run_diff(input, var, style);
+            } else if (sub == "steps") {
+                const auto [op, cleaned] = split_steps_op(input);
+                run_steps(op, cleaned, var, style);
             } else if (sub == "collect") {
                 run_collect(input, var, style);
             } else if (sub == "apart") {
@@ -1664,6 +1998,24 @@ int run_one_shot(const std::vector<std::string>& args) {
             run_pade(input, positionals.size() > 1 ? positionals[1] : "",
                      positionals.size() > 2 ? positionals[2] : "",
                      positionals.size() > 3 ? positionals[3] : "", style);
+        } else if (sub == "rootcount") {
+            if (positionals.size() > 4) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver rootcount "
+                    "\"<poly>\" [var] [lo] [hi])",
+                    positionals[4])};
+            }
+            run_rootcount(input, positionals.size() > 1 ? positionals[1] : "",
+                          positionals.size() > 2 ? positionals[2] : "",
+                          positionals.size() > 3 ? positionals[3] : "");
+        } else if (sub == "isolate") {
+            if (positionals.size() > 2) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver isolate "
+                    "\"<poly>\" [var])",
+                    positionals[2])};
+            }
+            run_isolate(input, positionals.size() > 1 ? positionals[1] : "", style);
         } else if (sub == "fit" || sub == "regress") {
             if (positionals.size() > 3) {
                 throw UsageError{std::format(
@@ -1673,6 +2025,45 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_fit(input, positionals.size() > 1 ? positionals[1] : "",
                     positionals.size() > 2 ? positionals[2] : "", style);
+        } else if (sub == "interp") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the data in one quoted "
+                    "\"x,y; x,y; ...\" list)",
+                    positionals[1])};
+            }
+            run_interp(input, style);
+        } else if (sub == "newton" || sub == "lagrange") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the data in one quoted "
+                    "\"x,y; x,y; ...\" list)",
+                    positionals[1])};
+            }
+            run_interp_form(input, sub == "newton" ? InterpForm::Newton : InterpForm::Lagrange,
+                            style);
+        } else if (sub == "vandermonde") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the nodes in one quoted "
+                    "argument: mathsolver vandermonde \"1, 2, 3\")",
+                    positionals[1])};
+            }
+            run_vandermonde(input, style);
+        } else if (sub == "chebyshev" || sub == "chebyu" || sub == "legendre" ||
+                   sub == "hermite" || sub == "laguerre") {
+            if (positionals.size() > 2) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver {} <n> [var])",
+                    positionals[2], sub)};
+            }
+            const OrthoFamily fam = sub == "chebyshev" ? OrthoFamily::ChebyshevT
+                                    : sub == "chebyu"    ? OrthoFamily::ChebyshevU
+                                    : sub == "legendre"  ? OrthoFamily::Legendre
+                                    : sub == "hermite"   ? OrthoFamily::Hermite
+                                                         : OrthoFamily::Laguerre;
+            run_orthopoly(fam, input, positionals.size() > 1 ? positionals[1] : "",
+                          style);
         } else if (sub == "stats") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -1684,7 +2075,11 @@ int run_one_shot(const std::vector<std::string>& args) {
         } else if (sub == "seq") {
             run_seq(positionals, style);
         } else if (sub == "gcd" || sub == "lcm" || sub == "isprime" ||
-                   sub == "nextprime" || sub == "divisors" || sub == "totient") {
+                   sub == "nextprime" || sub == "divisors" || sub == "totient" ||
+                   sub == "mobius" || sub == "partitions" || sub == "catalan" ||
+                   sub == "bell" || sub == "derangement" || sub == "lucas" ||
+                   sub == "primorial" || sub == "motzkin" || sub == "euler" ||
+                   sub == "tribonacci" || sub == "pell") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (put the integers in one quoted "
@@ -1696,7 +2091,29 @@ int run_one_shot(const std::vector<std::string>& args) {
             else if (sub == "isprime") run_isprime(input);
             else if (sub == "nextprime") run_nextprime(input);
             else if (sub == "divisors") run_divisors(input);
+            else if (sub == "mobius") run_mobius(input);
+            else if (sub == "partitions") run_partitions(input);
+            else if (sub == "catalan") run_catalan(input);
+            else if (sub == "bell") run_bell(input);
+            else if (sub == "derangement") run_derangement(input);
+            else if (sub == "lucas") run_lucas(input);
+            else if (sub == "primorial") run_primorial(input);
+            else if (sub == "motzkin") run_motzkin(input);
+            else if (sub == "euler") run_euler(input);
+            else if (sub == "tribonacci") run_tribonacci(input);
+            else if (sub == "pell") run_pell(input);
             else run_totient(input);
+        } else if (sub == "stirling2") {
+            run_stirling2(input);
+        } else if (sub == "sigma") {
+            run_sigma(input);
+        } else if (sub == "bernoulli") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver bernoulli <n>)",
+                    positionals[1])};
+            }
+            run_bernoulli(input, style);
         } else if (sub == "cfrac") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -1748,6 +2165,12 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_resultant(positionals[0], positionals[1],
                           positionals.size() > 2 ? positionals[2] : "", style);
+        } else if (sub == "bezout") {
+            if (positionals.size() < 2 || positionals.size() > 3) {
+                throw UsageError{"usage: mathsolver bezout \"<a>\" \"<b>\" [var]"};
+            }
+            run_bezout(positionals[0], positionals[1],
+                       positionals.size() > 2 ? positionals[2] : "", style);
         } else if (sub == "discriminant") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
@@ -1757,6 +2180,15 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_discriminant(input, positionals.size() > 1 ? positionals[1] : "",
                              style);
+        } else if (sub == "companion") {
+            if (positionals.size() > 2) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver companion "
+                    "\"<polynomial>\" [var])",
+                    positionals[2])};
+            }
+            run_companion(input, positionals.size() > 1 ? positionals[1] : "",
+                          style);
         } else if (sub == "dsolve") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -1800,7 +2232,7 @@ int run_one_shot(const std::vector<std::string>& args) {
         return k_exit_ok;
     } catch (const UsageError& e) {
         std::fflush(stdout);
-        std::println(stderr, "usage error: {}", e.message);
+        std::println(stderr, "usage error: {}", e.message());
         return k_exit_usage;
     } catch (const DiagnosedParseError& e) {
         std::fflush(stdout);
@@ -1829,6 +2261,7 @@ void print_repl_help() {
         "  solve <equation>[, <variable>]\n"
         "  solve <eq>; <eq>[; ...][, <var>, <var>, ...]   (linear system)\n"
         "  diff <expression>[, <variable>]\n"
+        "  steps [diff|integrate] <expr>[, <var>] worked, rule-by-rule derivative or integral\n"
         "  integrate <expression>[, <variable>[, <lo>, <hi>]]\n"
         "  eval <expression>, x=1[, y=2 ...]\n"
         "  subs <expression>, x=y+1[, z=2 ...]\n"
@@ -1840,18 +2273,36 @@ void print_repl_help() {
         "         dsolve y'' + 3y' + 2y = e^(-t), y(0)=1, y'(0)=0\n"
         "  series <expression>[, <var>[, <center>[, <order>]]]   Taylor\n"
         "  pade <expression>, <m>, <n>[, <var>]   [m/n] Padé approximant\n"
+        "  rootcount <poly>[, <var>[, <lo>, <hi>]]  distinct real roots (Sturm)\n"
+        "  isolate <poly>[, <var>]                isolate the real roots\n"
         "  discriminant <polynomial>[, <var>]     discriminant (degree 2–4)\n"
         "  polydiv <dividend>, <divisor>[, <var>] quotient + remainder\n"
         "  polygcd <a>, <b>[, <var>]   polylcm <a>, <b>[, <var>]   monic gcd/lcm\n"
         "  resultant <a>, <b>[, <var>]            0 iff a shared root\n"
+        "  bezout <a>, <b>[, <var>]               gcd + cofactors s·a + t·b = gcd\n"
+        "  companion <polynomial>[, <var>]        companion matrix (roots = eigenvalues)\n"
         "  fit <x,y; x,y; ...> [| <model> [<degree>]]  least-squares regression\n"
+        "  interp <x,y; x,y; ...>                 exact polynomial through the points\n"
+        "  newton <x,y; x,y; ...>                 interpolant in Newton divided-difference form\n"
+        "  lagrange <x,y; x,y; ...>               interpolant in Lagrange basis form\n"
+        "  vandermonde <x1, x2, x3, ...>          Vandermonde matrix of the nodes\n"
         "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
         "  stats <v1, v2, v3, ...>                exact summary statistics\n"
+        "  chebyshev/chebyu/legendre/hermite/laguerre <n> [var]\n"
+        "                                         exact orthogonal polynomials\n"
         "  stirling [<var>[, <terms>]]            ln Gamma asymptotics\n"
         "  seq <a0>, <a1>, <a2>, <a3>[, ...]      recognize the pattern\n"
         "  factor <n>                             integer -> prime factorization\n"
         "  gcd <a, b, ...>   lcm <a, b, ...>       exact over the integers\n"
         "  isprime <n>   nextprime <n>   divisors <n>   totient <n>\n"
+        "  sigma <n>[, k]   mobius <n>            divisor sum σ_k and Möbius μ\n"
+        "  partitions <n>   catalan <n>           partition count p(n) and Catalan C(n)\n"
+        "  bernoulli <n>                          the n-th Bernoulli number B_n (exact)\n"
+        "  stirling2 <n>, <k>   bell <n>           Stirling 2nd-kind S(n,k) and Bell B(n)\n"
+        "  derangement <n>   lucas <n>             subfactorial !n and Lucas L(n)\n"
+        "  primorial <n>     motzkin <n>          product of primes n# and Motzkin M(n)\n"
+        "  euler <n>         tribonacci <n>       Euler (secant) E_n and tribonacci T(n)\n"
+        "  pell <n>                               the n-th Pell number P(n)\n"
         "  cfrac <rational | sqrt(n) | real>      continued fraction + convergents\n"
         "  mod <a, m>   powmod <b, e, m>   modinv <a, m>   modular arithmetic\n"
         "  crt <r1, r2, …; m1, m2, …>             Chinese remainder theorem\n"
@@ -1892,304 +2343,68 @@ bool is_repl_command(std::string_view word) {
            word == "trigexpand" || word == "trigreduce" ||
            word == "logexpand" || word == "logcombine" ||
            word == "cancel" || word == "together" || word == "solve" ||
-           word == "diff" || word == "integrate" ||
+           word == "diff" || word == "steps" || word == "integrate" ||
            word == "eval" || word == "latex" || word == "debug" ||
            word == "subs" || word == "collect" || word == "laplace" ||
            word == "ilaplace" || word == "apart" || word == "dsolve" ||
-           word == "series" || word == "pade" || word == "grad" || word == "div" ||
+           word == "series" || word == "pade" || word == "rootcount" ||
+           word == "isolate" || word == "grad" || word == "div" ||
            word == "curl" || word == "laplacian" || word == "jacobian" ||
            word == "hessian" || word == "limit" || word == "sum" ||
            word == "product" || word == "rsolve" || word == "mlimit" ||
            word == "stirling" || word == "seq" || word == "fit" ||
-           word == "regress" || word == "stats" || word == "gcd" ||
+           word == "regress" || word == "stats" || word == "vandermonde" || word == "gcd" ||
            word == "lcm" || word == "isprime" || word == "nextprime" ||
-           word == "divisors" || word == "totient" || word == "cfrac" ||
+           word == "divisors" || word == "totient" || word == "sigma" ||
+           word == "mobius" || word == "partitions" || word == "catalan" ||
+           word == "bernoulli" || word == "stirling2" || word == "bell" ||
+           word == "derangement" || word == "lucas" || word == "primorial" ||
+           word == "motzkin" || word == "euler" || word == "tribonacci" ||
+           word == "pell" || word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
            word == "crt" || word == "discriminant" || word == "polydiv" ||
-           word == "polygcd" || word == "polylcm" || word == "resultant";
+           word == "polygcd" || word == "polylcm" || word == "resultant" ||
+           word == "companion";
 }
 
 // ---------------------------------------------------------------------------
 // Session environment (variable assignment): `name := value` bindings,
 // REPL-only. Spec: docs/proposals/variable-assignment.md; condensed contract
-// in DESIGN.md §10. Values are stored as parsed ASTs and resolve lazily at
-// each use (§5 of the spec); the dependency graph over defined names is kept
-// acyclic at definition time (§5.2).
+// in DESIGN.md §10.
+//
+// The environment itself — Binding, Environment, binding_text(), the §5
+// resolve() ordering, the §2.3 target validation — lives in the script layer
+// (include/mathsolver/script/environment.hpp), which every surface shares.
+// What stays here is only the CLI's use of it: the free functions below give
+// the ~60 existing call sites their familiar spelling, and each is a
+// one-liner onto the library so there is nowhere for a second implementation
+// to grow back.
 // ---------------------------------------------------------------------------
 
-struct Binding {
-    std::string name;
-    std::variant<Expr, Equation> value;
-};
-
-/// Insertion-ordered so `vars` lists in definition order; lookups are linear
-/// over a handful of entries.
-using Environment = std::vector<Binding>;
-
 const Binding* find_binding(const Environment& env, std::string_view name) {
-    for (const Binding& b : env) {
-        if (b.name == name) {
-            return &b;
-        }
-    }
-    return nullptr;
-}
-
-std::set<std::string> binding_free_symbols(const Binding& b) {
-    if (const Expr* e = std::get_if<Expr>(&b.value)) {
-        return free_symbols(*e);
-    }
-    return equation_symbols(std::get<Equation>(b.value));
-}
-
-/// Canonical plain print of a binding: `a := 2`, `E_1 := x + y = 3`. The
-/// name goes through the printer so it echoes in its re-parseable spelling
-/// (`x_{max}`, not the bare symbol name `x_max`).
-std::string binding_text(const Binding& b) {
-    const std::string name = to_string(make_sym(b.name), PrintStyle::Plain);
-    if (const Expr* e = std::get_if<Expr>(&b.value)) {
-        return std::format("{} := {}", name, to_string(*e, PrintStyle::Plain));
-    }
-    return std::format("{} := {}", name,
-                       to_string(std::get<Equation>(b.value), PrintStyle::Plain));
-}
-
-/// The §5 resolve() ordering: the environment entries reachable from `roots`
-/// through bound values (transitively), minus `excluded`, ordered
-/// parents-first — a binding precedes every binding its value references —
-/// so one sequential substitute() pass fully resolves chains and the result
-/// is independent of definition order. A name bound to an Equation can never
-/// be substituted into an expression; reaching one here is the §4 placement
-/// error.
-std::vector<const Binding*> active_bindings(const std::set<std::string>& roots,
-                                            const Environment& env,
-                                            const std::set<std::string>& excluded) {
-    std::vector<const Binding*> active;
-    std::set<std::string> seen;
-    std::vector<std::string> frontier(roots.begin(), roots.end());
-    while (!frontier.empty()) {
-        const std::string name = std::move(frontier.back());
-        frontier.pop_back();
-        if (excluded.contains(name) || !seen.insert(name).second) {
-            continue;
-        }
-        const Binding* b = find_binding(env, name);
-        if (b == nullptr) {
-            continue;
-        }
-        if (std::holds_alternative<Equation>(b->value)) {
-            throw UsageError{std::format(
-                "'{}' names an equation and cannot be used inside an expression",
-                name)};
-        }
-        active.push_back(b);
-        for (const std::string& s : free_symbols(std::get<Expr>(b->value))) {
-            frontier.push_back(s);
-        }
-    }
-
-    // Parents-first topological order (DFS post-order, reversed). The
-    // definition-time cycle check keeps the graph acyclic; the visiting set
-    // and the depth bound are belt-and-braces only. The bound is the active
-    // set's size — a simple path cannot visit more bindings than exist — so
-    // it can never fire on legal acyclic input, however deep the chain
-    // (a fixed constant here once misdiagnosed a 66-deep chain as a cycle).
-    std::vector<const Binding*> ordered;
-    std::set<std::string> done;
-    std::set<std::string> visiting;
-    const int max_depth = static_cast<int>(active.size());
-    auto visit = [&](auto&& self, const Binding* b, int depth) -> void {
-        if (depth > max_depth || visiting.contains(b->name)) {
-            throw Error{"internal error: assignment cycle detected"};
-        }
-        if (done.contains(b->name)) {
-            return;
-        }
-        visiting.insert(b->name);
-        for (const Binding* dep : active) {
-            if (dep != b && contains_symbol(std::get<Expr>(b->value), dep->name)) {
-                self(self, dep, depth + 1);
-            }
-        }
-        visiting.erase(b->name);
-        done.insert(b->name);
-        ordered.push_back(b);
-    };
-    for (const Binding* b : active) {
-        visit(visit, b, 0);
-    }
-    std::reverse(ordered.begin(), ordered.end());
-    return ordered;
+    return env.find(name);
 }
 
 Expr resolve_expr(const Expr& e, const Environment& env,
                   const std::set<std::string>& excluded = {}) {
-    Expr r = e;
-    for (const Binding* b : active_bindings(free_symbols(e), env, excluded)) {
-        r = substitute(r, b->name, std::get<Expr>(b->value));
-    }
-    return r;
+    return env.resolve(e, excluded);
 }
 
 Equation resolve_equation(const Equation& eq, const Environment& env,
                           const std::set<std::string>& excluded = {}) {
-    Equation r = eq;
-    for (const Binding* b : active_bindings(equation_symbols(eq), env, excluded)) {
-        const Expr& v = std::get<Expr>(b->value);
-        r.lhs = substitute(r.lhs, b->name, v);
-        r.rhs = substitute(r.rhs, b->name, v);
-    }
-    return r;
+    return env.resolve(eq, excluded);
 }
 
 /// Resolve a whole parsed input to plain text (round-trip-guaranteed), ready
 /// to feed an existing run_* verb.
 std::string resolve_input_text(const std::string& input, const Environment& env,
                                const std::set<std::string>& excluded = {}) {
-    const auto parsed = parse_input_diag(input);
-    if (const Expr* e = std::get_if<Expr>(&parsed)) {
-        return to_string(resolve_expr(*e, env, excluded), PrintStyle::Plain);
-    }
-    return to_string(resolve_equation(std::get<Equation>(parsed), env, excluded),
-                     PrintStyle::Plain);
-}
-
-constexpr std::string_view k_assign_target_error =
-    "assignment target must be a single variable name (e.g. x, alpha, E_1)";
-
-/// Names the lexer reads as functions (docs/GRAMMAR.md): never assignable.
-bool is_function_word(std::string_view s) {
-    static constexpr std::string_view names[] = {
-        "sin",  "cos",  "tan", "asin", "acos", "atan", "arcsin",
-        "arccos", "arctan", "sinh", "cosh", "tanh", "sec", "csc",
-        "cot",  "exp",  "ln",  "log",  "sqrt", "abs"};
-    return std::ranges::find(names, s) != std::ranges::end(names);
-}
-
-/// `x_{max}` and `\alpha` lex to the symbols x_max / alpha; normalize the
-/// typed target so it can be compared against the parsed symbol's name.
-std::string normalize_target_text(std::string_view s) {
-    std::string out{s};
-    if (!out.empty() && out.front() == '\\') {
-        out.erase(0, 1);
-    }
-    const std::size_t sub = out.find("_{");
-    if (sub != std::string::npos && !out.empty() && out.back() == '}') {
-        out = out.substr(0, sub + 1) + out.substr(sub + 2, out.size() - sub - 3);
-    }
-    return out;
-}
-
-/// Validate the left side of `name := value` (spec §2.3) and return the
-/// canonical symbol name it binds.
-std::string validate_assignment_target(const std::string& target) {
-    if (is_function_word(target)) {
-        throw UsageError{
-            std::format("cannot assign to the function name '{}'", target)};
-    }
-    Expr parsed;
-    try {
-        parsed = parse_expression(target);
-    } catch (const ParseError&) {
-        parsed = nullptr;
-    }
-    const std::string normalized = normalize_target_text(target);
-    if (parsed && parsed->kind() == Kind::Constant &&
-        (normalized == "pi" || normalized == "e")) {
-        throw UsageError{std::format("cannot assign to the constant '{}'", target)};
-    }
-    if (parsed && parsed->kind() == Kind::Symbol &&
-        parsed->symbol_name() == normalized) {
-        return normalized;
-    }
-
-    // 'E1' lexes as E*1 — suggest the subscript spelling.
-    std::size_t letters_end = 0;
-    while (letters_end < target.size() &&
-           std::isalpha(static_cast<unsigned char>(target[letters_end])) != 0) {
-        ++letters_end;
-    }
-    const std::string letters = target.substr(0, letters_end);
-    const std::string digits = target.substr(letters_end);
-    const bool all_digits =
-        !digits.empty() && std::ranges::all_of(digits, [](char c) {
-            return std::isdigit(static_cast<unsigned char>(c)) != 0;
-        });
-    if (!letters.empty() && all_digits) {
-        Expr letter_expr;
-        try {
-            letter_expr = parse_expression(letters);
-        } catch (const ParseError&) {
-            letter_expr = nullptr;
-        }
-        if (letter_expr && letter_expr->kind() == Kind::Symbol &&
-            letter_expr->symbol_name() == letters) {
-            throw UsageError{std::format(
-                "{} — '{}' reads as {}*{}; did you mean {}_{}?",
-                k_assign_target_error, target, letters, digits, letters, digits)};
-        }
-    }
-    if (!parsed) {
-        // A multi-letter word (the v0.4 word guard) or any other lex error:
-        // reuse the guard's rule text plus assignment-specific guidance
-        // (spec §6).
-        throw UsageError{std::format(
-            "{} — variables are single letters (a-z), Greek names, or "
-            "subscripted (v_1); assignment targets follow the same rule — try "
-            "a subscripted name like s_max := 5",
-            k_assign_target_error)};
-    }
-    throw UsageError{std::string{k_assign_target_error}};
-}
-
-/// Depth-first search for a dependency path from any of `starts` back to
-/// `name` through the defined bindings; returns the path (start .. name) or
-/// empty when none exists.
-std::vector<std::string> find_cycle_path(const std::string& name,
-                                         const std::set<std::string>& starts,
-                                         const Environment& env) {
-    std::vector<std::string> path;
-    std::set<std::string> seen;
-    auto dfs = [&](auto&& self, const std::string& cur) -> bool {
-        if (cur == name) {
-            path.push_back(cur);
-            return true;
-        }
-        if (!seen.insert(cur).second) {
-            return false;
-        }
-        const Binding* b = find_binding(env, cur);
-        if (b == nullptr) {
-            return false;
-        }
-        path.push_back(cur);
-        for (const std::string& next : binding_free_symbols(*b)) {
-            if (self(self, next)) {
-                return true;
-            }
-        }
-        path.pop_back();
-        return false;
-    };
-    for (const std::string& s : starts) {
-        if (dfs(dfs, s)) {
-            return path;
-        }
-    }
-    return {};
-}
-
-/// An input line whose first `:=` splits it into a non-empty left part is an
-/// assignment; a ':' not followed by '=' falls through to the parser and
-/// keeps its existing lex error.
-bool is_assignment_line(const std::string& line) {
-    const std::size_t pos = line.find(":=");
-    return pos != std::string::npos && !trim(line.substr(0, pos)).empty();
+    return env.resolve(Value{parse_input_diag(input)}, excluded).to_plain();
 }
 
 /// `name := value` (spec §2): validate the target, parse the value now
-/// (caret diagnostics at definition time), reject cycles (§5.2), store, and
-/// echo the binding in canonical plain form.
+/// (caret diagnostics at definition time), store — define() rejects
+/// self-reference and cycles (§5.2) — and echo in canonical plain form.
 void repl_assign(const std::string& line, Environment& env) {
     const std::size_t pos = line.find(":=");
     const std::string target = trim(line.substr(0, pos));
@@ -2198,31 +2413,8 @@ void repl_assign(const std::string& line, Environment& env) {
     if (value_text.empty()) {
         throw UsageError{"assignment needs a value (e.g. x := 2)"};
     }
-    Binding binding{name, parse_input_diag(value_text)};
-
-    const std::set<std::string> value_syms = binding_free_symbols(binding);
-    if (value_syms.contains(name)) {
-        throw UsageError{
-            std::format("'{}' cannot be defined in terms of itself", name)};
-    }
-    const std::vector<std::string> cycle = find_cycle_path(name, value_syms, env);
-    if (!cycle.empty()) {
-        std::string msg = std::format("assignment would create a cycle: {}", name);
-        for (const std::string& n : cycle) {
-            msg += " -> " + n;
-        }
-        throw UsageError{msg};
-    }
-
-    // Redefinition replaces in place (keeps definition order for `vars`).
-    const auto it = std::ranges::find(env, name, &Binding::name);
-    if (it != env.end()) {
-        *it = std::move(binding);
-        std::println("{}", binding_text(*it));
-    } else {
-        env.push_back(std::move(binding));
-        std::println("{}", binding_text(env.back()));
-    }
+    std::println("{}",
+                 binding_text(env.define(name, Value{parse_input_diag(value_text)})));
 }
 
 /// Spec §7: solving (or diff/integrate/collect) for an assigned variable
@@ -2274,8 +2466,8 @@ void repl_solve(const std::string& input, std::vector<std::string> vars,
     const auto segment_equation = [&](const std::string& segment) -> Equation {
         // An equation-valued name may stand as a whole segment (spec §4).
         if (const Binding* b = find_binding(env, segment);
-            b != nullptr && std::holds_alternative<Equation>(b->value)) {
-            return std::get<Equation>(b->value);
+            b != nullptr && b->value.is_equation()) {
+            return b->value.equation();
         }
         return parse_equation_diag(segment);
     };
@@ -2479,22 +2671,56 @@ void repl_command(const std::string& command, const std::string& rest,
         run_stats(rest, PrintStyle::Plain);
         return;
     }
+    if (command == "vandermonde") {
+        // The whole line is the node list (comma-separated).
+        if (trim(rest).empty()) throw UsageError{"usage: vandermonde <x1, x2, x3, ...>"};
+        run_vandermonde(rest, PrintStyle::Plain);
+        return;
+    }
     // Number theory over the integers: the whole line is the integer list (for
     // gcd/lcm) or a single integer (for the rest).
     if (command == "gcd" || command == "lcm" || command == "isprime" ||
         command == "nextprime" || command == "divisors" ||
-        command == "totient") {
+        command == "totient" || command == "mobius" || command == "sigma" ||
+        command == "partitions" || command == "catalan" || command == "bell" ||
+        command == "derangement" || command == "lucas" ||
+        command == "primorial" || command == "motzkin" ||
+        command == "euler" || command == "tribonacci" || command == "pell") {
         if (trim(rest).empty()) {
             throw UsageError{std::format(
                 "usage: {} <integer{}>", command,
-                command == "gcd" || command == "lcm" ? ", integer, ..." : "")};
+                command == "gcd" || command == "lcm"  ? ", integer, ..."
+                : command == "sigma"                  ? "[, k]"
+                                                      : "")};
         }
         if (command == "gcd") run_gcd(rest);
         else if (command == "lcm") run_lcm(rest);
         else if (command == "isprime") run_isprime(rest);
         else if (command == "nextprime") run_nextprime(rest);
         else if (command == "divisors") run_divisors(rest);
+        else if (command == "mobius") run_mobius(rest);
+        else if (command == "sigma") run_sigma(rest);
+        else if (command == "partitions") run_partitions(rest);
+        else if (command == "catalan") run_catalan(rest);
+        else if (command == "bell") run_bell(rest);
+        else if (command == "derangement") run_derangement(rest);
+        else if (command == "lucas") run_lucas(rest);
+        else if (command == "primorial") run_primorial(rest);
+        else if (command == "motzkin") run_motzkin(rest);
+        else if (command == "euler") run_euler(rest);
+        else if (command == "tribonacci") run_tribonacci(rest);
+        else if (command == "pell") run_pell(rest);
         else run_totient(rest);
+        return;
+    }
+    if (command == "stirling2") {
+        if (trim(rest).empty()) throw UsageError{"usage: stirling2 <n>, <k>"};
+        run_stirling2(rest);
+        return;
+    }
+    if (command == "bernoulli") {
+        if (trim(rest).empty()) throw UsageError{"usage: bernoulli <n>  (0 <= n <= 20)"};
+        run_bernoulli(rest, PrintStyle::Plain);
         return;
     }
     if (command == "cfrac") {
@@ -2518,7 +2744,8 @@ void repl_command(const std::string& command, const std::string& rest,
     const std::vector<std::string> parts = split_top_level_commas(rest);
     if (parts.empty() || parts[0].empty()) {
         const std::string_view suffix =
-            command == "solve" || command == "diff" || command == "collect"
+            command == "solve" || command == "diff" || command == "steps" ||
+                    command == "collect"
                 ? "[, <variable>]"
             : command == "subs" ? ", <name>=<expr>[, ...]"
                                 : "";
@@ -2533,8 +2760,8 @@ void repl_command(const std::string& command, const std::string& rest,
         // The first comma segment holds the equation(s) (';'-separated for a
         // system), the remaining segments are the variables.
         repl_solve(input, {parts.begin() + 1, parts.end()}, env);
-    } else if (command == "diff" || command == "collect" || command == "apart" ||
-               command == "cancel") {
+    } else if (command == "diff" || command == "steps" || command == "collect" ||
+               command == "apart" || command == "cancel") {
         if (parts.size() > 2) {
             throw UsageError{std::format(
                 "too many arguments: usage: {} <input>[, <variable>]", command)};
@@ -2544,11 +2771,20 @@ void repl_command(const std::string& command, const std::string& rest,
         if (!var.empty()) {
             excluded.insert(var);
         }
+        // `steps` may carry a leading `diff`/`integrate` operation word; strip
+        // it before resolving so the environment sees only the expression.
+        StepsOp steps_op = StepsOp::Derivative;
+        std::string expr_input = input;
+        if (command == "steps") {
+            std::tie(steps_op, expr_input) = split_steps_op(input);
+        }
         const std::string resolved = to_string(
-            resolve_expr(parse_expression_diag(input), env, excluded),
+            resolve_expr(parse_expression_diag(expr_input), env, excluded),
             PrintStyle::Plain);
         if (command == "diff") {
             run_diff(resolved, var, PrintStyle::Plain);
+        } else if (command == "steps") {
+            run_steps(steps_op, resolved, var, PrintStyle::Plain);
         } else if (command == "apart") {
             run_apart(resolved, var, PrintStyle::Plain);
         } else if (command == "cancel") {
@@ -2650,6 +2886,33 @@ void repl_command(const std::string& command, const std::string& rest,
             PrintStyle::Plain);
         run_pade(resolved, parts[1], parts[2], var, PrintStyle::Plain);
         warn_assigned_variable(var, env);
+    } else if (command == "rootcount") {
+        // rootcount <poly>[, <var>[, <lo>, <hi>]]
+        if (parts.size() > 4) {
+            throw UsageError{"usage: rootcount <poly>[, <variable>[, <lo>, <hi>]]"};
+        }
+        const std::string var = parts.size() > 1 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) excluded.insert(var);
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(equation_to_poly(input)), env, excluded),
+            PrintStyle::Plain);
+        run_rootcount(resolved, var, parts.size() > 2 ? parts[2] : "",
+                      parts.size() > 3 ? parts[3] : "");
+        warn_assigned_variable(var, env);
+    } else if (command == "isolate") {
+        // isolate <poly>[, <var>]
+        if (parts.size() > 2) {
+            throw UsageError{"usage: isolate <poly>[, <variable>]"};
+        }
+        const std::string var = parts.size() > 1 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) excluded.insert(var);
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(equation_to_poly(input)), env, excluded),
+            PrintStyle::Plain);
+        run_isolate(resolved, var, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
     } else if (command == "discriminant") {
         // discriminant <polynomial>[, <var>]
         if (parts.size() > 2) {
@@ -2664,6 +2927,21 @@ void repl_command(const std::string& command, const std::string& rest,
             resolve_expr(parse_expression_diag(input), env, excluded),
             PrintStyle::Plain);
         run_discriminant(resolved, var, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "companion") {
+        // companion <polynomial>[, <var>]
+        if (parts.size() > 2) {
+            throw UsageError{"usage: companion <polynomial>[, <variable>]"};
+        }
+        const std::string var = parts.size() > 1 ? parts[1] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string resolved = to_string(
+            resolve_expr(parse_expression_diag(input), env, excluded),
+            PrintStyle::Plain);
+        run_companion(resolved, var, PrintStyle::Plain);
         warn_assigned_variable(var, env);
     } else if (command == "polydiv") {
         // polydiv <dividend>, <divisor>[, <var>]
@@ -2712,6 +2990,22 @@ void repl_command(const std::string& command, const std::string& rest,
         const std::string eb =
             to_string(resolve_expr(parse_expression_diag(parts[1]), env, excluded), PrintStyle::Plain);
         run_resultant(ea, eb, var, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "bezout") {
+        // bezout <a>, <b>[, <var>]
+        if (parts.size() < 2 || parts.size() > 3) {
+            throw UsageError{"usage: bezout <a>, <b>[, <variable>]"};
+        }
+        const std::string var = parts.size() > 2 ? parts[2] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string ea =
+            to_string(resolve_expr(parse_expression_diag(parts[0]), env, excluded), PrintStyle::Plain);
+        const std::string eb =
+            to_string(resolve_expr(parse_expression_diag(parts[1]), env, excluded), PrintStyle::Plain);
+        run_bezout(ea, eb, var, PrintStyle::Plain);
         warn_assigned_variable(var, env);
     } else if (command == "laplace" || command == "ilaplace") {
         if (parts.size() > 2) {
@@ -2791,16 +3085,14 @@ void repl_line(const std::string& line, Environment& env) {
     }
 
     // A leading known command word (followed by whitespace or end of line)
-    // selects command mode; anything else is a bare expression/equation.
-    std::size_t word_end = 0;
-    while (word_end < line.size() &&
-           std::isalpha(static_cast<unsigned char>(line[word_end])) != 0) {
-        ++word_end;
-    }
-    const std::string word = line.substr(0, word_end);
-    const bool word_terminated =
-        word_end == line.size() ||
-        std::isspace(static_cast<unsigned char>(line[word_end])) != 0;
+    // selects command mode; anything else is a bare expression/equation. The
+    // word must start with a letter but may carry trailing digits (e.g.
+    // `stirling2`), so a numeric line is never mistaken for a command — see
+    // script::leading_word(), which every surface lexes the head with.
+    const LeadingWord head = leading_word(line);
+    const std::string& word = head.word;
+    const bool word_terminated = head.terminated;
+    const std::size_t word_end = head.end;
 
     // Environment management (spec §7.1). As bare inputs all three words are
     // word-guard parse errors today, so claiming them changes no working
@@ -2827,12 +3119,8 @@ void repl_line(const std::string& line, Environment& env) {
         // Accept both spellings of a name, exactly like the assignment side:
         // `vars` displays `x_{max}`, the stored symbol is `x_max` — copy/
         // pasting the displayed name must work.
-        const std::string name = normalize_target_text(typed);
-        const auto it = std::ranges::find(env, name, &Binding::name);
-        if (it == env.end()) {
+        if (!env.erase(normalize_name(typed))) {
             std::println("note: '{}' is not defined", typed);
-        } else {
-            env.erase(it);
         }
         return;
     }
@@ -2849,8 +3137,8 @@ void repl_line(const std::string& line, Environment& env) {
         // (spec §4): it denotes the stored equation.
         if (e->kind() == Kind::Symbol) {
             if (const Binding* b = find_binding(env, e->symbol_name());
-                b != nullptr && std::holds_alternative<Equation>(b->value)) {
-                repl_bare_equation(std::get<Equation>(b->value), env);
+                b != nullptr && b->value.is_equation()) {
+                repl_bare_equation(b->value.equation(), env);
                 return;
             }
         }
@@ -2887,7 +3175,7 @@ int run_repl() {
             repl_line(input, env);
         } catch (const UsageError& e) {
             std::fflush(stdout);
-            std::println(stderr, "error: {}", e.message);
+            std::println(stderr, "error: {}", e.message());
         } catch (const DiagnosedParseError& e) {
             std::fflush(stdout);
             std::println(stderr, "{}", caret_diagnostic(e.source, e.error));

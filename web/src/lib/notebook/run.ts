@@ -9,6 +9,9 @@
 import { call } from "../engine";
 import type { EngineError, PluginMeta } from "../engine/types";
 import { splitRelation } from "../graph/classify";
+import { RESERVED_NAMES } from "../graph/functions";
+import { expandApplications } from "../graph/expand";
+import { sessionFunctions } from "../graph/registry";
 import { hasTopLevelSemicolon, splitTopLevelCommas } from "../format";
 import type { Outcome } from "../outcome";
 import { vars } from "../vars.svelte";
@@ -49,6 +52,7 @@ export const MATH_VERBS = new Set([
   "solve",
   "diff",
   "derivative",
+  "steps",
   "integrate",
   "eval",
   "evaluate",
@@ -60,6 +64,8 @@ export const MATH_VERBS = new Set([
   "dsolve",
   "series",
   "pade",
+  "rootcount",
+  "isolate",
   "grad",
   "div",
   "curl",
@@ -76,11 +82,22 @@ export const MATH_VERBS = new Set([
   "polygcd",
   "polylcm",
   "resultant",
+  "bezout",
+  "companion",
+  "vandermonde",
+  "newton",
+  "lagrange",
   "sum",
   "product",
   "rsolve",
   "fit",
   "regress",
+  "interp",
+  "chebyshev",
+  "chebyu",
+  "legendre",
+  "hermite",
+  "laguerre",
   "stats",
   "gcd",
   "lcm",
@@ -88,6 +105,20 @@ export const MATH_VERBS = new Set([
   "nextprime",
   "divisors",
   "totient",
+  "sigma",
+  "mobius",
+  "partitions",
+  "catalan",
+  "bernoulli",
+  "stirling2",
+  "bell",
+  "derangement",
+  "lucas",
+  "primorial",
+  "motzkin",
+  "euler",
+  "tribonacci",
+  "pell",
   "cfrac",
   "mod",
   "powmod",
@@ -111,6 +142,17 @@ function splitHead(line: string): { head: string; rest: string } {
 }
 
 /**
+ * Split an optional leading operation word off a `steps` argument, mirroring
+ * the CLI's `steps [diff|integrate] <expr>`: `steps integrate x^2` works the
+ * integral, everything else is a derivative.
+ */
+function splitStepsOp(expr: string): ["diff" | "integrate", string] {
+  const m = /^(diff|integrate)\s+([\s\S]+)$/.exec(expr);
+  if (!m) return ["diff", expr];
+  return [m[1] as "diff" | "integrate", m[2].trim()];
+}
+
+/**
  * Pick a default variable when the verb was given none: prefer the
  * conventional `x`, else the first free symbol (alphabetical, as `analyze`
  * reports), else `x`.
@@ -120,6 +162,26 @@ async function inferVar(exprText: string): Promise<string> {
   if (a.ok && "symbols" in a && a.symbols.length > 0)
     return a.symbols.includes("x") ? "x" : a.symbols[0];
   return "x";
+}
+
+/** Reduce `lhs = rhs` to `(lhs) - (rhs)` so the root verbs accept an equation. */
+function reduceEquation(text: string): string {
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== "=") continue;
+    const p = text[i - 1];
+    const n = text[i + 1];
+    if (p !== "<" && p !== ">" && p !== "!" && p !== "=" && n !== "=") {
+      return `(${text.slice(0, i)}) - (${text.slice(i + 1)})`;
+    }
+  }
+  return text;
+}
+
+/** Compact decimal (≈10 significant figures, trailing zeros trimmed). */
+function fmtRoot(n: number): string {
+  if (!Number.isFinite(n)) return "?";
+  if (Math.abs(n) < 1e-12) return "0";
+  return String(Number(n.toPrecision(10)));
 }
 
 /** Left-hand names of `x=...` argument pairs (so the environment won't override them). */
@@ -237,13 +299,14 @@ function helpMessage(): NotebookMessage {
       "plot <expr>[, <lo>, <hi>]           chart an expression",
       "wave [<columns>][, fixed|free|robin|filtered|absorbing]   interactive 2D wave field (drag to add energy)",
       "<name> := <value>      bind a variable (applies to later lines)",
+      "<name>(<params>) = <body>   define a function, e.g. f(x) = x^2 — then f(3), f'(x), g(f(x))",
       "save <name>    save this session's commands as a notebook",
       "open <name>    load a notebook's commands (without running)",
       "run <name>     run a notebook top-to-bottom in a fresh scope",
       "notebooks      list saved notebooks",
       "<plugin>.<command> …   call a plugin (run plugins for the catalog),",
       "                       e.g. dsp.butter lowpass, 4, 1000, 48000",
-      "vars      unset <name>      clear      plugins      help",
+      "vars      funcs      unset <name>      clear      plugins      help",
     ],
   };
 }
@@ -260,7 +323,7 @@ function varsMessage(scope?: ScopeEnv): NotebookMessage {
   };
 }
 
-function clearVars(scope?: ScopeEnv): NotebookMessage {
+async function clearVars(scope?: ScopeEnv): Promise<NotebookMessage> {
   if (scope) {
     const n = scope.bindings.length;
     scope.bindings.length = 0;
@@ -271,15 +334,15 @@ function clearVars(scope?: ScopeEnv): NotebookMessage {
     };
   }
   const n = vars.active.length;
+  const fn = sessionFunctions.list().length;
   vars.clearAll();
-  return {
-    kind: "message",
-    tone: "muted",
-    lines: [`cleared ${n} assignment${n === 1 ? "" : "s"}`],
-  };
+  await sessionFunctions.clear();
+  const parts = [`cleared ${n} assignment${n === 1 ? "" : "s"}`];
+  if (fn) parts.push(`${fn} function${fn === 1 ? "" : "s"}`);
+  return { kind: "message", tone: "muted", lines: [parts.join(" and ")] };
 }
 
-function unsetVar(rest: string, scope?: ScopeEnv): CellResult {
+async function unsetVar(rest: string, scope?: ScopeEnv): Promise<CellResult> {
   const name = rest.trim();
   if (!name) return usage("unset needs a variable name, e.g. unset a");
   const target = normalizeTypedName(name);
@@ -290,6 +353,8 @@ function unsetVar(rest: string, scope?: ScopeEnv): CellResult {
     scope.bindings.splice(i, 1);
     return { kind: "message", tone: "muted", lines: [`unset ${target}`] };
   }
+  if (await sessionFunctions.remove(name))
+    return { kind: "message", tone: "muted", lines: [`unset ${name}`] };
   const row = vars.rows.find(
     (r) => r.status.symbol === target || r.name === name,
   );
@@ -297,6 +362,46 @@ function unsetVar(rest: string, scope?: ScopeEnv): CellResult {
     return { kind: "message", tone: "muted", lines: [`no variable '${name}'`] };
   vars.remove(row.id);
   return { kind: "message", tone: "muted", lines: [`unset ${target}`] };
+}
+
+// --- user functions --------------------------------------------------------
+
+/** Recognize a function definition `f(x) = …` or `f(x) := …`. A reserved name
+ *  (`sin`, `pi`, …) is not a definition, so `sin(x) = 0` still solves. */
+function matchFunctionDef(
+  line: string,
+): { name: string; params: string[]; body: string } | null {
+  const m = /^([A-Za-z][A-Za-z0-9_]*)\s*\(\s*([^()]*?)\s*\)\s*:?=\s*(.+)$/.exec(line);
+  if (!m || RESERVED_NAMES.has(m[1])) return null;
+  const params = splitTopLevelCommas(m[2]).map((p) => p.trim()).filter(Boolean);
+  if (!params.length) return null; // `f() = …` is not a function
+  return { name: m[1], params, body: m[3].trim() };
+}
+
+async function runFunctionDef(def: {
+  name: string;
+  params: string[];
+  body: string;
+}): Promise<CellResult> {
+  const err = await sessionFunctions.commit(def);
+  if (err) return { kind: "error", message: err, input: def.body };
+  return {
+    kind: "message",
+    tone: "info",
+    lines: [`${def.name}(${def.params.join(", ")}) := ${def.body}`],
+  };
+}
+
+function funcsMessage(): NotebookMessage {
+  const list = sessionFunctions.list();
+  if (list.length === 0)
+    return { kind: "message", tone: "muted", lines: ["no functions defined"] };
+  return {
+    kind: "message",
+    tone: "info",
+    title: "Functions",
+    lines: list.map((f) => `${f.name}(${f.params.join(", ")}) := ${f.body}`),
+  };
 }
 
 // --- assignment ------------------------------------------------------------
@@ -379,6 +484,19 @@ async function runVerb(
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }
+    case "steps": {
+      // `steps` may carry a leading operation word: `steps integrate x^2`.
+      const [op, body] = splitStepsOp(expr);
+      if (!body) return usage("steps needs an expression");
+      const v = args[1] ?? (await inferVar(body));
+      const env = await applyEnv(body, [v], "expr", ov, scope);
+      const r = await call(op === "integrate" ? "explainIntegral" : "explainDerivative", [
+        env.text,
+        v,
+      ]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "steps", op, variable: v, result: r, computedFrom: env.computedFrom };
+    }
     case "collect": {
       const v = args[1] ?? (await inferVar(expr));
       const env = await applyEnv(expr, [v], "expr", ov, scope);
@@ -427,6 +545,51 @@ async function runVerb(
         computedFrom: null,
       };
     }
+    case "interp": {
+      // The whole input is the point list (commas / semicolons): the exact
+      // polynomial through the points. interp 1,1; 2,4; 3,9
+      if (!rest.trim()) return usage("usage: interp <x,y; x,y; ...>");
+      const r = await call("interp", [rest]);
+      if (!r.ok) return err(rest, r);
+      const notes = [
+        `degree ${r.degree}${r.exact ? " (exact)" : ""} · ${r.n} point${r.n === 1 ? "" : "s"}`,
+      ];
+      return {
+        kind: "transform",
+        result: { ok: true, plain: r.plain, latex: r.latex, notes },
+        computedFrom: null,
+      };
+    }
+    case "newton":
+    case "lagrange": {
+      // The whole input is the point list; show the interpolant in its
+      // factored Newton or Lagrange construction. newton 1,1; 2,4; 3,9
+      if (!rest.trim()) return usage(`usage: ${verb} <x,y; x,y; ...>`);
+      const r = await call("interpForm", [rest, verb]);
+      if (!r.ok) return err(rest, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "chebyshev":
+    case "chebyu":
+    case "legendre":
+    case "hermite":
+    case "laguerre": {
+      // <n> [, <var>] → the exact degree-n orthogonal polynomial. The verb name
+      // is itself a family alias the engine accepts. chebyshev 5 · legendre 3, t
+      const n = Number(args[0]);
+      if (!Number.isInteger(n) || n < 0) {
+        return usage(`usage: ${verb} <n> [, <var>]  (n a non-negative integer)`);
+      }
+      const variable = (args[1] ?? "x").trim() || "x";
+      const r = await call("orthopoly", [verb, n, variable]);
+      if (!r.ok) return err(rest, r);
+      const notes = [`${r.family}, degree ${r.degree}`];
+      return {
+        kind: "transform",
+        result: { ok: true, plain: r.plain, latex: r.latex, notes },
+        computedFrom: null,
+      };
+    }
     case "stats": {
       // The whole input is the data list (commas / semicolons / spaces).
       if (!rest.trim()) return usage("usage: stats <v1, v2, v3, ...>");
@@ -454,9 +617,35 @@ async function runVerb(
     case "isprime":
     case "nextprime":
     case "divisors":
+    case "mobius":
+    case "partitions":
+    case "catalan":
+    case "bernoulli":
+    case "bell":
+    case "derangement":
+    case "lucas":
+    case "primorial":
+    case "motzkin":
+    case "euler":
+    case "tribonacci":
+    case "pell":
     case "totient": {
       if (args.length > 1) return usage(`usage: ${verb} <integer>`);
       const r = await call(verb, [expr]);
+      if (!r.ok) return err(expr, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "sigma": {
+      // sigma <n>[, <k>]: the divisor function σ_k (default k = 1).
+      if (args.length > 2) return usage("usage: sigma <n>[, <k>]");
+      const r = await call("sigma", [expr, args[1] ?? ""]);
+      if (!r.ok) return err(expr, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "stirling2": {
+      // stirling2 <n>, <k>: the Stirling number of the second kind S(n, k).
+      if (args.length !== 2) return usage("usage: stirling2 <n>, <k>");
+      const r = await call("stirling2", [expr, args[1]]);
       if (!r.ok) return err(expr, r);
       return { kind: "transform", result: r, computedFrom: null };
     }
@@ -493,6 +682,21 @@ async function runVerb(
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }
+    case "companion": {
+      if (args.length > 2) return usage("usage: companion <polynomial>[, <var>]");
+      const v = args[1] ?? "";
+      const env = await applyEnv(expr, v ? [v] : [], "expr", ov, scope);
+      const r = await call("companion", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "vandermonde": {
+      // The whole line is the node list (comma-separated scalar expressions).
+      if (!rest.trim()) return usage("usage: vandermonde <x1, x2, x3, ...>");
+      const r = await call("vandermonde", [rest]);
+      if (!r.ok) return err(rest, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
     case "polydiv": {
       if (args.length < 2 || args.length > 3)
         return usage("usage: polydiv <dividend>, <divisor>[, <var>]");
@@ -506,7 +710,8 @@ async function runVerb(
     }
     case "polygcd":
     case "polylcm":
-    case "resultant": {
+    case "resultant":
+    case "bezout": {
       if (args.length < 2 || args.length > 3)
         return usage(`usage: ${verb} <a>, <b>[, <var>]`);
       const v = args[2] ?? "";
@@ -541,6 +746,43 @@ async function runVerb(
       const r = await call("pade", [env.text, v, m, n]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "rootcount": {
+      if (args.length > 4)
+        return usage("usage: rootcount <poly>[, <var>[, <lo>, <hi>]]");
+      const poly = reduceEquation(expr);
+      const v = args[1] || (await inferVar(poly));
+      const env = await applyEnv(poly, [v], "expr", ov, scope);
+      const r = await call("rootcount", [env.text, v, args[2] ?? "", args[3] ?? ""]);
+      if (!r.ok) return err(env.text, r);
+      const noun = r.count === 1 ? "root" : "roots";
+      const where =
+        r.lo !== undefined && r.hi !== undefined ? [`in the interval (${r.lo}, ${r.hi}]`] : [];
+      // Lead with the answer (the count), not the verb name.
+      return {
+        kind: "message",
+        tone: "info",
+        title: `${r.count} distinct real ${noun}`,
+        lines: where,
+      };
+    }
+    case "isolate": {
+      if (args.length > 2) return usage("usage: isolate <poly>[, <var>]");
+      const poly = reduceEquation(expr);
+      const v = args[1] || (await inferVar(poly));
+      const env = await applyEnv(poly, [v], "expr", ov, scope);
+      const r = await call("isolate", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      const noun = r.count === 1 ? "root" : "roots";
+      const lines = [`${r.count} distinct real ${noun}${r.count ? ":" : ""}`];
+      for (const root of r.roots) {
+        lines.push(
+          root.exact
+            ? `${v} = ${root.value}`
+            : `${v} ≈ ${fmtRoot(root.approx)}   in (${fmtRoot(root.lo)}, ${fmtRoot(root.hi)})`,
+        );
+      }
+      return { kind: "message", tone: "info", title: "isolate", lines };
     }
     case "stirling": {
       // stirling [<var>[, <terms>]] — no expression argument.
@@ -957,9 +1199,22 @@ export async function runLine(
   ov?: EnvOverrides,
   scope?: ScopeEnv,
 ): Promise<CellResult> {
-  const line = raw.trim();
+  let line = raw.trim();
   if (!line) return { kind: "message", tone: "muted", lines: ["(empty)"] };
   try {
+    // A user-function definition (`f(x) = …`) commits to the session registry;
+    // otherwise expand any function applications in the line before dispatch so
+    // `f(3)`, `g(f(x))`, and `f'(x)` reduce first.
+    const fdef = matchFunctionDef(line);
+    if (fdef) return await runFunctionDef(fdef);
+    if (sessionFunctions.fnNames().length) {
+      line = await expandApplications(
+        line,
+        (n) => sessionFunctions.getFn(n),
+        sessionFunctions.fnNames(),
+      );
+    }
+
     if (splitAssignment(line)) return await runAssignment(line, scope);
 
     const { head, rest } = splitHead(line);
@@ -981,10 +1236,12 @@ export async function runLine(
         return await pluginsMessage();
       case "vars":
         return varsMessage(scope);
+      case "funcs":
+        return funcsMessage();
       case "clear":
-        return clearVars(scope);
+        return await clearVars(scope);
       case "unset":
-        return unsetVar(rest, scope);
+        return await unsetVar(rest, scope);
       case "quit":
       case "exit":
         return {

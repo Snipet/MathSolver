@@ -11,6 +11,7 @@ include(Catch)
 
 add_executable(mathsolver_tests
     test_smoke.cpp
+    test_bigint.cpp
     test_rational.cpp
     test_expr.cpp
     test_parser.cpp
@@ -19,6 +20,7 @@ add_executable(mathsolver_tests
     test_simplify.cpp
     test_simplify_review.cpp
     test_derivative.cpp
+    test_steps.cpp
     test_integrate.cpp
     test_apart.cpp
     test_fit.cpp
@@ -27,6 +29,7 @@ add_executable(mathsolver_tests
     test_cfrac.cpp
     test_inequality.cpp
     test_discriminant.cpp
+    test_orthopoly.cpp
     test_trig.cpp
     test_polydiv.cpp
     test_logexpand.cpp
@@ -38,6 +41,7 @@ add_executable(mathsolver_tests
     test_ode.cpp
     test_series.cpp
     test_pade.cpp
+    test_sturm.cpp
     test_special.cpp
     test_limit.cpp
     test_discrete.cpp
@@ -52,8 +56,9 @@ add_executable(mathsolver_tests
     test_plugin_hyb.cpp
     test_plugin_fem.cpp
     test_plugin_prob.cpp
+    test_script.cpp
 )
-target_link_libraries(mathsolver_tests PRIVATE mathsolver_core mathsolver_plugins Catch2::Catch2WithMain)
+target_link_libraries(mathsolver_tests PRIVATE mathsolver_script mathsolver_plugins Catch2::Catch2WithMain)
 
 # The CLI end-to-end tests drive the real binary through popen().
 target_compile_definitions(mathsolver_tests
