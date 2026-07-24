@@ -180,6 +180,37 @@ TEST_CASE("integer partition function p(n)") {
     CHECK_THROWS_AS(partition_count(1000000), OverflowError); // beyond int64
 }
 
+TEST_CASE("Stirling numbers of the second kind") {
+    CHECK(stirling_second(0, 0) == 1);
+    CHECK(stirling_second(4, 0) == 0);
+    CHECK(stirling_second(4, 1) == 1);   // one subset
+    CHECK(stirling_second(4, 4) == 1);   // singletons
+    CHECK(stirling_second(4, 2) == 7);
+    CHECK(stirling_second(5, 3) == 25);
+    CHECK(stirling_second(5, 2) == 15);  // 2^(n-1) - 1
+    CHECK(stirling_second(6, 3) == 90);
+    CHECK(stirling_second(3, 5) == 0);   // k > n
+    CHECK_THROWS_AS(stirling_second(-1, 0), EvalError);
+    CHECK_THROWS_AS(stirling_second(200, 100), OverflowError);
+}
+
+TEST_CASE("Bell numbers") {
+    CHECK(bell_number(0) == 1);
+    CHECK(bell_number(1) == 1);
+    CHECK(bell_number(2) == 2);
+    CHECK(bell_number(3) == 5);
+    CHECK(bell_number(4) == 15);
+    CHECK(bell_number(5) == 52);
+    CHECK(bell_number(6) == 203);
+    CHECK(bell_number(10) == 115975);
+    // B(n) = Σ_k S(n, k).
+    long long s = 0;
+    for (long long k = 0; k <= 7; ++k) s += stirling_second(7, k);
+    CHECK(s == bell_number(7)); // 877
+    CHECK_THROWS_AS(bell_number(-1), EvalError);
+    CHECK_THROWS_AS(bell_number(100), OverflowError);
+}
+
 TEST_CASE("Catalan numbers") {
     CHECK(catalan_number(0) == 1);
     CHECK(catalan_number(1) == 1);

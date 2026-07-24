@@ -109,6 +109,8 @@ export const MATH_VERBS = new Set([
   "partitions",
   "catalan",
   "bernoulli",
+  "stirling2",
+  "bell",
   "cfrac",
   "mod",
   "powmod",
@@ -587,6 +589,7 @@ async function runVerb(
     case "partitions":
     case "catalan":
     case "bernoulli":
+    case "bell":
     case "totient": {
       if (args.length > 1) return usage(`usage: ${verb} <integer>`);
       const r = await call(verb, [expr]);
@@ -597,6 +600,13 @@ async function runVerb(
       // sigma <n>[, <k>]: the divisor function σ_k (default k = 1).
       if (args.length > 2) return usage("usage: sigma <n>[, <k>]");
       const r = await call("sigma", [expr, args[1] ?? ""]);
+      if (!r.ok) return err(expr, r);
+      return { kind: "transform", result: r, computedFrom: null };
+    }
+    case "stirling2": {
+      // stirling2 <n>, <k>: the Stirling number of the second kind S(n, k).
+      if (args.length !== 2) return usage("usage: stirling2 <n>, <k>");
+      const r = await call("stirling2", [expr, args[1]]);
       if (!r.ok) return err(expr, r);
       return { kind: "transform", result: r, computedFrom: null };
     }

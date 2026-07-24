@@ -324,6 +324,8 @@ export interface EngineApi {
   partitions: [[n: string], TransformResult];
   catalan: [[n: string], TransformResult];
   bernoulli: [[n: string], TransformResult];
+  stirling2: [[n: string, k: string], TransformResult];
+  bell: [[n: string], TransformResult];
   cfrac: [[value: string], TransformResult];
   discriminant: [[poly: string, variable: string], TransformResult];
   polydiv: [[dividend: string, divisor: string, variable: string], TransformResult];

@@ -64,6 +64,17 @@ long long partition_count(long long n);
 /// throws OverflowError past the 64-bit range (around n = 37).
 long long catalan_number(long long n);
 
+/// The Stirling number of the second kind S(n, k): the number of ways to
+/// partition an n-element set into k non-empty unlabelled subsets. Requires
+/// n, k >= 0; S(n, k) = 0 for k > n, S(0, 0) = 1. Exact via the recurrence
+/// S(n, k) = k·S(n-1, k) + S(n-1, k-1); throws OverflowError past int64.
+long long stirling_second(long long n, long long k);
+
+/// The n-th Bell number B(n) = Σ_k S(n, k): the number of partitions of an
+/// n-element set. B(0) = 1. Built exactly via the Bell triangle; throws
+/// OverflowError past the 64-bit range (around n = 26).
+long long bell_number(long long n);
+
 /// Euclidean remainder: the r with 0 <= r < |m| and a == r (mod m). m = 0
 /// throws DivisionByZeroError.
 long long int_mod(long long a, long long m);

@@ -367,6 +367,26 @@ std::string ms_catalan(std::string arg) {
         return nt_json(s, s, {std::format("C({})", *n)});
     });
 }
+std::string ms_stirling2(std::string nArg, std::string kArg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(nArg);
+        const auto k = nt_int(kArg);
+        if (!n) return err_json(std::format("stirling2: expected an integer n, got '{}'", trim(nArg)));
+        if (!k) return err_json(std::format("stirling2: expected an integer k, got '{}'", trim(kArg)));
+        if (*n < 0 || *k < 0) return err_json("stirling2 is defined for n, k >= 0");
+        const std::string s = std::to_string(stirling_second(*n, *k));
+        return nt_json(s, s, {std::format("S({}, {})", *n, *k)});
+    });
+}
+std::string ms_bell(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("bell: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("bell is defined for n >= 0");
+        const std::string s = std::to_string(bell_number(*n));
+        return nt_json(s, s, {std::format("B({})", *n)});
+    });
+}
 std::string ms_bernoulli(std::string arg) {
     return guarded([&]() -> std::string {
         const auto n = nt_int(arg);
@@ -1759,6 +1779,8 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("partitions", &ms_partitions);
     emscripten::function("catalan", &ms_catalan);
     emscripten::function("bernoulli", &ms_bernoulli);
+    emscripten::function("stirling2", &ms_stirling2);
+    emscripten::function("bell", &ms_bell);
     emscripten::function("cfrac", &ms_cfrac);
     emscripten::function("discriminant", &ms_discriminant);
     emscripten::function("polydiv", &ms_polydiv);

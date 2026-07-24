@@ -30,6 +30,16 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `stirling2` and `bell` set-partition counts.** `stirling2 n, k`
+  is the Stirling number of the second kind S(n, k) — the number of ways to
+  partition an *n*-element set into *k* nonempty blocks (`stirling2 5, 3` → 25),
+  built by an overflow-guarded 1-D recurrence. `bell n` is the n-th Bell number
+  Bₙ — the total over all *k* (`bell 10` → 115975) — via the Bell triangle.
+  Both are exact over the 64-bit range and error cleanly past it; they round
+  out the combinatorial family alongside `partitions` / `catalan` / `bernoulli`.
+  CLI too. (A latent CLI-REPL tokenizer bug that split digit-suffixed verb names
+  like `stirling2` at the digit boundary is fixed as part of this.)
+
 - **Grapher — gridlines on/off toggle.** A **Grid** button in the graph
   toolbar hides or shows the background gridlines (the axes and their number
   labels stay), for a cleaner plot — handy before saving a PNG. The choice

@@ -873,6 +873,22 @@ void run_catalan(const std::string& input) {
     std::println("{}", catalan_number(v[0]));
 }
 
+/// `stirling2`: the Stirling number of the second kind S(n, k).
+void run_stirling2(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "stirling2");
+    if (v.size() != 2) throw UsageError{"usage: stirling2 <n>, <k>"};
+    if (v[0] < 0 || v[1] < 0) throw UsageError{"stirling2 is defined for n, k >= 0"};
+    std::println("{}", stirling_second(v[0], v[1]));
+}
+
+/// `bell`: the n-th Bell number B(n) for a single n >= 0.
+void run_bell(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "bell");
+    if (v.size() != 1) throw UsageError{"bell takes a single integer"};
+    if (v[0] < 0) throw UsageError{"bell is defined for n >= 0"};
+    std::println("{}", bell_number(v[0]));
+}
+
 /// `bernoulli`: the n-th Bernoulli number B_n (exact rational, 0 <= n <= 20).
 void run_bernoulli(const std::string& input, PrintStyle style) {
     const std::vector<long long> v = parse_integer_list(input, "bernoulli");
@@ -1717,6 +1733,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
            s == "divisors" || s == "totient" || s == "sigma" || s == "mobius" ||
            s == "partitions" || s == "catalan" || s == "bernoulli" ||
+           s == "stirling2" || s == "bell" ||
            s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
            s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
@@ -1957,7 +1974,8 @@ int run_one_shot(const std::vector<std::string>& args) {
             run_seq(positionals, style);
         } else if (sub == "gcd" || sub == "lcm" || sub == "isprime" ||
                    sub == "nextprime" || sub == "divisors" || sub == "totient" ||
-                   sub == "mobius" || sub == "partitions" || sub == "catalan") {
+                   sub == "mobius" || sub == "partitions" || sub == "catalan" ||
+                   sub == "bell") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (put the integers in one quoted "
@@ -1972,7 +1990,10 @@ int run_one_shot(const std::vector<std::string>& args) {
             else if (sub == "mobius") run_mobius(input);
             else if (sub == "partitions") run_partitions(input);
             else if (sub == "catalan") run_catalan(input);
+            else if (sub == "bell") run_bell(input);
             else run_totient(input);
+        } else if (sub == "stirling2") {
+            run_stirling2(input);
         } else if (sub == "sigma") {
             run_sigma(input);
         } else if (sub == "bernoulli") {
@@ -2165,6 +2186,7 @@ void print_repl_help() {
         "  sigma <n>[, k]   mobius <n>            divisor sum σ_k and Möbius μ\n"
         "  partitions <n>   catalan <n>           partition count p(n) and Catalan C(n)\n"
         "  bernoulli <n>                          the n-th Bernoulli number B_n (exact)\n"
+        "  stirling2 <n>, <k>   bell <n>           Stirling 2nd-kind S(n,k) and Bell B(n)\n"
         "  cfrac <rational | sqrt(n) | real>      continued fraction + convergents\n"
         "  mod <a, m>   powmod <b, e, m>   modinv <a, m>   modular arithmetic\n"
         "  crt <r1, r2, …; m1, m2, …>             Chinese remainder theorem\n"
@@ -2219,7 +2241,8 @@ bool is_repl_command(std::string_view word) {
            word == "lcm" || word == "isprime" || word == "nextprime" ||
            word == "divisors" || word == "totient" || word == "sigma" ||
            word == "mobius" || word == "partitions" || word == "catalan" ||
-           word == "bernoulli" || word == "cfrac" ||
+           word == "bernoulli" || word == "stirling2" || word == "bell" ||
+           word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
            word == "crt" || word == "discriminant" || word == "polydiv" ||
            word == "polygcd" || word == "polylcm" || word == "resultant" ||
@@ -2807,7 +2830,7 @@ void repl_command(const std::string& command, const std::string& rest,
     if (command == "gcd" || command == "lcm" || command == "isprime" ||
         command == "nextprime" || command == "divisors" ||
         command == "totient" || command == "mobius" || command == "sigma" ||
-        command == "partitions" || command == "catalan") {
+        command == "partitions" || command == "catalan" || command == "bell") {
         if (trim(rest).empty()) {
             throw UsageError{std::format(
                 "usage: {} <integer{}>", command,
@@ -2824,7 +2847,13 @@ void repl_command(const std::string& command, const std::string& rest,
         else if (command == "sigma") run_sigma(rest);
         else if (command == "partitions") run_partitions(rest);
         else if (command == "catalan") run_catalan(rest);
+        else if (command == "bell") run_bell(rest);
         else run_totient(rest);
+        return;
+    }
+    if (command == "stirling2") {
+        if (trim(rest).empty()) throw UsageError{"usage: stirling2 <n>, <k>"};
+        run_stirling2(rest);
         return;
     }
     if (command == "bernoulli") {
@@ -3184,11 +3213,16 @@ void repl_line(const std::string& line, Environment& env) {
     }
 
     // A leading known command word (followed by whitespace or end of line)
-    // selects command mode; anything else is a bare expression/equation.
+    // selects command mode; anything else is a bare expression/equation. The
+    // word must start with a letter but may carry trailing digits (e.g.
+    // `stirling2`), so a numeric line is never mistaken for a command.
     std::size_t word_end = 0;
-    while (word_end < line.size() &&
-           std::isalpha(static_cast<unsigned char>(line[word_end])) != 0) {
+    if (!line.empty() && std::isalpha(static_cast<unsigned char>(line[0])) != 0) {
         ++word_end;
+        while (word_end < line.size() &&
+               std::isalnum(static_cast<unsigned char>(line[word_end])) != 0) {
+            ++word_end;
+        }
     }
     const std::string word = line.substr(0, word_end);
     const bool word_terminated =
