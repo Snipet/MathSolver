@@ -4,6 +4,8 @@
 #include <string>
 
 #include "mathsolver/derivative.hpp"
+#include "mathsolver/errors.hpp"
+#include "mathsolver/integrate.hpp"
 #include "mathsolver/parser.hpp"
 #include "mathsolver/printer.hpp"
 #include "mathsolver/steps.hpp"
@@ -16,9 +18,24 @@ Explanation steps_of(const std::string& src, const std::string& var = "x") {
     return explain_derivative(parse_expression(src), var);
 }
 
+Explanation isteps_of(const std::string& src, const std::string& var = "x") {
+    return explain_integral(parse_expression(src), var);
+}
+
 bool has_rule(const Explanation& ex, const std::string& rule) {
     return std::any_of(ex.steps.begin(), ex.steps.end(),
                        [&](const ExplainStep& s) { return s.rule == rule; });
+}
+
+// The integral recorder must never change the answer: its result equals the
+// plain `integrate` antiderivative.
+void check_matches_integrate(const std::string& src, const std::string& var = "x") {
+    const Explanation ex = isteps_of(src, var);
+    const IntegrateResult r = integrate(parse_expression(src), var);
+    REQUIRE(r.status == IntegrateResult::Status::Integrated);
+    const std::string plain = to_string(r.antiderivative, PrintStyle::Plain);
+    INFO(src << " => steps result '" << ex.result_plain << "' vs integrate '" << plain << "'");
+    REQUIRE(ex.result_plain == plain);
 }
 
 // The recorder must never change the answer: its result equals plain `diff`.
@@ -105,4 +122,67 @@ TEST_CASE("steps: constant and bare variable get a trivial step", "[steps]") {
     REQUIRE(v.steps.size() == 1);
     REQUIRE(v.steps.front().rule == "identity rule");
     REQUIRE(v.result_plain == "1");
+}
+
+// --- integral steps --------------------------------------------------------
+
+TEST_CASE("isteps: result always equals the plain integral", "[steps]") {
+    for (const char* s : {"x^2", "x^2 + sin(x)", "3*x^2", "2*x*cos(x^2)", "x*sin(x)",
+                          "1/(x^2 - 1)", "e^(2*x)", "cos(x)^2", "5", "x"}) {
+        check_matches_integrate(s);
+    }
+}
+
+TEST_CASE("isteps: power rule leaf", "[steps]") {
+    const Explanation ex = isteps_of("x^2");
+    REQUIRE(has_rule(ex, "power rule"));
+    REQUIRE(ex.result_plain == "x^3/3");
+    REQUIRE(ex.steps.back().plain == "∫ x^2 dx = x^3/3");
+}
+
+TEST_CASE("isteps: linearity splits a sum, innermost-first", "[steps]") {
+    const Explanation ex = isteps_of("x^2 + sin(x)");
+    REQUIRE(has_rule(ex, "linearity"));
+    // Each term is worked before the combining linearity step (recorded last).
+    REQUIRE(ex.steps.back().rule == "linearity");
+    REQUIRE(ex.steps.size() >= 3);  // ∫x^2, ∫sin(x), and the linearity line
+}
+
+TEST_CASE("isteps: constant multiple peels a numeric factor", "[steps]") {
+    const Explanation ex = isteps_of("3*x^2");
+    REQUIRE(has_rule(ex, "constant multiple"));
+    REQUIRE(ex.result_plain == "x^3");
+}
+
+TEST_CASE("isteps: u-substitution is reported by the engine", "[steps]") {
+    const Explanation ex = isteps_of("2*x*cos(x^2)");
+    const bool usub = std::any_of(ex.steps.begin(), ex.steps.end(), [](const ExplainStep& s) {
+        return s.rule.find("u-substitution") != std::string::npos;
+    });
+    REQUIRE(usub);
+    REQUIRE(ex.result_plain == to_string(integrate(parse_expression("2*x*cos(x^2)"), "x").antiderivative,
+                                         PrintStyle::Plain));
+}
+
+TEST_CASE("isteps: integration by parts is reported by the engine", "[steps]") {
+    const Explanation ex = isteps_of("x*sin(x)");
+    const bool parts = std::any_of(ex.steps.begin(), ex.steps.end(), [](const ExplainStep& s) {
+        return s.rule.find("integration by parts") != std::string::npos;
+    });
+    REQUIRE(parts);
+}
+
+TEST_CASE("isteps: latex is emitted for every integral step", "[steps]") {
+    const Explanation ex = isteps_of("x^2 + sin(x)");
+    for (const ExplainStep& s : ex.steps) {
+        REQUIRE_FALSE(s.plain.empty());
+        REQUIRE_FALSE(s.latex.empty());
+        REQUIRE(s.latex.find("\\int") != std::string::npos);
+    }
+    REQUIRE_FALSE(ex.result_latex.empty());
+}
+
+TEST_CASE("isteps: a non-elementary integral throws, like the plain verb", "[steps]") {
+    // e^(x^2) (positive quadratic exponent) has no elementary antiderivative.
+    REQUIRE_THROWS_AS(isteps_of("e^(x^2)"), Error);
 }

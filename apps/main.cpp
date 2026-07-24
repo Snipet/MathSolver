@@ -399,18 +399,54 @@ void run_diff(const std::string& input, const std::string& explicit_var,
     std::println("{}", to_string(differentiate(e, var), style));
 }
 
-/// `steps`: a worked, rule-by-rule derivative — one numbered line per rule
-/// applied (innermost first), then the final result. Same variable-selection
-/// rules as `diff`.
-void run_steps(const std::string& input, const std::string& explicit_var, PrintStyle style) {
+/// Which operation `steps` works out. Derivatives are the default (so a bare
+/// `steps <expr>` keeps working); an explicit leading `diff`/`integrate` word
+/// selects the operation. `solve` follows in a later phase.
+enum class StepsOp { Derivative, Integral };
+
+/// Split an optional leading `diff `/`integrate ` operation word off the input.
+/// Defaults to the derivative when no keyword is present (backward compatible).
+std::pair<StepsOp, std::string> split_steps_op(const std::string& input) {
+    const auto strip = [&](std::string_view kw) -> std::optional<std::string> {
+        if (input.size() <= kw.size() || input.compare(0, kw.size(), kw) != 0) return std::nullopt;
+        if (std::isspace(static_cast<unsigned char>(input[kw.size()])) == 0) return std::nullopt;
+        std::size_t i = kw.size();
+        while (i < input.size() && std::isspace(static_cast<unsigned char>(input[i])) != 0) ++i;
+        return input.substr(i);
+    };
+    if (auto rest = strip("integrate")) return {StepsOp::Integral, *rest};
+    if (auto rest = strip("diff")) return {StepsOp::Derivative, *rest};
+    return {StepsOp::Derivative, input};
+}
+
+/// `steps`: a worked, rule-by-rule solution — one numbered line per rule
+/// applied (innermost first), then the final result. `steps <expr>` (or the
+/// explicit `steps diff <expr>`) works a derivative; `steps integrate <expr>`
+/// works an indefinite integral. Same variable-selection rules as diff/integrate.
+void run_steps(StepsOp op, const std::string& input, const std::string& explicit_var,
+               PrintStyle style) {
     const Expr e = parse_expression_diag(input);
     const std::string var = choose_variable(explicit_var, free_symbols(e), "steps");
-    const Explanation ex = explain_derivative(e, var);
+    Explanation ex;
+    if (op == StepsOp::Integral) {
+        // An integral with no elementary form is an honest answer (like the
+        // `integrate` verb), not an error: report it and exit cleanly.
+        try {
+            ex = explain_integral(e, var);
+        } catch (const Error&) {
+            std::println("unable to integrate");
+            return;
+        }
+    } else {
+        ex = explain_derivative(e, var);
+    }
     int i = 1;
     for (const ExplainStep& s : ex.steps) {
         std::println("{}. [{}] {}", i++, s.rule, style == PrintStyle::LaTeX ? s.latex : s.plain);
     }
-    std::println("result: {}", style == PrintStyle::LaTeX ? ex.result_latex : ex.result_plain);
+    const std::string result = style == PrintStyle::LaTeX ? ex.result_latex : ex.result_plain;
+    // An indefinite integral carries the implicit constant of integration.
+    std::println("result: {}{}", result, op == StepsOp::Integral ? " + C" : "");
 }
 
 /// `laplace` maps f(t) -> F(s); the time variable defaults to t and may be
@@ -1918,7 +1954,8 @@ int run_one_shot(const std::vector<std::string>& args) {
             } else if (sub == "diff") {
                 run_diff(input, var, style);
             } else if (sub == "steps") {
-                run_steps(input, var, style);
+                const auto [op, cleaned] = split_steps_op(input);
+                run_steps(op, cleaned, var, style);
             } else if (sub == "collect") {
                 run_collect(input, var, style);
             } else if (sub == "apart") {
@@ -2238,7 +2275,7 @@ void print_repl_help() {
         "  solve <equation>[, <variable>]\n"
         "  solve <eq>; <eq>[; ...][, <var>, <var>, ...]   (linear system)\n"
         "  diff <expression>[, <variable>]\n"
-        "  steps <expression>[, <variable>]      worked, rule-by-rule derivative\n"
+        "  steps [diff|integrate] <expr>[, <var>] worked, rule-by-rule derivative or integral\n"
         "  integrate <expression>[, <variable>[, <lo>, <hi>]]\n"
         "  eval <expression>, x=1[, y=2 ...]\n"
         "  subs <expression>, x=y+1[, z=2 ...]\n"
@@ -3014,13 +3051,20 @@ void repl_command(const std::string& command, const std::string& rest,
         if (!var.empty()) {
             excluded.insert(var);
         }
+        // `steps` may carry a leading `diff`/`integrate` operation word; strip
+        // it before resolving so the environment sees only the expression.
+        StepsOp steps_op = StepsOp::Derivative;
+        std::string expr_input = input;
+        if (command == "steps") {
+            std::tie(steps_op, expr_input) = split_steps_op(input);
+        }
         const std::string resolved = to_string(
-            resolve_expr(parse_expression_diag(input), env, excluded),
+            resolve_expr(parse_expression_diag(expr_input), env, excluded),
             PrintStyle::Plain);
         if (command == "diff") {
             run_diff(resolved, var, PrintStyle::Plain);
         } else if (command == "steps") {
-            run_steps(resolved, var, PrintStyle::Plain);
+            run_steps(steps_op, resolved, var, PrintStyle::Plain);
         } else if (command == "apart") {
             run_apart(resolved, var, PrintStyle::Plain);
         } else if (command == "cancel") {

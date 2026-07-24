@@ -1,8 +1,9 @@
 # Proposal: Step-by-Step Explanations
 
-Status: **in progress** — Phase 1 (this PR) adds the derivative step recorder
-(core + CLI + tests). Size: **L** (multi-phase). The flagship student-facing
-feature and the main commercial-CAS parity gap (Symbolab/Wolfram "show steps").
+Status: **in progress** — Phase 1 (derivatives) and Phase 1b (derivative web
+UI) shipped; Phase 2 (integral step recorder, core + CLI) is this change. Size:
+**L** (multi-phase). The flagship student-facing feature and the main
+commercial-CAS parity gap (Symbolab/Wolfram "show steps").
 
 Goal: for the operations students most want worked out — **derivatives**,
 **integrals**, and **equation solving** — return not just the answer but the
@@ -43,9 +44,18 @@ struct Explanation {
 - **Phase 1b — web.** A WASM `explainDerivative` binding + a "Show steps" toggle
   on the console derivative result that renders the step list (LaTeX via the
   existing typeset path).
-- **Phase 2 — integrals.** Record the rule chosen per term (linearity, power
-  rule, u-substitution, by-parts, partial fractions) alongside the existing
-  `method:` note.
+- **Phase 2 — integrals (done, core + CLI).** `explain_integral(e, symbol)`
+  mirrors the integrator's outermost structural choices — linearity over a sum,
+  pulling constant factors out — recording one step per node (innermost-first);
+  each leaf integral is solved by the real `integrate` and tagged with the
+  method it reports (table, power rule, u-substitution, integration by parts,
+  partial fractions, ...). The result always equals the plain `integrate`
+  antiderivative (implicit "+ C"). Wired to the CLI: `steps integrate <expr>`
+  (the `steps` verb now takes an optional leading `diff`/`integrate` operation
+  word, defaulting to the derivative). Native tests assert the answer matches
+  `integrate` across a battery and that the technique labels appear. **Web is
+  Phase 2b** (a WASM `explainIntegral` binding + the console `steps integrate`
+  route), mirroring the Phase 1b derivative UI.
 - **Phase 3 — solving.** Record the algebra of `solve` (isolate, factor,
   quadratic formula, …).
 
