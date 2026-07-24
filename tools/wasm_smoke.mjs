@@ -34,6 +34,8 @@ check("parse error span", ms.simplify("2 + \\fraq{1}{2}"), (r) => !r.ok && r.beg
 check("derivative", ms.derivative("sin(x^2)", "x"), (r) => r.ok && r.plain === "2*x*cos(x^2)", "2*x*cos(x^2)");
 check("explainDerivative steps", ms.explainDerivative("sin(x^2)", "x"), (r) => r.ok && r.plain === "2*x*cos(x^2)" && r.steps.length === 2 && r.steps.some((s) => s.rule === "chain rule") && r.steps[0].latex.includes("\\frac{d}{dx}"), "2 steps, chain rule, latex");
 check("explainDerivative infers var", ms.explainDerivative("x^3", ""), (r) => r.ok && r.plain === "3*x^2" && r.steps.some((s) => s.rule === "power rule"), "power rule, var inferred");
+check("explainIntegral steps", ms.explainIntegral("x^2 + sin(x)", "x"), (r) => r.ok && r.solved && r.plain === "x^3/3 - cos(x)" && r.steps.length >= 3 && r.steps.at(-1).rule === "linearity" && r.steps[0].latex.includes("\\int"), "3 steps, linearity last, latex");
+check("explainIntegral honesty", ms.explainIntegral("e^(x^2)", "x"), (r) => r.ok && !r.solved && r.steps.length === 0, "unsolved, no steps");
 check("integrate", ms.integrate("x*sin(x)", "x"), (r) => r.ok && r.solved && r.plain.includes("-x*cos(x)"), "-x*cos(x) + sin(x)");
 check("integrate honesty", ms.integrate("e^(x^2)", "x"), (r) => r.ok && !r.solved, "unsolved");
 check("definite exact", ms.integrateDefinite("sin(x)", "x", "0", "pi"), (r) => r.ok && r.status === "exact" && r.plain === "2", "value 2");

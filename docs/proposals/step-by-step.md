@@ -1,9 +1,9 @@
 # Proposal: Step-by-Step Explanations
 
-Status: **in progress** — Phase 1 (derivatives) and Phase 1b (derivative web
-UI) shipped; Phase 2 (integral step recorder, core + CLI) is this change. Size:
-**L** (multi-phase). The flagship student-facing feature and the main
-commercial-CAS parity gap (Symbolab/Wolfram "show steps").
+Status: **in progress** — Phases 1/1b (derivatives, core + CLI + web) and
+Phase 2 (integral step recorder, core + CLI) shipped; Phase 2b (the integral
+web UI) is this change. Size: **L** (multi-phase). The flagship student-facing
+feature and the main commercial-CAS parity gap (Symbolab/Wolfram "show steps").
 
 Goal: for the operations students most want worked out — **derivatives**,
 **integrals**, and **equation solving** — return not just the answer but the
@@ -53,9 +53,12 @@ struct Explanation {
   antiderivative (implicit "+ C"). Wired to the CLI: `steps integrate <expr>`
   (the `steps` verb now takes an optional leading `diff`/`integrate` operation
   word, defaulting to the derivative). Native tests assert the answer matches
-  `integrate` across a battery and that the technique labels appear. **Web is
-  Phase 2b** (a WASM `explainIntegral` binding + the console `steps integrate`
-  route), mirroring the Phase 1b derivative UI.
+  `integrate` across a battery and that the technique labels appear.
+- **Phase 2b — integral web (this change).** A WASM `explainIntegral` binding
+  plus the console `steps integrate <expr>` route: the same rule-chip step list
+  the derivative uses, closing on `∫ … dx = F(x) + C`. An integral with no
+  elementary antiderivative is an answer, not an error — the card says "no
+  closed form found", exactly as the plain `integrate` verb reports it.
 - **Phase 3 — solving.** Record the algebra of `solve` (isolate, factor,
   quadratic formula, …).
 

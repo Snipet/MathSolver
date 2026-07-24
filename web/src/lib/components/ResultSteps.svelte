@@ -4,29 +4,48 @@
   import Katex from "./Katex.svelte";
   import SourceFields from "./SourceFields.svelte";
 
-  let { result, variable }: { result: Ok<ExplainResult>; variable: string } = $props();
+  let {
+    result,
+    op,
+    variable,
+  }: { result: Ok<ExplainResult>; op: "diff" | "integrate"; variable: string } = $props();
+
+  // An indefinite integral carries the implicit constant of integration.
+  const answerPlain = $derived(result.plain + (op === "integrate" ? " + C" : ""));
+  const answerLatex = $derived(result.latex + (op === "integrate" ? " + C" : ""));
 </script>
 
-<ol class="steps">
-  {#each result.steps as step, i (i)}
-    <li>
-      <span class="rule">{step.rule}</span>
-      <Katex latex={step.latex} />
-    </li>
-  {/each}
-</ol>
+{#if result.solved}
+  <ol class="steps">
+    {#each result.steps as step, i (i)}
+      <li>
+        <span class="rule">{step.rule}</span>
+        <Katex latex={step.latex} />
+      </li>
+    {/each}
+  </ol>
 
-<div class="answer">
-  <span class="answer-label">d/d{variable} =</span>
-  <Katex latex={result.latex} display />
-</div>
+  <div class="answer">
+    <span class="answer-label">
+      {#if op === "integrate"}∫ … d{variable} ={:else}d/d{variable} ={/if}
+    </span>
+    <Katex latex={answerLatex} display />
+  </div>
 
-<SourceFields
-  fields={[
-    { label: "Plain", text: result.plain },
-    { label: "LaTeX", text: result.latex },
-  ]}
-/>
+  <SourceFields
+    fields={[
+      { label: "Plain", text: answerPlain },
+      { label: "LaTeX", text: answerLatex },
+    ]}
+  />
+{:else}
+  <p class="banner">No closed form found</p>
+  <p class="hint">
+    The engine could not express this antiderivative in elementary functions, so
+    there are no steps to show. A definite integral can still be evaluated
+    numerically.
+  </p>
+{/if}
 
 <style>
   .steps {
@@ -73,5 +92,19 @@
   .answer-label {
     font-size: 0.82rem;
     color: var(--muted, #7a7a85);
+  }
+  .banner {
+    margin: 0;
+    padding: 0.5rem 0.75rem;
+    border-radius: calc(var(--radius) / 2);
+    font-size: 0.95rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--fg);
+  }
+  .hint {
+    margin: 0.4rem 0 0;
+    font-size: 0.85rem;
+    color: var(--fg-muted);
   }
 </style>

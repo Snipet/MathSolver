@@ -66,9 +66,13 @@ per-feature specs are under docs/proposals/.
   `integrate`. The `steps` verb takes an optional leading operation word —
   `steps <expr>` (or `steps diff <expr>`) still works the derivative; `steps
   integrate <expr>` works the integral. Second phase of the step-by-step
-  feature (docs/proposals/step-by-step.md); CLI now, console next. A
-  non-elementary integrand (e.g. `e^(x^2)`) reports no elementary form, exactly
-  as the plain verb does.
+  feature (docs/proposals/step-by-step.md). A non-elementary integrand (e.g.
+  `e^(x^2)`) reports no elementary form, exactly as the plain verb does.
+  **In the web console** the integral steps render the same way the derivative
+  ones do — a rule chip (LINEARITY, U-SUBSTITUTION, INTEGRATION BY PARTS, …)
+  beside each KaTeX line, closing on the `∫ … dx =` answer with the `+ C` and
+  copyable Plain/LaTeX source; a non-elementary integrand shows "no closed form
+  found" rather than an error. Available in the CLI and the console.
 
 - **`steps` — worked, rule-by-rule derivatives.** `steps <expr>[, <var>]`
   shows the derivative as a student would work it: one numbered line per rule

@@ -198,6 +198,34 @@ try {
     "steps infers the variable",
     (await run("steps x^3")).includes("3*x^2"),
   );
+
+  // `steps integrate` works the integral instead: structural steps (linearity,
+  // constant multiple) with each leaf tagged by the technique the engine used.
+  const istepsOut = await run("steps integrate x^2 + sin(x), x");
+  check(
+    "steps integrate shows the antiderivative with + C",
+    istepsOut.includes("x^3/3 - cos(x) + C"),
+    istepsOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const istepsUi = await page.$eval(".cells .cell:last-child", (el) => ({
+    items: el.querySelectorAll("ol.steps li").length,
+    rules: [...el.querySelectorAll("ol.steps .rule")].map((r) =>
+      r.textContent.trim().toLowerCase(),
+    ),
+    label: el.querySelector(".answer-label")?.textContent.trim() ?? "",
+  }));
+  check(
+    "steps integrate renders rule chips and an integral label",
+    istepsUi.items >= 3 &&
+      istepsUi.rules.includes("linearity") &&
+      istepsUi.label.startsWith("∫"),
+    JSON.stringify(istepsUi),
+  );
+  // A non-elementary integral is an answer, not an error (like `integrate`).
+  check(
+    "steps integrate is honest about no closed form",
+    (await run("steps integrate e^(x^2), x")).includes("No closed form found"),
+  );
   check(
     "laplace verb",
     (await run("laplace e^(-t) sin(2t)")).includes("(s + 1)^2 + 4"),
