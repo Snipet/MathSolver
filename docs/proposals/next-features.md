@@ -73,7 +73,9 @@ no foundational dependency. Effort **L**.
 expression language (`[[1,2],[3,4]]` parses; `A·B`, symbolic `det`/`inv`/`rref`/
 eigen; solve `Ax=b` symbolically), folding the siloed `linalg` plugin syntax
 into the core. Needs a Matrix node — a deliberate extension of the 7-node AST.
-Effort **L**.
+Effort **L**. **Overlaps `docs/proposals/console-language.md`**, which proposes
+lists as *script* values sitting above the AST rather than inside it; settle
+which layer owns sequence semantics before either is built.
 
 **T5. Assumptions & domains framework.** `x>0`, `n∈ℤ`, `x∈ℝ` → correct
 simplification (`sqrt(x^2)=x`), integration-branch selection, better solving,
