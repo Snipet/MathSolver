@@ -937,6 +937,14 @@ void run_tribonacci(const std::string& input) {
     std::println("{}", tribonacci_number(v[0]));
 }
 
+/// `pell`: the n-th Pell number P(n) for a single n >= 0.
+void run_pell(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "pell");
+    if (v.size() != 1) throw UsageError{"pell takes a single integer"};
+    if (v[0] < 0) throw UsageError{"pell is defined for n >= 0"};
+    std::println("{}", pell_number(v[0]));
+}
+
 /// `bernoulli`: the n-th Bernoulli number B_n (exact rational, 0 <= n <= 20).
 void run_bernoulli(const std::string& input, PrintStyle style) {
     const std::vector<long long> v = parse_integer_list(input, "bernoulli");
@@ -1783,7 +1791,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "partitions" || s == "catalan" || s == "bernoulli" ||
            s == "stirling2" || s == "bell" || s == "derangement" ||
            s == "lucas" || s == "primorial" || s == "motzkin" ||
-           s == "euler" || s == "tribonacci" || s == "cfrac" ||
+           s == "euler" || s == "tribonacci" || s == "pell" || s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
            s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
            s == "polydiv" || s == "polygcd" || s == "polylcm" ||
@@ -2026,7 +2034,7 @@ int run_one_shot(const std::vector<std::string>& args) {
                    sub == "mobius" || sub == "partitions" || sub == "catalan" ||
                    sub == "bell" || sub == "derangement" || sub == "lucas" ||
                    sub == "primorial" || sub == "motzkin" || sub == "euler" ||
-                   sub == "tribonacci") {
+                   sub == "tribonacci" || sub == "pell") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (put the integers in one quoted "
@@ -2048,6 +2056,7 @@ int run_one_shot(const std::vector<std::string>& args) {
             else if (sub == "motzkin") run_motzkin(input);
             else if (sub == "euler") run_euler(input);
             else if (sub == "tribonacci") run_tribonacci(input);
+            else if (sub == "pell") run_pell(input);
             else run_totient(input);
         } else if (sub == "stirling2") {
             run_stirling2(input);
@@ -2247,6 +2256,7 @@ void print_repl_help() {
         "  derangement <n>   lucas <n>             subfactorial !n and Lucas L(n)\n"
         "  primorial <n>     motzkin <n>          product of primes n# and Motzkin M(n)\n"
         "  euler <n>         tribonacci <n>       Euler (secant) E_n and tribonacci T(n)\n"
+        "  pell <n>                               the n-th Pell number P(n)\n"
         "  cfrac <rational | sqrt(n) | real>      continued fraction + convergents\n"
         "  mod <a, m>   powmod <b, e, m>   modinv <a, m>   modular arithmetic\n"
         "  crt <r1, r2, …; m1, m2, …>             Chinese remainder theorem\n"
@@ -2304,7 +2314,7 @@ bool is_repl_command(std::string_view word) {
            word == "bernoulli" || word == "stirling2" || word == "bell" ||
            word == "derangement" || word == "lucas" || word == "primorial" ||
            word == "motzkin" || word == "euler" || word == "tribonacci" ||
-           word == "cfrac" ||
+           word == "pell" || word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
            word == "crt" || word == "discriminant" || word == "polydiv" ||
            word == "polygcd" || word == "polylcm" || word == "resultant" ||
@@ -2895,7 +2905,7 @@ void repl_command(const std::string& command, const std::string& rest,
         command == "partitions" || command == "catalan" || command == "bell" ||
         command == "derangement" || command == "lucas" ||
         command == "primorial" || command == "motzkin" ||
-        command == "euler" || command == "tribonacci") {
+        command == "euler" || command == "tribonacci" || command == "pell") {
         if (trim(rest).empty()) {
             throw UsageError{std::format(
                 "usage: {} <integer{}>", command,
@@ -2919,6 +2929,7 @@ void repl_command(const std::string& command, const std::string& rest,
         else if (command == "motzkin") run_motzkin(rest);
         else if (command == "euler") run_euler(rest);
         else if (command == "tribonacci") run_tribonacci(rest);
+        else if (command == "pell") run_pell(rest);
         else run_totient(rest);
         return;
     }

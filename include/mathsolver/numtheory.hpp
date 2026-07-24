@@ -109,6 +109,12 @@ long long euler_number(long long n);
 /// 64-bit range (T(74) is the largest that fits).
 long long tribonacci_number(long long n);
 
+/// The n-th Pell number P(n) for n >= 0: P(0) = 0, P(1) = 1,
+/// P(n) = 2*P(n-1) + P(n-2) (0, 1, 2, 5, 12, 29, 70, 169, ...). The numerators
+/// of the continued-fraction convergents to sqrt(2). Exact; throws
+/// OverflowError past the 64-bit range (P(50) is the largest that fits).
+long long pell_number(long long n);
+
 /// Euclidean remainder: the r with 0 <= r < |m| and a == r (mod m). m = 0
 /// throws DivisionByZeroError.
 long long int_mod(long long a, long long m);

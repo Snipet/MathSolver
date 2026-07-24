@@ -117,6 +117,7 @@ export const MATH_VERBS = new Set([
   "motzkin",
   "euler",
   "tribonacci",
+  "pell",
   "cfrac",
   "mod",
   "powmod",
@@ -602,6 +603,7 @@ async function runVerb(
     case "motzkin":
     case "euler":
     case "tribonacci":
+    case "pell":
     case "totient": {
       if (args.length > 1) return usage(`usage: ${verb} <integer>`);
       const r = await call(verb, [expr]);

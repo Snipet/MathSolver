@@ -417,6 +417,24 @@ long long tribonacci_number(long long n) {
     return c;
 }
 
+long long pell_number(long long n) {
+    if (n < 0) throw EvalError{"pell is defined for n >= 0"};
+    // P(0) = 0, P(1) = 1, P(n) = 2*P(n-1) + P(n-2), rolled forward with two
+    // running values and overflow-guarded (P(50) is the largest that fits
+    // int64; P(51) overflows).
+    long long a = 0; // P(k-1)
+    long long b = 1; // P(k)
+    if (n == 0) return 0;
+    for (long long k = 1; k < n; ++k) {
+        long long t = 0;
+        if (__builtin_mul_overflow(b, 2LL, &t) || __builtin_add_overflow(t, a, &t))
+            throw OverflowError{"pell overflows the 64-bit range"};
+        a = b;
+        b = t;
+    }
+    return b;
+}
+
 long long catalan_number(long long n) {
     if (n < 0) throw EvalError{"catalan is defined for n >= 0"};
     // Iterate C(k+1) = C(k)·2(2k+1)/(k+2) — an exact division at every step
