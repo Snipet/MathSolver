@@ -912,6 +912,19 @@
     view = { cx: 0, cy: 0, scale: 40 };
   }
 
+  // Double-click: reset a moved label to its anchor if the pointer is over one,
+  // otherwise zoom in (the default).
+  function onDblClick(e: MouseEvent): void {
+    const r = canvas!.getBoundingClientRect();
+    const p = { x: e.clientX - r.left, y: e.clientY - r.top };
+    const row = hitLabel(p);
+    if (row !== null && labelOffsets[String(row)]) {
+      onLabelMove?.(row, 0, 0); // snap the label back to its anchor
+      return;
+    }
+    zoomButton(1.6);
+  }
+
   // Keyboard navigation (Desmos-style) when the graph paper is focused: arrows
   // pan, +/- zoom about the center, 0/Home reset. We only preventDefault for
   // keys we actually handle, so Tab still moves focus out of the graph and
@@ -954,7 +967,7 @@
     }}
     onwheel={onWheel}
     onkeydown={onKeyDown}
-    ondblclick={() => zoomButton(1.6)}
+    ondblclick={onDblClick}
   ></canvas>
 
   <div class="zoom" role="group" aria-label="Zoom">

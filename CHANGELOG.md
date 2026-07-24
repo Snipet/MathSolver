@@ -41,7 +41,7 @@ per-feature specs are under docs/proposals/.
   persists with the document. The label rides at a fixed screen distance from
   its anchor (so it stays put as you pan and zoom), and moving it never
   re-samples the curve — it's a pure display nudge, independent of the plotted
-  expression.
+  expression. **Double-click a moved label** to snap it back to its anchor.
 
 - **Console — `bezout` extended polynomial GCD.** `bezout a, b` returns the
   monic gcd of two polynomials *and* the Bézout cofactors `s`, `t` satisfying
