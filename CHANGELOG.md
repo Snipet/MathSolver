@@ -30,6 +30,12 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — duplicate an expression.** Each row now has a **⧉ duplicate**
+  button next to its delete control: it drops an identical copy — same
+  expression, style, and (for tables) data — directly below the original,
+  with a fresh colour so the two are easy to tell apart. Handy for plotting
+  a variation of a curve without retyping it.
+
 - **Grapher — "Hide all / Show all" bulk visibility toggle.** When two or
   more expressions are plotted, a toolbar button hides every curve at once
   (to focus on one you're about to un-hide) or brings them all back — no
