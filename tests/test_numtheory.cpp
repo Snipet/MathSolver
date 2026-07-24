@@ -267,6 +267,33 @@ TEST_CASE("Primorial") {
     CHECK_THROWS_AS(primorial(53), OverflowError);
 }
 
+TEST_CASE("Motzkin numbers") {
+    CHECK(motzkin_number(0) == 1);
+    CHECK(motzkin_number(1) == 1);
+    CHECK(motzkin_number(2) == 2);
+    CHECK(motzkin_number(3) == 4);
+    CHECK(motzkin_number(4) == 9);
+    CHECK(motzkin_number(5) == 21);
+    CHECK(motzkin_number(6) == 51);
+    CHECK(motzkin_number(10) == 2188);
+    CHECK(motzkin_number(15) == 310572);
+    CHECK(motzkin_number(20) == 50852019);
+    // Cross-check against the convolution definition M(n+1) = M(n) +
+    // Σ_{k=0}^{n-1} M(k)·M(n-1-k) for small n.
+    std::vector<long long> m(21);
+    m[0] = 1;
+    for (int nn = 0; nn < 20; ++nn) {
+        long long s = m[nn];
+        for (int k = 0; k < nn; ++k) s += m[k] * m[nn - 1 - k];
+        m[nn + 1] = s;
+    }
+    for (int nn = 0; nn <= 20; ++nn) CHECK(motzkin_number(nn) == m[nn]);
+    // M(44) is the largest Motzkin number fitting in a signed 64-bit int.
+    CHECK(motzkin_number(44) == 4684478925507420069LL);
+    CHECK_THROWS_AS(motzkin_number(-1), EvalError);
+    CHECK_THROWS_AS(motzkin_number(45), OverflowError);
+}
+
 TEST_CASE("Catalan numbers") {
     CHECK(catalan_number(0) == 1);
     CHECK(catalan_number(1) == 1);

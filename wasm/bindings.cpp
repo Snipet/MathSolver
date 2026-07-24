@@ -414,6 +414,15 @@ std::string ms_primorial(std::string arg) {
         return nt_json(s, s, {std::format("{}#", *n)});
     });
 }
+std::string ms_motzkin(std::string arg) {
+    return guarded([&]() -> std::string {
+        const auto n = nt_int(arg);
+        if (!n) return err_json(std::format("motzkin: expected an integer, got '{}'", trim(arg)));
+        if (*n < 0) return err_json("motzkin is defined for n >= 0");
+        const std::string s = std::to_string(motzkin_number(*n));
+        return nt_json(s, s, {std::format("M({})", *n)});
+    });
+}
 std::string ms_bernoulli(std::string arg) {
     return guarded([&]() -> std::string {
         const auto n = nt_int(arg);
@@ -1811,6 +1820,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("derangement", &ms_derangement);
     emscripten::function("lucas", &ms_lucas);
     emscripten::function("primorial", &ms_primorial);
+    emscripten::function("motzkin", &ms_motzkin);
     emscripten::function("cfrac", &ms_cfrac);
     emscripten::function("discriminant", &ms_discriminant);
     emscripten::function("polydiv", &ms_polydiv);

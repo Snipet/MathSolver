@@ -212,6 +212,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "primorial 13",
       },
       {
+        insert: "motzkin",
+        usage: "motzkin <n>",
+        hint: "The n-th Motzkin number M(n): non-crossing chords on n circle points",
+        example: "motzkin 10",
+      },
+      {
         insert: "cfrac",
         usage: "cfrac <rational | sqrt(n) | real>",
         hint: "Continued fraction + convergents (best rational approximations)",

@@ -30,6 +30,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `motzkin` numbers.** `motzkin n` is the n-th Motzkin number
+  M(n) — the number of ways to draw non-crossing chords between *n* points on
+  a circle (`motzkin 6` → 51, `motzkin 10` → 2188) — built by the exact
+  recurrence (n+2)·M(n) = (2n+1)·M(n−1) + 3(n−1)·M(n−2). Exact over the 64-bit
+  range (M(44) is the largest that fits) and errors cleanly past it; it joins
+  the combinatorial family alongside `catalan` / `bell`. CLI too.
+
 - **Grapher — add a graph title.** The graph toolbar's **Labels** button (the
   renamed **Axes** control) now also holds a **Title** field; the title draws
   centered along the top of the plot and persists with the document — handy for

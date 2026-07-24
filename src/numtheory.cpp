@@ -337,6 +337,27 @@ long long primorial(long long n) {
     return acc;
 }
 
+long long motzkin_number(long long n) {
+    if (n < 0) throw EvalError{"motzkin is defined for n >= 0"};
+    if (n < 2) return 1; // M(0) = M(1) = 1
+    // (k+2)·M(k) = (2k+1)·M(k-1) + 3(k-1)·M(k-2), an exact division at each
+    // step. A 128-bit intermediate holds the sum before the divide (it can
+    // exceed int64 near the overflow edge); the result is range-checked so we
+    // throw rather than wrap. M(44) is the largest that fits.
+    long long prev2 = 1; // M(k-2), starting at M(0)
+    long long prev1 = 1; // M(k-1), starting at M(1)
+    for (long long k = 2; k <= n; ++k) {
+        const __int128 num = static_cast<__int128>(2 * k + 1) * prev1 +
+                             static_cast<__int128>(3 * (k - 1)) * prev2;
+        const __int128 m = num / (k + 2);
+        if (m > static_cast<__int128>(INT64_MAX))
+            throw OverflowError{"motzkin overflows the 64-bit range"};
+        prev2 = prev1;
+        prev1 = static_cast<long long>(m);
+    }
+    return prev1;
+}
+
 long long catalan_number(long long n) {
     if (n < 0) throw EvalError{"catalan is defined for n >= 0"};
     // Iterate C(k+1) = C(k)·2(2k+1)/(k+2) — an exact division at every step
