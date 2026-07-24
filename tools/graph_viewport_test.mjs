@@ -10,6 +10,8 @@ import {
   panned,
   zoomedAt,
   viewForKey,
+  isXMonotonic,
+  interpolateAtX,
   niceStep,
   ticks,
   MAX_SCALE,
@@ -137,6 +139,29 @@ check("niceStep picks 1/2/5·10^k", niceStep(10, 5) === 2 && niceStep(1, 5) === 
 
   // Unrecognised keys return null so the caller ignores them.
   check("unhandled keys return null", viewForKey(v, "a", W, H) === null && viewForKey(v, "Tab", W, H) === null);
+}
+
+// --- continuous curve trace ------------------------------------------------
+{
+  // x-monotonic detection: y=f(x) sampling is non-decreasing; x=f(y) / loops are not.
+  check("isXMonotonic: increasing xs", isXMonotonic([-2, -1, 0, 1, 2]) === true);
+  check("isXMonotonic: nulls are skipped", isXMonotonic([-1, null, 0, null, 1]) === true);
+  check("isXMonotonic: a decrease fails", isXMonotonic([0, 1, 0.5, 2]) === false);
+  check("isXMonotonic: all-null / empty is false", isXMonotonic([null, null]) === false && isXMonotonic([]) === false);
+
+  // Linear interpolation of y at a target x, on y=x^2 sampled at integer x.
+  const xs = [-2, -1, 0, 1, 2];
+  const ys = [4, 1, 0, 1, 4];
+  check("interpolateAtX hits a sample exactly", interpolateAtX(xs, ys, 1) === 1);
+  check("interpolateAtX midpoint is the chord", near(interpolateAtX(xs, ys, 0.5), 0.5)); // between (0,0),(1,1)
+  check("interpolateAtX at -1.5 is the chord", near(interpolateAtX(xs, ys, -1.5), 2.5)); // between (-2,4),(-1,1)
+  check("interpolateAtX out of range → null", interpolateAtX(xs, ys, 3) === null && interpolateAtX(xs, ys, -5) === null);
+
+  // A gap (null break, e.g. an asymptote) yields null inside the gap.
+  const gx = [0, 1, null, 3, 4];
+  const gy = [0, 1, null, 9, 16];
+  check("interpolateAtX returns null across a break", interpolateAtX(gx, gy, 2) === null);
+  check("interpolateAtX still interpolates outside the break", near(interpolateAtX(gx, gy, 3.5), 12.5));
 }
 
 console.log(`\n${fail === 0 ? "ALL PASS" : "FAILURES"}: ${pass} passed, ${fail} failed`);

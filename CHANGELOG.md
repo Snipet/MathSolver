@@ -11,6 +11,15 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — continuous curve trace.** The hover readout now *follows* a
+  `y=f(x)` curve at the cursor's x — interpolating between samples — instead of
+  only snapping to the nearest sampled vertex when the pointer happened to be
+  within a few pixels of one. Move the mouse across a curve and the marker rides
+  along it, showing the coordinate at that x; the trace lifts across asymptote
+  breaks just like the curve. Points-of-interest keep their exact-label snap,
+  and non-monotonic curves (x=f(y), parametric, polar) keep nearest-vertex
+  snapping.
+
 - **Grapher — named table columns + copy.** A data table's two column headers
   are now editable text fields (default `x` / `y`); the names persist with the
   document and label the per-column summary statistics. A **copy** button next
