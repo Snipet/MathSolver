@@ -6,6 +6,7 @@
   import ResultSolve from "./ResultSolve.svelte";
   import ResultSystem from "./ResultSystem.svelte";
   import ResultIntegral from "./ResultIntegral.svelte";
+  import ResultSteps from "./ResultSteps.svelte";
   import ResultDefinite from "./ResultDefinite.svelte";
   import ResultEvaluate from "./ResultEvaluate.svelte";
   import PluginResult from "./PluginResult.svelte";
@@ -43,6 +44,8 @@
         <ResultSystem result={outcome.result} />
       {:else if outcome.kind === "integral"}
         <ResultIntegral result={outcome.result} />
+      {:else if outcome.kind === "steps"}
+        <ResultSteps result={outcome.result} variable={outcome.variable} />
       {:else if outcome.kind === "definite"}
         <ResultDefinite from={outcome.from} to={outcome.to} result={outcome.result} />
       {:else if outcome.kind === "evaluate"}

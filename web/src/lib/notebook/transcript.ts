@@ -31,6 +31,11 @@ export function cellOutputLines(result: CellResult | null): string[] {
       return result.result.solved
         ? [result.result.plain]
         : ["(no closed form)"];
+    case "steps":
+      return [
+        ...result.result.steps.map((s, i) => `${i + 1}. [${s.rule}] ${s.plain}`),
+        `d/d${result.variable} = ${result.result.plain}`,
+      ];
     case "definite":
       return result.result.status === "unsolved"
         ? ["(unsolved)"]

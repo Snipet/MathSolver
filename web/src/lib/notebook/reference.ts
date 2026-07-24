@@ -277,6 +277,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "diff sin(x^2), x",
       },
       {
+        insert: "steps",
+        usage: "steps <expr>[, <var>]",
+        hint: "Worked, rule-by-rule derivative (power/product/chain/…)",
+        example: "steps sin(x^2), x",
+      },
+      {
         insert: "integrate",
         usage: "integrate <expr>[, <var>[, <lo>, <hi>]]",
         hint: "Antiderivative, or a definite integral with bounds",

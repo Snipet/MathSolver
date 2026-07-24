@@ -23,6 +23,20 @@ export type TransformResult =
   | ({ ok: true; notes?: string[] } & Rendered)
   | EngineError;
 
+/** One recorded step of a worked solution: a named rule and its rendered
+ *  `d/dx(before) = after` line in plain text and LaTeX. */
+export interface ExplainStep {
+  rule: string;
+  plain: string;
+  latex: string;
+}
+
+/** A worked, rule-by-rule solution: the ordered steps plus the final result
+ *  (`plain`/`latex` from Rendered), which always equals the plain verb. */
+export type ExplainResult =
+  | ({ ok: true; steps: ExplainStep[] } & Rendered)
+  | EngineError;
+
 /** Summary statistics: an ordered list of labelled values (exact where the
  *  data are rational) plus the count and exactness flag. */
 export type StatsResult =
@@ -382,6 +396,7 @@ export interface EngineApi {
     GridResult,
   ];
   derivative: [[input: string, variable: string], TransformResult];
+  explainDerivative: [[input: string, variable: string], ExplainResult];
   laplace: [[input: string, timeVar: string], TransformResult];
   ilaplace: [[input: string, freqVar: string], TransformResult];
   integrate: [[input: string, variable: string], IntegrateResult];

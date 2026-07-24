@@ -52,6 +52,7 @@ export const MATH_VERBS = new Set([
   "solve",
   "diff",
   "derivative",
+  "steps",
   "integrate",
   "eval",
   "evaluate",
@@ -471,6 +472,13 @@ async function runVerb(
       const r = await call("derivative", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "steps": {
+      const v = args[1] ?? (await inferVar(expr));
+      const env = await applyEnv(expr, [v], "expr", ov, scope);
+      const r = await call("explainDerivative", [env.text, v]);
+      if (!r.ok) return err(env.text, r);
+      return { kind: "steps", variable: v, result: r, computedFrom: env.computedFrom };
     }
     case "collect": {
       const v = args[1] ?? (await inferVar(expr));
