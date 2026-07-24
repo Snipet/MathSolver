@@ -63,7 +63,10 @@ per-feature specs are under docs/proposals/.
   then the chain-rule step for `sin`. The result always matches plain `diff`;
   each step is rendered in plain text and LaTeX. First phase of the
   step-by-step feature (docs/proposals/step-by-step.md); integrals and solving
-  follow. CLI now; console next.
+  follow. **In the web console** the steps render as a typeset, rule-tagged
+  list — each line carries a rule chip (POWER RULE, CHAIN RULE, …) beside the
+  KaTeX derivative, closing on the `d/dx =` answer with copyable Plain/LaTeX
+  source. Available in the CLI and the console.
 
 - **Console — `pell` numbers.** `pell n` is the n-th Pell number P(n) —
   P₀ = 0, P₁ = 1, P(n) = 2·P(n−1) + P(n−2) (0, 1, 2, 5, 12, 29, 70, 169, …;

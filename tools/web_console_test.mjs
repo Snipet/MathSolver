@@ -171,6 +171,33 @@ try {
     "apart verb",
     (await run("apart (3x+2)/((x+1)(x+2))")).includes("4/(x + 2)"),
   );
+
+  // steps verb: a worked, rule-by-rule derivative renders as an ordered list of
+  // rule-tagged steps (innermost-first), closing on the answer.
+  const stepsOut = await run("steps sin(x^2), x");
+  check(
+    "steps verb shows the final derivative",
+    stepsOut.includes("2*x*cos(x^2)"),
+    stepsOut.replace(/\n/g, " ").slice(0, 80),
+  );
+  const stepsUi = await page.$eval(".cells .cell:last-child", (el) => ({
+    items: el.querySelectorAll("ol.steps li").length,
+    rules: [...el.querySelectorAll("ol.steps .rule")].map((r) =>
+      r.textContent.trim().toLowerCase(),
+    ),
+  }));
+  check(
+    "steps renders an ordered list with rule chips",
+    stepsUi.items >= 2 &&
+      stepsUi.rules.some((r) => r.includes("power")) &&
+      stepsUi.rules.some((r) => r.includes("chain")),
+    JSON.stringify(stepsUi),
+  );
+  // The variable can be inferred when omitted.
+  check(
+    "steps infers the variable",
+    (await run("steps x^3")).includes("3*x^2"),
+  );
   check(
     "laplace verb",
     (await run("laplace e^(-t) sin(2t)")).includes("(s + 1)^2 + 4"),

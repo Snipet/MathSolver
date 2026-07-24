@@ -1405,6 +1405,30 @@ std::string ms_isolate(std::string input, std::string variable) {
     });
 }
 
+/// explainDerivative(input, variable): the worked, rule-by-rule derivative.
+/// Returns the step list (each {rule, plain, latex}) and the final result in
+/// both renderings. The variable is inferred when it's the only free symbol.
+std::string ms_explainDerivative(std::string input, std::string variable) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string err;
+        const std::string var = infer_var(
+            e, variable, err, "give the variable explicitly: steps <expr>, <var>");
+        if (var.empty()) return err;
+        const Explanation ex = explain_derivative(e, var);
+        std::string arr = "[";
+        for (std::size_t i = 0; i < ex.steps.size(); ++i) {
+            const ExplainStep& s = ex.steps[i];
+            if (i) arr += ",";
+            arr += std::format("{{\"rule\":{},\"plain\":{},\"latex\":{}}}", jstr(s.rule),
+                               jstr(s.plain), jstr(s.latex));
+        }
+        arr += "]";
+        return std::format("{{\"ok\":true,\"steps\":{},\"plain\":{},\"latex\":{}}}", arr,
+                           jstr(ex.result_plain), jstr(ex.result_latex));
+    });
+}
+
 /// stirling(variable, terms): the Stirling asymptotic series for
 /// ln Gamma(variable) with exact Bernoulli coefficients; the lgamma
 /// accuracy check rides along as warnings.
@@ -1820,6 +1844,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("subs", &ms_subs);
     emscripten::function("collect", &ms_collect);
     emscripten::function("derivative", &ms_derivative);
+    emscripten::function("explainDerivative", &ms_explainDerivative);
     emscripten::function("apart", &ms_apart);
     emscripten::function("fit", &ms_fit);
     emscripten::function("interp", &ms_interp);
