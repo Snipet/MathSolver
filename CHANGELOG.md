@@ -18,6 +18,12 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — a scannable sidebar reference.** The graph screen's wall-of-text
+  tip is now a grouped, collapsible cheat-sheet: six categories (Functions &
+  values, Sliders & animation, Sums/products & piecewise, Area & domain,
+  Points/styling & labels, Lists), each a code chip + a one-line description.
+  Click any chip to drop that snippet in as a new row.
+
 - **Grapher — draggable labels.** A point/curve label can now be **dragged** to
   reposition it: grab the label pill and move it anywhere, and the offset
   persists with the document. The label rides at a fixed screen distance from

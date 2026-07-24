@@ -617,6 +617,32 @@ try {
     check("copy exports TSV with the renamed header", tsv === "time\ty\n1\t2\n3\t4", JSON.stringify(tsv));
   }
 
+  // Grapher sidebar reference: grouped cheat-sheet renders, and clicking a code
+  // chip drops it in as a new expression row.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem("mathsolver.mode", "graph");
+  });
+  await page.goto("about:blank");
+  await page.goto(url, { waitUntil: "networkidle0" });
+  await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  await page.waitForSelector(".graph-ref .gr-head", { timeout: 6000 });
+  {
+    const groups = await page.$$eval(".graph-ref .gr-head", (els) => {
+      els.forEach((b) => b.click()); // expand all groups
+      return els.length;
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const chips = await page.$$eval(".graph-ref .gr-chip", (els) => els.length);
+    check("graph reference renders grouped chips", groups >= 5 && chips > 10, `${groups} groups, ${chips} chips`);
+
+    const before = await page.$$eval(".calc .rows .row", (els) => els.length);
+    await page.click(".graph-ref .gr-chip"); // insert the first snippet as a row
+    await new Promise((r) => setTimeout(r, 300));
+    const after = await page.$$eval(".calc .rows .row", (els) => els.length);
+    check("clicking a reference chip adds a row", after === before + 1, `${before} -> ${after}`);
+  }
+
   check("no page errors", pageErrors.length === 0, pageErrors.join(" | "));
   check("no console errors", consoleErrors.length === 0, consoleErrors.join(" | "));
 } catch (e) {
