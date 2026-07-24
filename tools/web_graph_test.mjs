@@ -542,6 +542,44 @@ try {
     check("label drag leaves the expression unchanged", text.replace(/\s/g, "") === "(1,2)", text);
   }
 
+  // Double-click a moved label to snap it back to its anchor (reset the offset).
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({
+        rows: [{ text: "(1, 2)", color: "#2563eb", visible: true, label: "P", labelDx: 45, labelDy: 25 }],
+        view: { cx: 0, cy: 0, scale: 40 },
+      }),
+    );
+    localStorage.setItem("mathsolver.mode", "graph");
+  });
+  await page.goto("about:blank");
+  await page.goto(url, { waitUntil: "networkidle0" });
+  await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  await new Promise((r) => setTimeout(r, 500));
+  {
+    const box = await canvasBox();
+    const pt = worldToScreen(box, 1, 2, 40);
+    // The label sits at the anchor + (8,-9) + offset (45,25); dblclick inside it.
+    const lx = pt.x + 8 + 45 + 4;
+    const ly = pt.y - 9 + 25;
+    await page.evaluate(
+      (x, y) =>
+        document
+          .querySelector(".calc .graph canvas")
+          .dispatchEvent(new MouseEvent("dblclick", { clientX: x, clientY: y, bubbles: true })),
+      lx,
+      ly,
+    );
+    await new Promise((r) => setTimeout(r, 400));
+    const off = await page.evaluate(() => {
+      const r = JSON.parse(localStorage.getItem("mathsolver.graph")).rows[0];
+      return { dx: r.labelDx, dy: r.labelDy };
+    });
+    check("double-clicking a moved label resets its offset", off.dx === 0 && off.dy === 0, JSON.stringify(off));
+  }
+
   // Continuous curve trace: hovering along a y=f(x) curve follows it (the new
   // interpolate-at-x path) and shows a coordinate readout, without throwing.
   await page.evaluate(() => {
