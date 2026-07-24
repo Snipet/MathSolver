@@ -13,6 +13,7 @@
     type VerbSuggestion,
   } from "../notebook/suggest";
   import { splitAssignment } from "../vars/session";
+  import { serializeTranscript } from "../notebook/transcript";
   import { vars } from "../vars.svelte";
   import { untrack } from "svelte";
 
@@ -301,6 +302,21 @@
     exprInput?.focusEnd();
   }
 
+  // Download the whole session as a Markdown transcript (In[]/Out[] blocks).
+  function exportTranscript() {
+    if (notebook.cells.length === 0) return;
+    const text = serializeTranscript(notebook.cells);
+    const blob = new Blob([text], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "mathsolver-session.md";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   // --- keyboard: suggestions, history recall, shortcuts ---------------------
   function onkeydownextra(e: KeyboardEvent) {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "l") {
@@ -376,14 +392,24 @@
         recipes — click any to drop it into the prompt.
       </span>
     </div>
-    <button
-      class="clear-btn"
-      onclick={clearConsole}
-      disabled={notebook.cells.length === 0}
-      title="Clear the console (Ctrl+L)"
-    >
-      Clear
-    </button>
+    <div class="head-actions">
+      <button
+        class="export-btn"
+        onclick={exportTranscript}
+        disabled={notebook.cells.length === 0}
+        title="Download the session as a Markdown transcript"
+      >
+        Export
+      </button>
+      <button
+        class="clear-btn"
+        onclick={clearConsole}
+        disabled={notebook.cells.length === 0}
+        title="Clear the console (Ctrl+L)"
+      >
+        Clear
+      </button>
+    </div>
   </div>
 
   <details class="ref-inline">
@@ -574,11 +600,17 @@
     font-size: 1.05rem;
     letter-spacing: -0.01em;
   }
+  .head-actions {
+    display: flex;
+    gap: 0.4rem;
+    flex: 0 0 auto;
+  }
   .head-hint {
     font-size: 0.82rem;
     color: var(--fg-muted);
   }
-  .clear-btn {
+  .clear-btn,
+  .export-btn {
     flex: 0 0 auto;
     font: inherit;
     font-size: 0.82rem;
@@ -589,11 +621,13 @@
     padding: 0.25rem 0.8rem;
     cursor: pointer;
   }
-  .clear-btn:hover:not(:disabled) {
+  .clear-btn:hover:not(:disabled),
+  .export-btn:hover:not(:disabled) {
     color: var(--accent);
     border-color: var(--accent);
   }
-  .clear-btn:disabled {
+  .clear-btn:disabled,
+  .export-btn:disabled {
     opacity: 0.5;
     cursor: default;
   }

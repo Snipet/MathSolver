@@ -876,6 +876,51 @@ try {
     fracOut.replace(/\s+/g, " ").slice(0, 90),
   );
 
+  // --- export: download the session as a Markdown transcript --------------
+  // Stub the blob-download plumbing (jsdom/headless can't really download) to
+  // capture the file name and the serialized text.
+  await run("2x + 3");
+  await page.evaluate(() => {
+    window.__dl = {};
+    window.__orig = {
+      create: URL.createObjectURL,
+      revoke: URL.revokeObjectURL,
+      click: HTMLAnchorElement.prototype.click,
+    };
+    URL.createObjectURL = (blob) => {
+      window.__dlBlob = blob;
+      return "blob:stub";
+    };
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = function () {
+      window.__dl.download = this.download;
+    };
+  });
+  await page.click(".console-head .export-btn");
+  const exported = await page.evaluate(async () => ({
+    download: window.__dl.download,
+    text: window.__dlBlob ? await window.__dlBlob.text() : null,
+  }));
+  // Restore the real download plumbing so later tests are unaffected.
+  await page.evaluate(() => {
+    URL.createObjectURL = window.__orig.create;
+    URL.revokeObjectURL = window.__orig.revoke;
+    HTMLAnchorElement.prototype.click = window.__orig.click;
+  });
+  check(
+    "Export downloads a .md transcript",
+    exported.download === "mathsolver-session.md",
+    String(exported.download),
+  );
+  check(
+    "the transcript contains the In/Out of a run",
+    !!exported.text &&
+      exported.text.includes("# MathSolver console session") &&
+      exported.text.includes("In[") &&
+      exported.text.includes("2*x + 3"),
+    (exported.text || "").slice(0, 80),
+  );
+
   // --- notebook documents: save / open / run in a fresh scope --------------
   await page.click(".console-head .clear-btn");
   await page.waitForFunction(

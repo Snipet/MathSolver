@@ -30,6 +30,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — export the session transcript.** An **Export** button in the
+  console header downloads the whole session as a Markdown file — one
+  `In[k]` / `Out[k]` block per cell (`mathsolver-session.md`) — so a working
+  session can be saved or shared as plain text. Complements the existing
+  in-app `save` notebooks (which store re-runnable commands) with a portable,
+  human-readable record of inputs *and* their results.
+
 - **Console — `lucas` numbers.** `lucas n` is the n-th Lucas number L(n) —
   the companion sequence to the Fibonacci numbers (L₀ = 2, L₁ = 1,
   L(n) = L(n−1) + L(n−2); `lucas 10` → 123). Exact over the 64-bit range and
