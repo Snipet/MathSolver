@@ -528,4 +528,27 @@ std::pair<std::vector<std::string>, std::vector<std::string>> parse_point_data(
     return {xs, ys};
 }
 
+VandermondeResult vandermonde_matrix(const std::vector<Expr>& nodes) {
+    VandermondeResult out;
+    const int n = static_cast<int>(nodes.size());
+    if (n < 1) {
+        out.status = VandermondeResult::Status::Empty;
+        out.message = "vandermonde: give at least one node";
+        return out;
+    }
+    // Row i is (1, x_i, x_i^2, …, x_i^{n-1}); x_i^0 = 1 even when x_i = 0.
+    std::vector<std::vector<Expr>> m(
+        static_cast<std::size_t>(n), std::vector<Expr>(static_cast<std::size_t>(n)));
+    for (int i = 0; i < n; ++i) {
+        const Expr xi = simplify(nodes[static_cast<std::size_t>(i)]);
+        for (int j = 0; j < n; ++j) {
+            m[static_cast<std::size_t>(i)][static_cast<std::size_t>(j)] =
+                j == 0 ? make_num(1) : simplify(make_pow(xi, make_num(static_cast<long long>(j))));
+        }
+    }
+    out.status = VandermondeResult::Status::Ok;
+    out.matrix = std::move(m);
+    return out;
+}
+
 } // namespace mathsolver

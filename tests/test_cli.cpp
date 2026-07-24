@@ -279,6 +279,24 @@ TEST_CASE("cli: companion matrix of a polynomial") {
     CHECK(bad.exit_code == 2);
 }
 
+TEST_CASE("cli: vandermonde matrix of a node list") {
+    // Nodes 1, 2, 3 → rows (1, x, x^2).
+    const RunResult v = run_cli({"vandermonde", "1, 2, 3"});
+    INFO(v.output);
+    CHECK(v.exit_code == 0);
+    CHECK(contains(v.output, "[1, 1, 1; 1, 2, 4; 1, 3, 9]"));
+
+    // Symbolic nodes stay symbolic.
+    const RunResult sym = run_cli({"vandermonde", "a, b"});
+    CHECK(sym.exit_code == 0);
+    CHECK(contains(sym.output, "[1, a; 1, b]"));
+
+    // LaTeX renders a pmatrix.
+    const RunResult tex = run_cli({"vandermonde", "1, 2, 3", "--latex"});
+    CHECK(tex.exit_code == 0);
+    CHECK(contains(tex.output, "pmatrix"));
+}
+
 TEST_CASE("cli: solve inequalities into interval solution sets") {
     const RunResult quad = run_cli({"solve", "x^2 < 4"});
     INFO(quad.output);

@@ -283,6 +283,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "companion x^3 - 2x + 1",
       },
       {
+        insert: "vandermonde",
+        usage: "vandermonde <x1, x2, x3, ...>",
+        hint: "Vandermonde matrix of a node list (the interpolation matrix)",
+        example: "vandermonde 1, 2, 3",
+      },
+      {
         insert: "limit",
         usage: "limit <expr>, <var>, <point>[, left|right]",
         hint: "Limit at a point or ±inf (exact where possible)",

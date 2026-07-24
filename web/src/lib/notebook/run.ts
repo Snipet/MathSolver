@@ -83,6 +83,7 @@ export const MATH_VERBS = new Set([
   "resultant",
   "bezout",
   "companion",
+  "vandermonde",
   "sum",
   "product",
   "rsolve",
@@ -612,6 +613,13 @@ async function runVerb(
       const r = await call("companion", [env.text, v]);
       if (!r.ok) return err(env.text, r);
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
+    }
+    case "vandermonde": {
+      // The whole line is the node list (comma-separated scalar expressions).
+      if (!rest.trim()) return usage("usage: vandermonde <x1, x2, x3, ...>");
+      const r = await call("vandermonde", [rest]);
+      if (!r.ok) return err(rest, r);
+      return { kind: "transform", result: r, computedFrom: null };
     }
     case "polydiv": {
       if (args.length < 2 || args.length > 3)

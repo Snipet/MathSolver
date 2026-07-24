@@ -30,6 +30,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `vandermonde` matrix of a node list.** `vandermonde x1, x2, …`
+  builds the square Vandermonde matrix whose row *i* is `(1, xᵢ, xᵢ², …)` —
+  the coefficient matrix of the polynomial-interpolation system `interp`
+  solves, with determinant `∏(xⱼ − xᵢ)`. `vandermonde 1, 2, 3` →
+  `[1, 1, 1; 1, 2, 4; 1, 3, 9]`. Exact over the rationals; symbolic nodes
+  stay symbolic. Available in the CLI too.
+
 - **Console — `companion` matrix of a polynomial.** `companion p` builds the
   companion matrix of a univariate polynomial (MATLAB `compan` orientation,
   normalized to monic form), rendered as a matrix — `companion x^2 - 3x + 2`

@@ -195,3 +195,60 @@ TEST_CASE("interp error paths") {
     CHECK(interp({}, {}, "x").status == InterpResult::Status::Error);                   // empty
     CHECK(interp({"1", "2"}, {"x", "3"}, "x").status == InterpResult::Status::Error);   // non-const y
 }
+
+namespace {
+
+std::vector<Expr> nodes(std::initializer_list<const char*> ss) {
+    std::vector<Expr> out;
+    for (const char* s : ss) out.push_back(parse_expression(s));
+    return out;
+}
+
+} // namespace
+
+TEST_CASE("vandermonde matrix — numeric nodes") {
+    // Nodes 1, 2, 3 → rows (1, x, x^2).
+    const VandermondeResult v = vandermonde_matrix(nodes({"1", "2", "3"}));
+    REQUIRE(v.status == VandermondeResult::Status::Ok);
+    REQUIRE(v.matrix.size() == 3);
+    REQUIRE(v.matrix[0].size() == 3);
+    // Row 0: node 1 → (1, 1, 1).
+    CHECK(structurally_equal(simplify(v.matrix[0][0]), P("1")));
+    CHECK(structurally_equal(simplify(v.matrix[0][1]), P("1")));
+    CHECK(structurally_equal(simplify(v.matrix[0][2]), P("1")));
+    // Row 1: node 2 → (1, 2, 4).
+    CHECK(structurally_equal(simplify(v.matrix[1][0]), P("1")));
+    CHECK(structurally_equal(simplify(v.matrix[1][1]), P("2")));
+    CHECK(structurally_equal(simplify(v.matrix[1][2]), P("4")));
+    // Row 2: node 3 → (1, 3, 9).
+    CHECK(structurally_equal(simplify(v.matrix[2][1]), P("3")));
+    CHECK(structurally_equal(simplify(v.matrix[2][2]), P("9")));
+}
+
+TEST_CASE("vandermonde matrix — zero node keeps x^0 = 1") {
+    // Node 0 → (1, 0, 0); a 2-node list stays 2×2.
+    const VandermondeResult v = vandermonde_matrix(nodes({"0", "5"}));
+    REQUIRE(v.status == VandermondeResult::Status::Ok);
+    REQUIRE(v.matrix.size() == 2);
+    CHECK(structurally_equal(simplify(v.matrix[0][0]), P("1")));
+    CHECK(structurally_equal(simplify(v.matrix[0][1]), P("0")));
+    CHECK(structurally_equal(simplify(v.matrix[1][0]), P("1")));
+    CHECK(structurally_equal(simplify(v.matrix[1][1]), P("5")));
+}
+
+TEST_CASE("vandermonde matrix — symbolic nodes stay symbolic") {
+    // Nodes a, b → [[1, a], [1, b]].
+    const VandermondeResult v = vandermonde_matrix(nodes({"a", "b"}));
+    REQUIRE(v.status == VandermondeResult::Status::Ok);
+    CHECK(structurally_equal(simplify(v.matrix[0][1]), P("a")));
+    CHECK(structurally_equal(simplify(v.matrix[1][1]), P("b")));
+}
+
+TEST_CASE("vandermonde matrix — single node and empty") {
+    const VandermondeResult one = vandermonde_matrix(nodes({"7"}));
+    REQUIRE(one.status == VandermondeResult::Status::Ok);
+    REQUIRE(one.matrix.size() == 1);
+    CHECK(structurally_equal(simplify(one.matrix[0][0]), P("1")));
+
+    CHECK(vandermonde_matrix({}).status == VandermondeResult::Status::Empty);
+}
