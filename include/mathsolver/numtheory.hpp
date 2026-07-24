@@ -44,6 +44,15 @@ std::vector<long long> divisors(long long n);
 /// phi(1) = 1. Requires n >= 1.
 long long euler_totient(long long n);
 
+/// The divisor function σ_k(n) for n >= 1, k >= 0: the sum of the k-th powers
+/// of the positive divisors of n. σ_0 counts the divisors, σ_1 sums them.
+/// Requires n >= 1 and k >= 0; throws OverflowError past the 64-bit range.
+long long divisor_sigma(long long n, int k = 1);
+
+/// The Möbius function μ(n) for n >= 1: 0 when n is divisible by a square > 1,
+/// otherwise (-1)^(number of distinct prime factors). μ(1) = 1. Requires n>=1.
+int mobius(long long n);
+
 /// Euclidean remainder: the r with 0 <= r < |m| and a == r (mod m). m = 0
 /// throws DivisionByZeroError.
 long long int_mod(long long a, long long m);

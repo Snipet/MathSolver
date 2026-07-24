@@ -838,6 +838,25 @@ void run_totient(const std::string& input) {
     std::println("{}", euler_totient(v[0]));
 }
 
+/// `sigma`: the divisor function σ_k(n) — sum of the k-th powers of divisors
+/// (default k = 1, the sum of divisors). Usage: `sigma n[, k]`.
+void run_sigma(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "sigma");
+    if (v.empty() || v.size() > 2) throw UsageError{"usage: sigma <n>[, <k>]"};
+    if (v[0] < 1) throw UsageError{"sigma is defined for positive integers"};
+    const long long k = v.size() == 2 ? v[1] : 1;
+    if (k < 0) throw UsageError{"sigma exponent must be non-negative"};
+    std::println("{}", divisor_sigma(v[0], static_cast<int>(k)));
+}
+
+/// `mobius`: the Möbius function μ of a single positive integer.
+void run_mobius(const std::string& input) {
+    const std::vector<long long> v = parse_integer_list(input, "mobius");
+    if (v.size() != 1) throw UsageError{"mobius takes a single integer"};
+    if (v[0] < 1) throw UsageError{"mobius is defined for positive integers"};
+    std::println("{}", mobius(v[0]));
+}
+
 /// `divisors`: all positive divisors of a single non-zero integer, ascending.
 void run_divisors(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "divisors");
@@ -1672,7 +1691,8 @@ bool is_known_subcommand(std::string_view s) {
            s == "chebyshev" || s == "chebyu" || s == "legendre" ||
            s == "hermite" || s == "laguerre" ||
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
-           s == "divisors" || s == "totient" || s == "cfrac" ||
+           s == "divisors" || s == "totient" || s == "sigma" || s == "mobius" ||
+           s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
            s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
            s == "polydiv" || s == "polygcd" || s == "polylcm" ||
@@ -1911,7 +1931,8 @@ int run_one_shot(const std::vector<std::string>& args) {
         } else if (sub == "seq") {
             run_seq(positionals, style);
         } else if (sub == "gcd" || sub == "lcm" || sub == "isprime" ||
-                   sub == "nextprime" || sub == "divisors" || sub == "totient") {
+                   sub == "nextprime" || sub == "divisors" || sub == "totient" ||
+                   sub == "mobius") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
                     "unexpected argument '{}' (put the integers in one quoted "
@@ -1923,7 +1944,10 @@ int run_one_shot(const std::vector<std::string>& args) {
             else if (sub == "isprime") run_isprime(input);
             else if (sub == "nextprime") run_nextprime(input);
             else if (sub == "divisors") run_divisors(input);
+            else if (sub == "mobius") run_mobius(input);
             else run_totient(input);
+        } else if (sub == "sigma") {
+            run_sigma(input);
         } else if (sub == "cfrac") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -2104,6 +2128,7 @@ void print_repl_help() {
         "  factor <n>                             integer -> prime factorization\n"
         "  gcd <a, b, ...>   lcm <a, b, ...>       exact over the integers\n"
         "  isprime <n>   nextprime <n>   divisors <n>   totient <n>\n"
+        "  sigma <n>[, k]   mobius <n>            divisor sum σ_k and Möbius μ\n"
         "  cfrac <rational | sqrt(n) | real>      continued fraction + convergents\n"
         "  mod <a, m>   powmod <b, e, m>   modinv <a, m>   modular arithmetic\n"
         "  crt <r1, r2, …; m1, m2, …>             Chinese remainder theorem\n"
@@ -2156,7 +2181,8 @@ bool is_repl_command(std::string_view word) {
            word == "stirling" || word == "seq" || word == "fit" ||
            word == "regress" || word == "stats" || word == "vandermonde" || word == "gcd" ||
            word == "lcm" || word == "isprime" || word == "nextprime" ||
-           word == "divisors" || word == "totient" || word == "cfrac" ||
+           word == "divisors" || word == "totient" || word == "sigma" ||
+           word == "mobius" || word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
            word == "crt" || word == "discriminant" || word == "polydiv" ||
            word == "polygcd" || word == "polylcm" || word == "resultant" ||
@@ -2743,17 +2769,21 @@ void repl_command(const std::string& command, const std::string& rest,
     // gcd/lcm) or a single integer (for the rest).
     if (command == "gcd" || command == "lcm" || command == "isprime" ||
         command == "nextprime" || command == "divisors" ||
-        command == "totient") {
+        command == "totient" || command == "mobius" || command == "sigma") {
         if (trim(rest).empty()) {
             throw UsageError{std::format(
                 "usage: {} <integer{}>", command,
-                command == "gcd" || command == "lcm" ? ", integer, ..." : "")};
+                command == "gcd" || command == "lcm"  ? ", integer, ..."
+                : command == "sigma"                  ? "[, k]"
+                                                      : "")};
         }
         if (command == "gcd") run_gcd(rest);
         else if (command == "lcm") run_lcm(rest);
         else if (command == "isprime") run_isprime(rest);
         else if (command == "nextprime") run_nextprime(rest);
         else if (command == "divisors") run_divisors(rest);
+        else if (command == "mobius") run_mobius(rest);
+        else if (command == "sigma") run_sigma(rest);
         else run_totient(rest);
         return;
     }

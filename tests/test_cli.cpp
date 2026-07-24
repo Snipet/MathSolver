@@ -169,6 +169,28 @@ TEST_CASE("cli: number-theory verbs") {
     CHECK(bad.exit_code == 2);
 }
 
+TEST_CASE("cli: sigma (divisor function) and mobius") {
+    const RunResult s = run_cli({"sigma", "12"});
+    CHECK(s.exit_code == 0);
+    CHECK(contains(s.output, "28")); // 1+2+3+4+6+12
+
+    const RunResult s2 = run_cli({"sigma", "6, 2"});
+    CHECK(s2.exit_code == 0);
+    CHECK(contains(s2.output, "50")); // 1+4+9+36
+
+    const RunResult mu = run_cli({"mobius", "30"});
+    CHECK(mu.exit_code == 0);
+    CHECK(contains(mu.output, "-1")); // 2·3·5, three primes
+
+    const RunResult mu0 = run_cli({"mobius", "12"});
+    CHECK(mu0.exit_code == 0);
+    CHECK(contains(mu0.output, "0")); // squared factor
+
+    // Non-positive / bad inputs are usage errors (exit 2).
+    CHECK(run_cli({"sigma", "0"}).exit_code == 2);
+    CHECK(run_cli({"mobius", "x"}).exit_code == 2);
+}
+
 TEST_CASE("cli: trigexpand of sums and multiples") {
     const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
     INFO(sum.output);

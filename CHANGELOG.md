@@ -30,6 +30,14 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `sigma` and `mobius` divisor functions.** Two classic
+  multiplicative number-theory functions joining `totient` / `divisors`.
+  `sigma n` sums the divisors of *n* (`sigma 12` → 28); an optional exponent
+  gives σ_k, so `sigma 12, 0` counts divisors and `sigma 6, 2` sums their
+  squares. `mobius n` is the Möbius function μ(n) — 0 when *n* has a squared
+  prime factor, else ±1 by the parity of its distinct prime count. Both are
+  available in the CLI.
+
 - **Console — `newton` and `lagrange` interpolation forms.** Two new
   presentations of the polynomial `interp` finds, kept **factored** so the
   construction shows instead of the expanded result. `newton 1,1; 2,4; 3,9`

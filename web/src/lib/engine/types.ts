@@ -319,6 +319,8 @@ export interface EngineApi {
   nextprime: [[n: string], TransformResult];
   divisors: [[n: string], TransformResult];
   totient: [[n: string], TransformResult];
+  sigma: [[n: string, k: string], TransformResult];
+  mobius: [[n: string], TransformResult];
   cfrac: [[value: string], TransformResult];
   discriminant: [[poly: string, variable: string], TransformResult];
   polydiv: [[dividend: string, divisor: string, variable: string], TransformResult];
