@@ -97,6 +97,13 @@ long long primorial(long long n);
 /// OverflowError past the 64-bit range (M(44) is the largest that fits).
 long long motzkin_number(long long n);
 
+/// The n-th Euler (secant) number E(n) for n >= 0: E(0) = 1, E(2) = -1,
+/// E(4) = 5, E(6) = -61, ... with every odd-indexed value 0. Signed. Built
+/// exactly from the boustrophedon (Seidel) zigzag triangle; throws
+/// OverflowError past the 64-bit range (E(22) is the largest in magnitude
+/// that fits).
+long long euler_number(long long n);
+
 /// Euclidean remainder: the r with 0 <= r < |m| and a == r (mod m). m = 0
 /// throws DivisionByZeroError.
 long long int_mod(long long a, long long m);

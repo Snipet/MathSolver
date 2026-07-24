@@ -183,6 +183,12 @@ check("motzkin M(10)", ms.motzkin("10"), (r) => r.ok && r.plain === "2188", "M(1
 check("motzkin M(20)", ms.motzkin("20"), (r) => r.ok && r.plain === "50852019", "M(20)");
 check("motzkin error negative", ms.motzkin("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
 check("motzkin error overflow", ms.motzkin("45"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
+// euler (secant) numbers E(n)
+check("euler E(6)", ms.euler("6"), (r) => r.ok && r.plain === "-61", "E(6)=-61");
+check("euler E(8)", ms.euler("8"), (r) => r.ok && r.plain === "1385", "E(8)=1385");
+check("euler odd vanishes", ms.euler("7"), (r) => r.ok && r.plain === "0", "E(7)=0");
+check("euler error negative", ms.euler("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
+check("euler error overflow", ms.euler("24"), (r) => !r.ok && r.error.includes("overflow"), "past int64");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

@@ -30,6 +30,13 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `euler` numbers.** `euler n` is the n-th Euler (secant) number
+  Eₙ — the integer companion to the Bernoulli numbers: E₀ = 1, E₂ = −1,
+  E₄ = 5, E₆ = −61, … with every odd-indexed value 0 (`euler 8` → 1385).
+  Built exactly from the boustrophedon (Seidel) zigzag triangle; exact over
+  the 64-bit range (E₂₂ is the largest in magnitude that fits) and errors
+  cleanly past it. CLI too.
+
 - **Console — `motzkin` numbers.** `motzkin n` is the n-th Motzkin number
   M(n) — the number of ways to draw non-crossing chords between *n* points on
   a circle (`motzkin 6` → 51, `motzkin 10` → 2188) — built by the exact

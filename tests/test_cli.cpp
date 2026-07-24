@@ -310,6 +310,25 @@ TEST_CASE("cli: motzkin numbers") {
     CHECK(run_cli({"motzkin", "45"}).exit_code != 0);
 }
 
+TEST_CASE("cli: euler numbers") {
+    const RunResult e6 = run_cli({"euler", "6"});
+    CHECK(e6.exit_code == 0);
+    CHECK(contains(e6.output, "-61"));
+
+    const RunResult e8 = run_cli({"euler", "8"});
+    CHECK(e8.exit_code == 0);
+    CHECK(contains(e8.output, "1385"));
+
+    // Odd index is zero.
+    const RunResult e7 = run_cli({"euler", "7"});
+    CHECK(e7.exit_code == 0);
+    CHECK(contains(e7.output, "0"));
+
+    // Negative arg is a usage error; E(24) overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"euler", "-1"}).exit_code == 2);
+    CHECK(run_cli({"euler", "24"}).exit_code != 0);
+}
+
 TEST_CASE("cli: trigexpand of sums and multiples") {
     const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
     INFO(sum.output);
