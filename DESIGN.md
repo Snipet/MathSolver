@@ -25,11 +25,18 @@ disagree, fix whichever is wrong and note it in the commit/summary.
 | derivative      | `derivative.hpp/.cpp`                   | expr, simplify           |
 | integrate       | `integrate.hpp/.cpp`                    | expr, simplify, derivative, evaluator, solver (partial fractions) |
 | solver          | `solver.hpp/.cpp`                       | expr, simplify, derivative, evaluator |
+| script          | `script/*.hpp`, `src/script/*.cpp`      | the engine below (§13)   |
 | CLI/REPL        | `apps/main.cpp`                         | everything               |
 
-Build targets: static lib `mathsolver_core` (src/*), executable `mathsolver`
-(apps/), test executable `mathsolver_tests` (tests/, Catch2 v3 via
-FetchContent, registered with `catch_discover_tests`).
+The dependency order is strict downward and the script row is the one place it
+is enforced mechanically rather than by review: `script` links the engine and
+the engine never links `script`, so nothing below it can learn what a session
+is (§13).
+
+Build targets: static lib `mathsolver_core` (src/*), static lib
+`mathsolver_script` (src/script/*, links `mathsolver_core`), executable
+`mathsolver` (apps/), test executable `mathsolver_tests` (tests/, Catch2 v3
+via FetchContent, registered with `catch_discover_tests`).
 
 Error handling convention: **exceptions**, all derived from `mathsolver::Error`
 (see `errors.hpp`). No `std::expected` in public APIs.
@@ -847,14 +854,12 @@ REPL (`>>> ` prompt, plain `std::getline` — no readline dependency; Ctrl-D or
 
 The REPL keeps a **session environment** of `name := value` bindings (full
 spec: docs/proposals/variable-assignment.md; this is the condensed contract).
-Engine purity is an invariant: no header under `include/mathsolver/` and no
-file under `src/` knows about environments — the environment is an
-insertion-ordered `std::vector<Binding>` in `apps/main.cpp`
-(`struct Binding { std::string name; std::variant<Expr, Equation> value; }`)
-and "applying" it means composing the existing `substitute()` primitive over
-each computing verb's input. It lives and dies with the process; **one-shot
-subcommands stay stateless** (`simplify "x := 3"` keeps the `':'` lex error —
-the stateless equivalent is the `subs` verb).
+Engine purity is an invariant, and §13 is where it now lives: the environment
+is `script::Environment` in the **script layer**, not in `apps/main.cpp` and
+not in the engine, and "applying" it means composing the existing
+`substitute()` primitive over each computing verb's input. It lives and dies
+with the process; **one-shot subcommands stay stateless** (`simplify "x := 3"`
+keeps the `':'` lex error — the stateless equivalent is the `subs` verb).
 
 - **Syntax.** An input line whose first `:=` splits it into a non-empty left
   part and a non-empty right part is an assignment, recognized by the input
@@ -960,3 +965,56 @@ numeric, diff, eval, a parse-error exit code, and a piped-stdin REPL session).
 - Multi-letter words that would segment into 3+ single-letter variables are
   rejected with a helpful error (v0.4 word guard) rather than silently
   parsed as products.
+
+---
+
+## 13. Script layer (`include/mathsolver/script/`)
+
+The **script layer** is a static library, `mathsolver_script`, that sits above
+the CAS and below every surface. It exists to give the console language one
+implementation instead of four (docs/proposals/console-language.md; the survey
+in its §1 found `apps/main.cpp`, `web/src/lib/notebook/run.ts`,
+`apps/ink/src/core/intent.ts` and `web/src/lib/graph/lists.ts` had each grown
+a private half of the same language, kept in step by comments rather than by
+code, and had already drifted).
+
+**The boundary, stated once.** The engine — everything under `src/` and
+`include/mathsolver/` *outside* `script/` — knows nothing about sessions,
+bindings, environments, or statements. `expr`, `simplify`, `solver` and the
+rest take expressions and return expressions. The script layer knows about
+both: it links `mathsolver_core` and `mathsolver_core` never links it back.
+That one-way dependency is the point. Engine purity was previously a
+convention — "no header under `include/mathsolver/` mentions an environment,
+please remember" — and a convention is only as good as the next reviewer.
+As a separate library the invariant is checked by the linker: an engine
+translation unit that reaches for a `Binding` fails to link, so violating it
+is not something anyone can do by accident.
+
+| Header | Owns |
+|---|---|
+| `script/value.hpp` | `Value` — what a script expression evaluates to. Phase 1: `Expr` or `Equation`, exactly the two things the REPL already treated as first-class. Lists, booleans, strings and closures are named in the proposal and deliberately absent. |
+| `script/environment.hpp` | `Binding`, `Environment` (the §10 contract above: definition order, in-place redefinition, definition-time cycle rejection, the lazy parents-first `resolve()`), `UsageError`, and §2.3 target validation. |
+| `script/statement.hpp` | What one input line *is* — `Assignment` / `Command` / `Bare` — plus `trim()` and the leading-word lexer that decides whether a line heads with a verb. |
+| `script/script.hpp` | Umbrella include. |
+
+`UsageError` deliberately does **not** derive from `mathsolver::Error`, so a
+host can map "you asked for something impossible" to its own exit status
+without also swallowing genuine math failures. The CLI's exit code 2 is
+exactly this class.
+
+`statement.hpp` classifies a line but does not own the verb table: it takes an
+`is_command` predicate. The set of verbs is still the host's, because the CLI,
+the web console and Ink genuinely expose different ones (the CLI has `debug`,
+the web has `plot`/`wave`/`steps`). The builtin registry that would unify them
+is proposal §5, Phase 2 — not yet built.
+
+**Phase 1 shipped no new syntax by design.** It moved the existing behavior
+under the new roof and was gated on the end-to-end suite — including the
+piped-stdin REPL sessions in `tests/test_cli.cpp` and the 586-case acceptance
+battery — passing byte-for-byte unmodified. Nothing a user could type changed.
+That is what makes the architecture falsifiable before anything is built on
+it; `tests/test_script.cpp` covers the layer directly.
+
+Surfaces other than the CLI still carry their own copies. Porting them is
+later phases, and until then the library is the reference the copies owe
+parity to, rather than a comment claiming they have it.

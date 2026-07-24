@@ -81,6 +81,19 @@ add_library(mathsolver_core STATIC
 target_include_directories(mathsolver_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(mathsolver_core PRIVATE mathsolver_warnings)
 
+# The script layer (docs/proposals/console-language.md): script values, the
+# `:=` session environment, and the shape of a console input line — everything
+# a surface needs to run a session, and nothing about how a session is
+# displayed. It is the ONLY layer that knows environments exist; the
+# dependency on mathsolver_core runs one way, so the engine-purity invariant
+# (DESIGN.md §13) is a link error to violate rather than a convention.
+add_library(mathsolver_script STATIC
+    src/script/value.cpp
+    src/script/environment.cpp
+    src/script/statement.cpp
+)
+target_link_libraries(mathsolver_script PUBLIC mathsolver_core PRIVATE mathsolver_warnings)
+
 # Built-in plugins (docs/PLUGINS.md): numeric domain extensions behind the
 # uniform command surface in include/mathsolver/plugin.hpp. Hosts that link
 # this library call plugins::register_builtin_plugins() at startup.
@@ -120,7 +133,7 @@ if(EMSCRIPTEN)
     )
 else()
     add_executable(mathsolver apps/main.cpp)
-    target_link_libraries(mathsolver PRIVATE mathsolver_core mathsolver_warnings)
+    target_link_libraries(mathsolver PRIVATE mathsolver_script mathsolver_warnings)
 
     option(MATHSOLVER_BUILD_TESTS "Build MathSolver unit tests" ON)
     if(MATHSOLVER_BUILD_TESTS)
