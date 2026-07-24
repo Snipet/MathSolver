@@ -191,18 +191,19 @@ TEST_CASE("try_exact_numeric: symbolic and irrational inputs give nullopt",
     CHECK_FALSE(try_exact_numeric(deep).has_value());
 }
 
-TEST_CASE("try_exact_numeric: overflow and division by zero are caught internally",
+TEST_CASE("try_exact_numeric: large exact folds and division by zero",
           "[evaluator][exact]") {
     Expr abs1 = make_fn(FunctionId::Abs, num(1));
     Expr abs2 = make_fn(FunctionId::Abs, num(2));
-    // LLONG_MAX + 1 overflows the 64-bit fold.
-    CHECK_FALSE(try_exact_numeric(make_add({num(LLONG_MAX), abs1})).has_value());
-    // LLONG_MAX * 2 overflows.
-    CHECK_FALSE(try_exact_numeric(make_mul({num(LLONG_MAX), abs2})).has_value());
-    // 2^100 overflows the integer-exponent pow path.
-    CHECK_FALSE(try_exact_numeric(make_pow(abs2, num(100))).has_value());
-    // |LLONG_MIN| is not representable.
-    CHECK_FALSE(try_exact_numeric(make_fn(FunctionId::Abs, num(LLONG_MIN))).has_value());
+    // Folds that used to overflow the 64-bit path are now exact.
+    CHECK(try_exact_numeric(make_add({num(LLONG_MAX), abs1})) ==
+          Rational(BigInt("9223372036854775808"))); // 2^63
+    CHECK(try_exact_numeric(make_mul({num(LLONG_MAX), abs2})) ==
+          Rational(BigInt("18446744073709551614"))); // 2^64 - 2
+    CHECK(try_exact_numeric(make_pow(abs2, num(100))) ==
+          Rational(BigInt("1267650600228229401496703205376"))); // 2^100
+    CHECK(try_exact_numeric(make_fn(FunctionId::Abs, num(LLONG_MIN))) ==
+          Rational(BigInt("9223372036854775808"))); // 2^63
     // 0^negative raises DivisionByZeroError inside the factory fold.
     Expr abs0 = make_fn(FunctionId::Abs, num(0));
     CHECK_FALSE(try_exact_numeric(make_pow(abs0, num(-1))).has_value());

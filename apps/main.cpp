@@ -314,8 +314,9 @@ void run_factor(const std::string& input, PrintStyle style) {
         // A bare integer factors into primes (2^3 · 3^2 · 5) rather than
         // echoing itself, the way the polynomial factorer would.
         const Expr s = simplify(e);
-        if (s->kind() == Kind::Number && s->number().is_integer()) {
-            const long long n = s->number().num();
+        if (s->kind() == Kind::Number && s->number().is_integer() &&
+            s->number().num().fits_ll()) {
+            const long long n = s->number().num().to_ll();
             if (n == 0 || n == 1 || n == -1) {
                 std::println("{}", n);
             } else {
@@ -786,7 +787,10 @@ long long parse_integer_arg(const std::string& text, std::string_view verb) {
         throw UsageError{
             std::format("{}: expected an integer, got '{}'", verb, trim(text))};
     }
-    return e->number().num();
+    if (!e->number().num().fits_ll()) {
+        throw UsageError{std::format("{}: integer '{}' is out of range", verb, trim(text))};
+    }
+    return e->number().num().to_ll();
 }
 
 /// Split a number-theory argument blob on commas / semicolons / whitespace
@@ -1006,15 +1010,17 @@ CFrac cfrac_of(const Expr& e) {
     const Expr s = simplify(e);
     if (s->kind() == Kind::Number) {
         const Rational r = s->number();
-        return cf_rational(r.num(), r.den());
+        if (r.num().fits_ll() && r.den().fits_ll()) {
+            return cf_rational(r.num().to_ll(), r.den().to_ll());
+        }
     }
     if (s->kind() == Kind::Pow) {
         const Expr& base = s->arg(0);
         const Expr& exp = s->arg(1);
         if (base->kind() == Kind::Number && base->number().is_integer() &&
-            base->number().num() >= 1 && exp->kind() == Kind::Number &&
-            exp->number() == Rational(1, 2)) {
-            return cf_sqrt(base->number().num());
+            base->number().num() >= 1 && base->number().num().fits_ll() &&
+            exp->kind() == Kind::Number && exp->number() == Rational(1, 2)) {
+            return cf_sqrt(base->number().num().to_ll());
         }
     }
     return cf_numeric(evaluate(s, Bindings{}));

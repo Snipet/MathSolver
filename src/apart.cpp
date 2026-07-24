@@ -136,8 +136,8 @@ Expr apart_term(const Expr& term_in, const std::string& var) {
     for (const Expr& f : factors_of(term)) {
         if (f->kind() == Kind::Pow && contains_symbol(f->arg(0), var)) {
             const auto e = as_num(f->arg(1));
-            if (e && e->is_integer() && e->num() < 0) {
-                den_bases.emplace_back(f->arg(0), static_cast<int>(-e->num()));
+            if (e && e->is_integer() && e->num() < 0 && e->num().fits_ll()) {
+                den_bases.emplace_back(f->arg(0), static_cast<int>((-e->num()).to_ll()));
                 continue;
             }
         }

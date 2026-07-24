@@ -146,107 +146,21 @@ unsigned long long magnitude_ull(long long x) noexcept {
 
 // ---------------------------------------------------------------------------
 // Order-independent numeric folding (DESIGN.md §2): exact sums/products are
-// accumulated in a 128-bit rational, reduced as we go, so the same multiset
-// of Number args never produces a different result — or a spurious
-// OverflowError — depending on input order. Overflow is raised only when the
-// final reduced value does not fit 64 bits (or a truly unrepresentable
-// intermediate exceeds even 128 bits, which implies the final value cannot
-// fit either once the inputs are pre-sorted deterministically).
+// accumulated as an arbitrary-precision Rational, so the same multiset of
+// Number args never produces a different result depending on input order, and
+// the magnitude simply grows as needed (no overflow).
 // ---------------------------------------------------------------------------
 
-unsigned __int128 magnitude_u128(__int128 x) noexcept {
-    return x < 0 ? static_cast<unsigned __int128>(0) - static_cast<unsigned __int128>(x)
-                 : static_cast<unsigned __int128>(x);
-}
-
-unsigned __int128 gcd_u128(unsigned __int128 a, unsigned __int128 b) noexcept {
-    while (b != 0) {
-        const unsigned __int128 t = a % b;
-        a = b;
-        b = t;
-    }
-    return a;
-}
-
-__int128 checked_mul_128(__int128 a, __int128 b) {
-    __int128 r = 0;
-    if (__builtin_mul_overflow(a, b, &r)) {
-        throw OverflowError("rational arithmetic overflow in numeric folding");
-    }
-    return r;
-}
-
-__int128 checked_add_128(__int128 a, __int128 b) {
-    __int128 r = 0;
-    if (__builtin_add_overflow(a, b, &r)) {
-        throw OverflowError("rational arithmetic overflow in numeric folding");
-    }
-    return r;
-}
-
-/// Exact rational with 128-bit components; always reduced, den > 0.
-struct Wide {
-    __int128 num;
-    __int128 den;
-
-    void reduce() {
-        if (num == 0) {
-            den = 1;
-            return;
-        }
-        const auto g =
-            static_cast<__int128>(gcd_u128(magnitude_u128(num), magnitude_u128(den)));
-        num /= g;
-        den /= g;
-    }
-
-    void add(const Rational& r) {
-        const __int128 rn = r.num();
-        const __int128 rd = r.den();
-        num = checked_add_128(checked_mul_128(num, rd), checked_mul_128(rn, den));
-        den = checked_mul_128(den, rd);
-        reduce();
-    }
-
-    void mul(const Rational& r) {
-        // Cross-cancel first so the products stay as small as possible.
-        const auto g1 = static_cast<__int128>(
-            gcd_u128(magnitude_u128(num), static_cast<unsigned __int128>(r.den())));
-        const auto g2 = static_cast<__int128>(
-            gcd_u128(magnitude_u128(static_cast<__int128>(r.num())),
-                     magnitude_u128(den)));
-        num = checked_mul_128(num / g1, static_cast<__int128>(r.num()) / g2);
-        den = checked_mul_128(den / g2, static_cast<__int128>(r.den()) / g1);
-        if (num == 0) {
-            den = 1;
-        }
-    }
-
-    Rational to_rational() const {
-        constexpr auto kMaxNum = static_cast<unsigned __int128>(LLONG_MAX);
-        const unsigned __int128 num_limit = num < 0 ? kMaxNum + 1 : kMaxNum;
-        if (magnitude_u128(num) > num_limit ||
-            static_cast<unsigned __int128>(den) > kMaxNum) {
-            throw OverflowError("numeric fold does not fit in a 64-bit rational");
-        }
-        return Rational(static_cast<long long>(num), static_cast<long long>(den));
-    }
-};
-
 /// Fold a multiset of Rationals order-independently: sort deterministically
-/// (the comparison is overflow-free), then accumulate in 128 bits.
+/// (the comparison is exact), then accumulate exactly.
 Rational fold_numbers(std::vector<Rational> values, bool multiply) {
     std::sort(values.begin(), values.end(),
               [](const Rational& a, const Rational& b) { return a < b; });
-    Wide acc{multiply ? 1 : 0, 1};
+    Rational acc(multiply ? 1 : 0);
     for (const Rational& v : values) {
-        if (multiply) {
-            acc.mul(v);
-        } else {
-            acc.add(v);
-        }
+        acc = multiply ? acc * v : acc + v;
     }
-    return acc.to_rational();
+    return acc;
 }
 
 /// Exact integer q-th root of x, if one exists. Uses a double estimate that
@@ -289,11 +203,16 @@ std::optional<Rational> exact_rational_pow(const Rational& base, long long p, lo
     if (negative && q % 2 == 0) {
         return std::nullopt; // even root of a negative: not real
     }
-    const auto root_num = exact_root(magnitude_ull(base.num()), q);
+    // The exact-root search runs in 64 bits; a base outside that range is left
+    // symbolic (reported as "no exact rational root").
+    if (!base.num().fits_ll() || !base.den().fits_ll()) {
+        return std::nullopt;
+    }
+    const auto root_num = exact_root(magnitude_ull(base.num().to_ll()), q);
     if (!root_num) {
         return std::nullopt;
     }
-    const auto root_den = exact_root(static_cast<unsigned long long>(base.den()), q);
+    const auto root_den = exact_root(static_cast<unsigned long long>(base.den().to_ll()), q);
     if (!root_den) {
         return std::nullopt;
     }
@@ -435,16 +354,25 @@ Expr make_pow(Expr base, Expr exponent) {
                 }
                 return make_num(0);
             }
+            // Exact integer powers fold to an exact (arbitrary-precision)
+            // Number; a pathological exponent that would explode memory is left
+            // symbolic. The exponent numerator (and root degree) run through the
+            // 64-bit exact-root search, so both must fit.
+            constexpr long long kPowCap = 100000;
             if (e.is_integer()) {
-                return make_num(b.pow(e.num())); // overflow throws (integer path only)
-            }
-            try {
-                if (auto folded = exact_rational_pow(b, e.num(), e.den())) {
-                    return make_num(*folded);
+                if (e.num().fits_ll()) {
+                    const long long ex = e.num().to_ll();
+                    if (ex >= -kPowCap && ex <= kPowCap) {
+                        return make_num(b.pow(ex));
+                    }
                 }
-            } catch (const OverflowError&) {
-                // The exact result exists mathematically but does not fit
-                // 64 bits (e.g. pow(4, 101/2) = 2^101): stay symbolic.
+            } else if (e.num().fits_ll() && e.den().fits_ll()) {
+                const long long p = e.num().to_ll();
+                if (p >= -kPowCap && p <= kPowCap) {
+                    if (auto folded = exact_rational_pow(b, p, e.den().to_ll())) {
+                        return make_num(*folded);
+                    }
+                }
             }
         }
     }
@@ -576,8 +504,8 @@ std::size_t hash_expr(const Expr& e) {
     std::size_t h = std::hash<int>{}(kind_rank(e->kind()));
     switch (e->kind()) {
         case Kind::Number:
-            h = hash_combine(h, std::hash<long long>{}(e->number().num()));
-            h = hash_combine(h, std::hash<long long>{}(e->number().den()));
+            h = hash_combine(h, std::hash<BigInt>{}(e->number().num()));
+            h = hash_combine(h, std::hash<BigInt>{}(e->number().den()));
             return h;
         case Kind::Constant:
             return hash_combine(h, std::hash<int>{}(static_cast<int>(e->constant())));

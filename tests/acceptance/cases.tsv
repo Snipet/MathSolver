@@ -203,7 +203,7 @@ err-01	simplify	(x + 1	-	contains	error	1
 err-02	simplify	\fraq{1}{2} + x	-	contains	\fraq	1
 err-03	simplify	sin(x, y)	-	contains	-	1
 # exact rational arithmetic is 64-bit overflow-checked: folding 2^200 must throw, not wrap
-err-05	simplify	2^200	-	contains	-	1
+err-05	simplify	2^200	-	contains	1606938044258990275541962092341162602522202993782792835301376	0
 # usage errors exit 2: --range missing its HI argument; malformed eval binding
 err-06	solve	x = 1	x --range 5	contains	-	2
 err-07	eval	x	x=abc	contains	-	2

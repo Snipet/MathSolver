@@ -56,7 +56,7 @@ SplitTerm split_term(const Expr& term) {
         if (f->kind() == Kind::Pow && f->arg(1)->kind() == Kind::Number) {
             const Rational& r = f->arg(1)->number();
             if (r.is_integer() && r.is_negative()) {
-                add_factor(denom, f->arg(0), -r.num());
+                add_factor(denom, f->arg(0), (-r.num()).to_ll());
                 return;
             }
         }

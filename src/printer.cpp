@@ -45,9 +45,11 @@ bool is_euler(const Expr& e) {
     return e->kind() == Kind::Constant && e->constant() == ConstantId::E;
 }
 
-/// True when -r is representable (LLONG_MIN numerators cannot be negated).
-bool is_negatable(const Rational& r) {
-    return r.num() != LLONG_MIN;
+/// True when -r is representable. With arbitrary-precision numerators this is
+/// always the case (the old LLONG_MIN corner is gone), kept for call-site
+/// clarity.
+bool is_negatable(const Rational& /*r*/) {
+    return true;
 }
 
 std::string render(const Expr& e, PrintStyle style);
@@ -241,7 +243,7 @@ std::string render_product(Rational coeff, const std::vector<Expr>& factors, Pri
         }
     }
 
-    const long long q = coeff.den();
+    const BigInt& q = coeff.den();
     const bool has_denominator = q != 1 || denom.has_value();
 
     std::vector<std::string> parts;

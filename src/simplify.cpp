@@ -199,13 +199,17 @@ ScaledRoot sin_of_twelfths(long long k) {
 /// {1, 2, 3, 4, 6}. tan at odd multiples of pi/2 returns nullopt (left
 /// unevaluated, never a throw).
 std::optional<Expr> trig_special(FunctionId id, const Rational& r) {
-    const long long q = r.den();
+    if (!r.den().fits_ll()) {
+        return std::nullopt;
+    }
+    const long long q = r.den().to_ll();
     if (q != 1 && q != 2 && q != 3 && q != 4 && q != 6) {
         return std::nullopt;
     }
     // k = (r mod 2) * 12, an exact integer in [0, 24). Reduce the numerator
-    // mod 2q first so the multiplication cannot overflow.
-    const long long n = ((r.num() % (2 * q)) + 2 * q) % (2 * q);
+    // mod 2q first (the residue fits in 64 bits).
+    const BigInt twoq(2 * q);
+    const long long n = (((r.num() % twoq) + twoq) % twoq).to_ll();
     const long long k = n * (12 / q);
     switch (id) {
         case FunctionId::Sin:
@@ -246,15 +250,15 @@ std::optional<ScaledRoot> as_scaled_root(const Expr& u) {
         const Rational* base = as_number(p->arg(0));
         const Rational* exp = as_number(p->arg(1));
         if (base == nullptr || exp == nullptr || !base->is_integer() ||
-            base->num() <= 1) {
+            base->num() <= 1 || !base->num().fits_ll()) {
             return std::nullopt;
         }
         if (*exp == Rational(1, 2)) {
-            return ScaledRoot{Rational(1), base->num()};
+            return ScaledRoot{Rational(1), base->num().to_ll()};
         }
         if (*exp == Rational(-1, 2)) {
             // 1/sqrt(k) == sqrt(k)/k
-            return ScaledRoot{Rational(1, base->num()), base->num()};
+            return ScaledRoot{Rational(1, base->num()), base->num().to_ll()};
         }
         return std::nullopt;
     };
@@ -495,18 +499,23 @@ std::pair<Rational, long long> primitive_power(Rational a) {
         a = Rational(1) / a;
         sign = -1;
     }
+    // The perfect-power search runs in 64 bits; a component beyond it stays as-is.
+    if (!a.num().fits_ll() || !a.den().fits_ll()) {
+        return {a, sign};
+    }
+    const long long an = a.num().to_ll();
+    const long long ad = a.den().to_ll();
     for (int k = 62; k >= 2; --k) {
-        const auto rn = a.num() >= 2 ? exact_llroot(a.num(), k)
-                                     : std::optional<long long>(a.num()); // num == 1
+        const auto rn = an >= 2 ? exact_llroot(an, k) : std::optional<long long>(an); // num == 1
         if (!rn) continue;
-        if (a.den() == 1) {
-            if (a.num() >= 2) return {Rational(*rn), sign * k};
+        if (ad == 1) {
+            if (an >= 2) return {Rational(*rn), sign * k};
             continue;
         }
-        const auto rd = exact_llroot(a.den(), k);
+        const auto rd = exact_llroot(ad, k);
         if (!rd) continue;
-        if (a.num() == 1 && a.den() >= 2) return {Rational(1, *rd), sign * k};
-        if (a.num() >= 2) return {Rational(*rn, *rd), sign * k};
+        if (an == 1 && ad >= 2) return {Rational(1, *rd), sign * k};
+        if (an >= 2) return {Rational(*rn, *rd), sign * k};
     }
     return {a, sign};
 }
@@ -658,34 +667,34 @@ std::optional<Expr> radical_normal_form(const Rational& b, const Rational& exp) 
     if (!(b > Rational(0)) || exp.is_integer()) {
         return std::nullopt;
     }
-    const long long p = exp.num();
-    const long long q = exp.den();
-    const long long m = p >= 0 ? p / q : -((-p + q - 1) / q); // floor(p/q)
-    const Rational f = exp - Rational(m);                     // in (0,1)
-
-    Rational coeff(1);
-    try {
-        coeff = b.pow(m);
-    } catch (const OverflowError&) {
+    if (!exp.num().fits_ll() || !exp.den().fits_ll()) {
         return std::nullopt;
     }
+    const long long p = exp.num().to_ll();
+    const long long q = exp.den().to_ll();
+    const long long m = p >= 0 ? p / q : -((-p + q - 1) / q); // floor(p/q)
+    // Decline a coefficient power large enough to explode memory (kept symbolic).
+    constexpr long long kPowCap = 100000;
+    if (m < -kPowCap || m > kPowCap) {
+        return std::nullopt;
+    }
+    const Rational f = exp - Rational(m); // in (0,1)
+
+    Rational coeff = b.pow(m); // exact (arbitrary precision)
 
     Rational radicand = b;
-    if (f == Rational(1, 2)) {
+    // The square-free split runs in 64 bits; a larger radicand is left as-is.
+    if (f == Rational(1, 2) && b.num().fits_ll() && b.den().fits_ll()) {
         // sqrt(n/d) = (sn/(sd*rd)) * sqrt(rn*rd): square-free radicand,
         // denominator rationalized.
-        const auto [sn, rn] = square_free_split(b.num());
-        const auto [sd, rd] = square_free_split(b.den());
+        const auto [sn, rn] = square_free_split(b.num().to_ll());
+        const auto [sd, rd] = square_free_split(b.den().to_ll());
         long long rad = 0;
         long long den = 0;
         if (__builtin_mul_overflow(rn, rd, &rad) || __builtin_mul_overflow(sd, rd, &den)) {
             return std::nullopt;
         }
-        try {
-            coeff = coeff * Rational(sn, den);
-        } catch (const OverflowError&) {
-            return std::nullopt;
-        }
+        coeff = coeff * Rational(sn, den);
         radicand = Rational(rad);
     }
 
@@ -715,7 +724,7 @@ Expr apply_pow_rules(const Expr& e) {
     // Integer powers of the imaginary unit cycle with period 4:
     // i^0 = 1, i^1 = i, i^2 = -1, i^3 = -i.
     if (is_constant(b, ConstantId::I) && xr->is_integer()) {
-        const long long m = ((xr->num() % 4) + 4) % 4;
+        const long long m = (((xr->num() % 4) + 4) % 4).to_ll();
         switch (m) {
             case 0: return make_num(1);
             case 1: return b;
@@ -731,7 +740,7 @@ Expr apply_pow_rules(const Expr& e) {
         }
     }
     // abs(u)^(even integer) -> u^(even integer)
-    if (is_function(b, FunctionId::Abs) && xr->is_integer() && !odd(xr->num())) {
+    if (is_function(b, FunctionId::Abs) && xr->is_integer() && xr->num() % 2 == 0) {
         return make_pow(b->arg(0), x);
     }
     // Generalized (u^a)^b for rational Numbers a, b (DESIGN.md §7; integer b
@@ -752,12 +761,12 @@ Expr apply_pow_rules(const Expr& e) {
         if (const Rational* a = as_number(b->arg(1))) {
             try {
                 const Rational ab = *a * *xr;
-                if (!a->is_integer() || odd(a->num())) {
+                if (!a->is_integer() || a->num() % 2 != 0) {
                     return make_pow(b->arg(0), make_num(ab));
                 }
                 // a is an even integer.
                 if (ab.is_integer()) {
-                    if (odd(ab.num())) {
+                    if (ab.num() % 2 != 0) {
                         return make_pow(make_fn(FunctionId::Abs, b->arg(0)),
                                         make_num(ab));
                     }
@@ -902,11 +911,11 @@ Expr apply_fn_rules(const Expr& e) {
                     }
                     return make_num(f); // gamma(n) = (n-1)!
                 }
-                if (n->den() == 2) {
+                if (n->den() == 2 && n->num().fits_ll()) {
                     // gamma(k + 1/2): exact rational multiple of sqrt(pi)
                     // (DLMF 5.4.6/5.4.8), kept for |k| <= 10 so the exact
                     // 64-bit rationals stay in range.
-                    const long long k = (n->num() - 1) / 2;
+                    const long long k = (n->num().to_ll() - 1) / 2;
                     if (k >= -10 && k <= 10) {
                         Rational coeff(1);
                         if (k >= 0) {
@@ -942,7 +951,7 @@ Expr apply_fn_rules(const Expr& e) {
         case FunctionId::Fib: {
             if (const Rational* n = as_number(u)) {
                 if (n->den() == 1 && n->num() >= -92 && n->num() <= 92) {
-                    const long long m = n->num() < 0 ? -n->num() : n->num();
+                    const long long m = (n->num() < 0 ? -n->num() : n->num()).to_ll();
                     long long a = 0;
                     long long b = 1; // F(0), F(1)
                     for (long long k = 0; k < m; ++k) {
@@ -1116,12 +1125,15 @@ std::optional<Gaussian> as_gaussian(const Expr& e) {
         case Kind::Pow: {
             const auto base = as_gaussian(e->arg(0));
             const Rational* exp = as_number(e->arg(1));
-            if (!base || exp == nullptr || !exp->is_integer()) return std::nullopt;
+            if (!base || exp == nullptr || !exp->is_integer() || !exp->num().fits_ll())
+                return std::nullopt;
             if (exp->is_negative() &&
                 (base->re * base->re + base->im * base->im).is_zero()) {
                 return std::nullopt; // 0^negative: leave for the divide-by-zero path
             }
-            return gaussian_pow(*base, exp->num());
+            const long long ex = exp->num().to_ll();
+            if (ex < -100000 || ex > 100000) return std::nullopt; // avoid an explosion
+            return gaussian_pow(*base, ex);
         }
         default:
             return std::nullopt;
@@ -1324,7 +1336,7 @@ Expr expand_core(const Expr& e) {
             if (const Rational* n = as_number(exponent);
                 n != nullptr && n->is_integer() && base->kind() == Kind::Add &&
                 n->num() >= 2 && n->num() <= kMaxExpandExponent) {
-                const std::vector<Expr> repeated(static_cast<std::size_t>(n->num()), base);
+                const std::vector<Expr> repeated(static_cast<std::size_t>(n->num().to_ll()), base);
                 return distribute(repeated);
             }
             return make_pow(std::move(base), std::move(exponent));
@@ -1370,7 +1382,7 @@ std::optional<std::pair<long long, Expr>> polynomial_term(const Expr& t,
             if (r->num() > kMaxPolynomialDegree - degree) {
                 return std::nullopt;
             }
-            degree += r->num();
+            degree += r->num().to_ll(); // bounded by kMaxPolynomialDegree above
             continue;
         }
         return std::nullopt;
@@ -1418,11 +1430,8 @@ std::optional<Expr> factor_quadratic(const Expr& s) {
 }
 
 Rational rational_gcd(const Rational& a, const Rational& b) {
-    const long long num = std::gcd(a.num(), b.num());
-    const long long lcm = std::lcm(a.den(), b.den()); // dens fit; lcm may overflow
-    if (lcm <= 0) {
-        throw OverflowError("lcm overflow in rational gcd");
-    }
+    const BigInt num = BigInt::gcd(a.num(), b.num());
+    const BigInt lcm = a.den() / BigInt::gcd(a.den(), b.den()) * b.den(); // dens > 0
     return Rational(num, lcm);
 }
 

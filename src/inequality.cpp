@@ -43,8 +43,9 @@ void split_num_den(const Expr& g, Expr& num, Expr& den) {
     std::vector<Expr> nums, dens;
     auto handle = [&](const Expr& f) {
         if (f->kind() == Kind::Pow && f->arg(1)->kind() == Kind::Number &&
-            f->arg(1)->number().is_integer() && f->arg(1)->number().is_negative()) {
-            const long long e = -f->arg(1)->number().num();
+            f->arg(1)->number().is_integer() && f->arg(1)->number().is_negative() &&
+            f->arg(1)->number().num().fits_ll()) {
+            const long long e = (-f->arg(1)->number().num()).to_ll();
             dens.push_back(e == 1 ? f->arg(0) : make_pow(f->arg(0), make_num(e)));
         } else {
             nums.push_back(f);

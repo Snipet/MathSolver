@@ -923,10 +923,12 @@ TEST_CASE("cli: caret span underlines the offending token") {
 }
 
 TEST_CASE("cli: math errors exit 1") {
-    const RunResult overflow = run_cli({"simplify", "2^200"});
-    INFO(overflow.output);
-    CHECK(overflow.exit_code == 1);
-    CHECK(contains(overflow.output, "error:"));
+    // 2^200 used to overflow; it is now computed exactly (exit 0).
+    const RunResult big = run_cli({"simplify", "2^200"});
+    INFO(big.output);
+    CHECK(big.exit_code == 0);
+    CHECK(contains(big.output,
+                   "1606938044258990275541962092341162602522202993782792835301376"));
 
     const RunResult unbound = run_cli({"eval", "x^2"});
     INFO(unbound.output);
@@ -1532,16 +1534,15 @@ TEST_CASE("repl assign: definite-integral bounds resolve from the environment") 
     CHECK(contains(r.output, "method: FTC"));
 }
 
-TEST_CASE("repl assign: overflow during resolution keeps the session alive") {
+TEST_CASE("repl assign: large values stay exact and keep the session alive") {
     const RunResult r = run_repl("k := 10^18\n"
-                                 "k^2\n"  // (10^18)^2 overflows 64-bit rationals
+                                 "k^2\n"  // (10^18)^2 = 10^36, now exact
                                  "6 * 7\n"
                                  "quit\n");
     INFO(r.output);
     CHECK(r.exit_code == 0);
-    CHECK(contains(r.output, "error:"));
-    CHECK(contains(r.output, "overflow"));
-    CHECK(contains(r.output, "42"));  // recovered
+    CHECK(contains(r.output, "1000000000000000000000000000000000000")); // 10^36
+    CHECK(contains(r.output, "42"));
 }
 
 namespace {

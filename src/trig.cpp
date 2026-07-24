@@ -30,8 +30,9 @@ std::vector<Expr> angle_atoms(const Expr& angle) {
             std::vector<Expr> rest;
             bool found = false;
             for (const Expr& f : term->args()) {
-                if (!found && f->kind() == Kind::Number && f->number().is_integer()) {
-                    coeff = f->number().num();
+                if (!found && f->kind() == Kind::Number && f->number().is_integer() &&
+                    f->number().num().fits_ll()) {
+                    coeff = f->number().num().to_ll();
                     found = true;
                 } else {
                     rest.push_back(f);
@@ -196,9 +197,9 @@ Expr reduce_monomial(const Expr& mono, std::map<std::string, Expr>& atoms) {
             fn = &f;
         } else if (f->kind() == Kind::Pow && f->arg(0)->kind() == Kind::Function &&
                    f->arg(1)->kind() == Kind::Number && f->arg(1)->number().is_integer() &&
-                   !f->arg(1)->number().is_negative()) {
+                   !f->arg(1)->number().is_negative() && f->arg(1)->number().num().fits_ll()) {
             fn = &f->arg(0);
-            power = static_cast<int>(f->arg(1)->number().num());
+            power = static_cast<int>(f->arg(1)->number().num().to_ll());
         }
         if (fn && ((*fn)->function() == FunctionId::Sin || (*fn)->function() == FunctionId::Cos) &&
             power >= 1 && power <= k_max_power) {

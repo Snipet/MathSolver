@@ -762,13 +762,17 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   complex values, numeric evaluation containing `i`) is not supported.
 - Variables are single letters (optionally subscripted: `x_1`) or greek
   names; `e` always means Euler's number and `i` the imaginary unit.
-- Exact arithmetic is 64-bit rational, overflow-checked (throws rather than
-  silently wrapping).
+- Exact arithmetic is arbitrary precision (bignum rationals): sums, products,
+  powers, and exact integer sequences grow without a 64-bit ceiling — e.g.
+  `expand (x+1)^100`, `2^200`, and `factorial 100` are all exact. A few
+  bounded numeric subroutines (rational-root divisor search, perfect-root
+  extraction) still operate in 64 bits and quietly skip their optimization for
+  larger operands rather than erroring.
 - Formal cancellations such as `x/x → 1` assume nonzero denominators.
 - Numeric root search only covers its interval (default `[-100, 100]`,
   override with `--range`).
-- Scientific-notation literals are exact and must fit 64-bit rationals
-  (`1e300` is a clean parse error); `2e` with no digits after it is still
+- Scientific-notation literals are exact and arbitrary precision
+  (`1e300` is the exact integer 10^300); `2e` with no digits after it is still
   `2·e` with Euler's number.
 
 ## Architecture

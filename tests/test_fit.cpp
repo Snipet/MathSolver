@@ -71,12 +71,13 @@ TEST_CASE("rational (fractional) inputs stay exact") {
     CHECK(structurally_equal(r.expr, P("2*x")));
 }
 
-TEST_CASE("huge inputs overflow the exact path and fall back to numeric") {
-    // Σ x^4 with x ~ 1e6 overflows long long; the double path still fits x^2/1e12.
+TEST_CASE("huge inputs stay on the exact path (arbitrary precision)") {
+    // Σ x^4 with x ~ 1e6 used to overflow long long; the exact Rational path now
+    // handles it, so the fit stays exact.
     const FitResult r = fit({"1000000", "2000000", "3000000", "4000000"},
                             {"1", "4", "9", "16"}, FitModel::Poly, 2, "x");
     REQUIRE(r.status == FitResult::Status::Ok);
-    CHECK_FALSE(r.exact); // numeric fallback
+    CHECK(r.exact); // exact, no numeric fallback
     CHECK(std::abs(at(r.expr, 2500000.0) - 6.25) < 1e-6);
 }
 

@@ -276,16 +276,18 @@ TEST_CASE("system: constant-bearing near-zero 0 = c row keeps a condition") {
     CHECK(any_warning_contains(res, "inconsistent unless"));
 }
 
-TEST_CASE("system: coefficient overflow degrades to Unsolved, never throws") {
-    // Regression: elimination folds like 3037000500^2 overflow the 64-bit
-    // rational and the OverflowError escaped solve_system to the caller.
+TEST_CASE("system: large coefficient folds are now solved exactly") {
+    // Elimination folds like 3037000500^2 exceed the 64-bit range but are now
+    // exact (arbitrary precision), so the system solves rather than degrading.
     const auto equations =
         eqs({"3037000500*x + y = 1", "x - 3037000500*y = 2"});
     SystemSolveResult res;
     REQUIRE_NOTHROW(res = solve_system(equations, {"x", "y"}));
-    CHECK(res.status == Status::Unsolved);
-    CHECK(res.values.empty());
-    CHECK(any_warning_contains(res, "overflowed 64-bit rationals"));
+    CHECK(res.status == Status::Solved);
+    CHECK(structurally_equal(res.values.at("x"),
+                             expected("3037000502/9223372037000250001")));
+    CHECK(structurally_equal(res.values.at("y"),
+                             expected("-6074000999/9223372037000250001")));
 }
 
 TEST_CASE("system: conditional warnings are printed simplified") {

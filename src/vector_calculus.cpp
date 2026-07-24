@@ -41,7 +41,12 @@ void require_match(const ExprVec& field, const std::vector<std::string>& vars,
 /// The candidate check divides instead of squaring: c*c overflows (UB) for
 /// values near LLONG_MAX, which the rest of the library never risks.
 std::optional<Rational> exact_sqrt(const Rational& r) {
-    if (r.num() < 0) {
+    if (r.is_negative()) {
+        return std::nullopt;
+    }
+    // The perfect-square test is done in 64-bit; a rational whose components do
+    // not fit is reported as "no exact square root" (matches the prior scope).
+    if (!r.num().fits_ll() || !r.den().fits_ll()) {
         return std::nullopt;
     }
     auto isqrt = [](long long n) -> std::optional<long long> {
@@ -54,8 +59,8 @@ std::optional<Rational> exact_sqrt(const Rational& r) {
         }
         return std::nullopt;
     };
-    const auto n = isqrt(r.num());
-    const auto d = isqrt(r.den());
+    const auto n = isqrt(r.num().to_ll());
+    const auto d = isqrt(r.den().to_ll());
     if (n && d) {
         return Rational{*n, *d};
     }
