@@ -151,6 +151,14 @@ check("bernoulli B_1 convention", ms.bernoulli("1"), (r) => r.ok && r.plain === 
 check("bernoulli B_12", ms.bernoulli("12"), (r) => r.ok && r.plain === "-691/2730", "B_12");
 check("bernoulli odd vanishes", ms.bernoulli("3"), (r) => r.ok && r.plain === "0", "B_3=0");
 check("bernoulli error range", ms.bernoulli("21"), (r) => !r.ok && r.error.includes("[0, 20]"), "index capped");
+// stirling numbers of the second kind S(n, k) and bell numbers B(n)
+check("stirling2 S(4,2)", ms.stirling2("4", "2"), (r) => r.ok && r.plain === "7", "S(4,2)=7");
+check("stirling2 S(5,3)", ms.stirling2("5", "3"), (r) => r.ok && r.plain === "25", "S(5,3)=25");
+check("stirling2 k>n", ms.stirling2("3", "5"), (r) => r.ok && r.plain === "0", "S(3,5)=0");
+check("stirling2 error negative", ms.stirling2("-1", "2"), (r) => !r.ok && r.error.includes(">= 0"), "n,k≥0 required");
+check("bell B(5)", ms.bell("5"), (r) => r.ok && r.plain === "52", "B(5)=52");
+check("bell B(10)", ms.bell("10"), (r) => r.ok && r.plain === "115975", "B(10)=115975");
+check("bell error negative", ms.bell("-1"), (r) => !r.ok && r.error.includes(">= 0"), "n≥0 required");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

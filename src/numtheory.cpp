@@ -246,6 +246,48 @@ long long partition_count(long long n) {
     return p[static_cast<std::size_t>(n)];
 }
 
+long long stirling_second(long long n, long long k) {
+    if (n < 0 || k < 0) throw EvalError{"stirling2 is defined for n, k >= 0"};
+    if (k > n) return 0;
+    if (n > 5000) throw OverflowError{"stirling2 overflows the 64-bit range"};
+    // dp[j] = S(i, j), rolled forward row by row. Update j high→low in place.
+    std::vector<long long> dp(static_cast<std::size_t>(k) + 1, 0);
+    dp[0] = 1; // S(0, 0)
+    for (long long i = 1; i <= n; ++i) {
+        const long long upper = std::min(i, k);
+        for (long long j = upper; j >= 1; --j) {
+            long long term = 0;
+            if (__builtin_mul_overflow(j, dp[static_cast<std::size_t>(j)], &term) ||
+                __builtin_add_overflow(term, dp[static_cast<std::size_t>(j - 1)], &term))
+                throw OverflowError{"stirling2 overflows the 64-bit range"};
+            dp[static_cast<std::size_t>(j)] = term;
+        }
+        dp[0] = 0; // S(i, 0) = 0 for i >= 1
+    }
+    return dp[static_cast<std::size_t>(k)];
+}
+
+long long bell_number(long long n) {
+    if (n < 0) throw EvalError{"bell is defined for n >= 0"};
+    if (n > 5000) throw OverflowError{"bell overflows the 64-bit range"};
+    // Bell triangle (Aitken's array): a(i,0) = a(i-1, i-1);
+    // a(i,j) = a(i,j-1) + a(i-1,j-1). B(n) = a(n, 0) = row[0] after n rows.
+    std::vector<long long> row{1}; // row 0 = {a(0,0)} = {1}
+    for (long long i = 1; i <= n; ++i) {
+        std::vector<long long> next(static_cast<std::size_t>(i) + 1);
+        next[0] = row.back();
+        for (long long j = 1; j <= i; ++j) {
+            long long s = 0;
+            if (__builtin_add_overflow(next[static_cast<std::size_t>(j - 1)],
+                                       row[static_cast<std::size_t>(j - 1)], &s))
+                throw OverflowError{"bell overflows the 64-bit range"};
+            next[static_cast<std::size_t>(j)] = s;
+        }
+        row = std::move(next);
+    }
+    return row[0];
+}
+
 long long catalan_number(long long n) {
     if (n < 0) throw EvalError{"catalan is defined for n >= 0"};
     // Iterate C(k+1) = C(k)·2(2k+1)/(k+2) — an exact division at every step

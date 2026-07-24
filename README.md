@@ -672,8 +672,10 @@ See [apps/ink/README.md](apps/ink/README.md) for architecture and details.
   `sigma` (σ_k, with `sigma n, 0` counting divisors and `sigma n, 2` summing
   squares), the Möbius function `mobius`, the integer partition count
   `partitions` (p(n) via Euler's pentagonal recurrence), the Catalan
-  numbers `catalan`, and the Bernoulli numbers `bernoulli` (exact rationals,
-  B₁ = −1/2) — all exact, factoring via trial division + Pollard's rho:
+  numbers `catalan`, the Bernoulli numbers `bernoulli` (exact rationals,
+  B₁ = −1/2), the Stirling numbers of the second kind `stirling2` (S(n, k),
+  set partitions into k blocks), and the Bell numbers `bell` (total set
+  partitions) — all exact, factoring via trial division + Pollard's rho:
 
   ```console
   $ mathsolver factor 360

@@ -232,6 +232,28 @@ TEST_CASE("cli: bernoulli numbers as exact rationals") {
     CHECK(run_cli({"bernoulli", "21"}).exit_code == 2);
 }
 
+TEST_CASE("cli: stirling2 and bell numbers") {
+    const RunResult s = run_cli({"stirling2", "4, 2"});
+    CHECK(s.exit_code == 0);
+    CHECK(contains(s.output, "7"));
+
+    const RunResult s2 = run_cli({"stirling2", "5, 3"});
+    CHECK(s2.exit_code == 0);
+    CHECK(contains(s2.output, "25"));
+
+    const RunResult b = run_cli({"bell", "5"});
+    CHECK(b.exit_code == 0);
+    CHECK(contains(b.output, "52"));
+
+    const RunResult b10 = run_cli({"bell", "10"});
+    CHECK(b10.exit_code == 0);
+    CHECK(contains(b10.output, "115975"));
+
+    // Errors: negative arg is a usage error; a huge Bell overflows (nonzero).
+    CHECK(run_cli({"stirling2", "-1, 2"}).exit_code == 2);
+    CHECK(run_cli({"bell", "100"}).exit_code != 0);
+}
+
 TEST_CASE("cli: trigexpand of sums and multiples") {
     const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
     INFO(sum.output);

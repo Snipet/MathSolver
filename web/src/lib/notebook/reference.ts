@@ -182,6 +182,18 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "bernoulli 12",
       },
       {
+        insert: "stirling2",
+        usage: "stirling2 <n>, <k>",
+        hint: "Stirling number of the second kind S(n, k): partitions of an n-set into k nonempty blocks",
+        example: "stirling2 5, 3",
+      },
+      {
+        insert: "bell",
+        usage: "bell <n>",
+        hint: "The n-th Bell number Bₙ: the number of partitions of an n-element set",
+        example: "bell 8",
+      },
+      {
         insert: "cfrac",
         usage: "cfrac <rational | sqrt(n) | real>",
         hint: "Continued fraction + convergents (best rational approximations)",
