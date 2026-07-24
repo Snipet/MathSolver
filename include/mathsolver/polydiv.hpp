@@ -45,4 +45,18 @@ PolyGcdResult polynomial_lcm(const Expr& a, const Expr& b, std::string_view var)
 /// over the polynomial remainder (no Sylvester matrix). Reuses PolyGcdResult.
 PolyGcdResult polynomial_resultant(const Expr& a, const Expr& b, std::string_view var);
 
+/// Extended Euclidean algorithm for polynomials: the monic gcd `g` together
+/// with Bézout cofactors `s`, `t` satisfying s·a + t·b = g exactly over the
+/// rationals (all in `var`). For a = b = 0, g = s = t = 0.
+struct PolyBezoutResult {
+    enum class Status { Ok, NotPolynomial };
+    Status status = Status::NotPolynomial;
+    Expr gcd;   ///< the monic gcd
+    Expr s;     ///< cofactor of a (s·a + t·b = gcd)
+    Expr t;     ///< cofactor of b
+    std::string message;
+};
+
+PolyBezoutResult polynomial_bezout(const Expr& a, const Expr& b, std::string_view var);
+
 } // namespace mathsolver

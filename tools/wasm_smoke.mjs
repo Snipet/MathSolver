@@ -110,6 +110,10 @@ check("orthopoly legendre P3", ms.orthopoly("legendre", 3, "x"), (r) => r.ok && 
 check("orthopoly hermite H4", ms.orthopoly("hermite", 4, "x"), (r) => r.ok && r.plain === "16*x^4 - 48*x^2 + 12" && r.family === "Hermite", "H_4");
 check("orthopoly named variable", ms.orthopoly("chebyshev", 2, "t"), (r) => r.ok && r.plain === "2*t^2 - 1", "T_2 in t");
 check("orthopoly error bad family", ms.orthopoly("wiggle", 3, "x"), (r) => !r.ok && r.error.includes("unknown polynomial family"), "unknown family rejected");
+// bezout — extended polynomial gcd with cofactors
+check("bezout shared factor", ms.bezout("x^2 - 1", "x^3 - 1", "x"), (r) => r.ok && r.plain === "x - 1" && r.notes.some((n) => n === "s = -x") && r.notes.some((n) => n === "t = 1"), "gcd x-1 with cofactors");
+check("bezout coprime → gcd 1", ms.bezout("x^2 + 1", "x - 1", "x"), (r) => r.ok && r.plain === "1" && r.notes.length === 2, "coprime gcd 1");
+check("bezout error non-poly", ms.bezout("sin(x)", "x", "x"), (r) => !r.ok && r.error.includes("polynomial"), "non-polynomial rejected");
 // stats — exact summary statistics
 const statVal = (r, label) => r.items.find((it) => it.label === label)?.plain;
 check("stats exact mean", ms.stats("1, 2, 4"), (r) => r.ok && r.exact && statVal(r, "mean") === "7/3", "mean 7/3");

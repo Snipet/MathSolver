@@ -160,3 +160,63 @@ TEST_CASE("polynomial lcm") {
     CHECK(polynomial_gcd(parse_expression("sin(x)"), parse_expression("x"), "x").status ==
           PolyGcdResult::Status::NotPolynomial);
 }
+
+namespace {
+
+// s·a + t·b − gcd expands to 0, i.e. the Bézout identity holds exactly.
+bool bezout_identity_holds(const std::string& a, const std::string& b,
+                           const PolyBezoutResult& r) {
+    const Expr check = expand(parse_expression(
+        "(" + plain(r.s) + ")*(" + a + ") + (" + plain(r.t) + ")*(" + b +
+        ") - (" + plain(r.gcd) + ")"));
+    return plain(simplify(check)) == "0";
+}
+
+PolyBezoutResult bez(const std::string& a, const std::string& b, std::string_view v = "x") {
+    return polynomial_bezout(parse_expression(a), parse_expression(b), v);
+}
+
+} // namespace
+
+TEST_CASE("polynomial Bézout (extended gcd)") {
+    // Coprime: s·(x^2+1) + t·(x-1) = 1 exactly, and the gcd is 1.
+    const PolyBezoutResult co = bez("x^2 + 1", "x - 1");
+    REQUIRE(co.status == PolyBezoutResult::Status::Ok);
+    CHECK(plain(co.gcd) == "1");
+    CHECK(bezout_identity_holds("x^2 + 1", "x - 1", co));
+
+    // Shared factor: gcd(x^2-1, x^3-1) = x - 1, cofactors reproduce it.
+    const PolyBezoutResult sh = bez("x^2 - 1", "x^3 - 1");
+    REQUIRE(sh.status == PolyBezoutResult::Status::Ok);
+    CHECK(poly_equal(plain(sh.gcd), "x - 1"));
+    CHECK(bezout_identity_holds("x^2 - 1", "x^3 - 1", sh));
+
+    // Non-monic inputs still give a monic gcd with a valid identity.
+    const PolyBezoutResult nm = bez("2*x^2 - 2", "3*x - 3");
+    REQUIRE(nm.status == PolyBezoutResult::Status::Ok);
+    CHECK(poly_equal(plain(nm.gcd), "x - 1"));
+    CHECK(bezout_identity_holds("2*x^2 - 2", "3*x - 3", nm));
+
+    // A larger coprime pair — the identity is the real check.
+    const PolyBezoutResult big = bez("x^4 + x + 1", "x^2 + 1");
+    REQUIRE(big.status == PolyBezoutResult::Status::Ok);
+    CHECK(plain(big.gcd) == "1");
+    CHECK(bezout_identity_holds("x^4 + x + 1", "x^2 + 1", big));
+
+    // gcd with 0 is the monic other argument; t·b alone reproduces it.
+    const PolyBezoutResult z = bez("2*x^2 - 8", "0");
+    REQUIRE(z.status == PolyBezoutResult::Status::Ok);
+    CHECK(poly_equal(plain(z.gcd), "x^2 - 4"));
+    CHECK(bezout_identity_holds("2*x^2 - 8", "0", z));
+
+    // Both zero → everything zero.
+    const PolyBezoutResult zz = bez("0", "0");
+    REQUIRE(zz.status == PolyBezoutResult::Status::Ok);
+    CHECK(plain(zz.gcd) == "0");
+    CHECK(plain(zz.s) == "0");
+    CHECK(plain(zz.t) == "0");
+
+    // Non-polynomial input is rejected.
+    CHECK(polynomial_bezout(parse_expression("sin(x)"), parse_expression("x"), "x").status ==
+          PolyBezoutResult::Status::NotPolynomial);
+}

@@ -551,6 +551,22 @@ void run_resultant(const std::string& a, const std::string& b,
     std::println("{}", to_string(r.value, style));
 }
 
+/// `bezout`: the monic gcd of two polynomials plus the Bézout cofactors s, t
+/// with s·a + t·b = gcd.
+void run_bezout(const std::string& a, const std::string& b,
+                const std::string& explicit_var, PrintStyle style) {
+    const Expr ea = parse_expression_diag(a);
+    const Expr eb = parse_expression_diag(b);
+    std::set<std::string> syms = free_symbols(ea);
+    for (const std::string& s : free_symbols(eb)) syms.insert(s);
+    const std::string var = choose_variable(explicit_var, syms, "bezout");
+    const PolyBezoutResult r = polynomial_bezout(ea, eb, var);
+    if (r.status != PolyBezoutResult::Status::Ok) throw UsageError{r.message};
+    std::println("gcd: {}", to_string(r.gcd, style));
+    std::println("s: {}", to_string(r.s, style));
+    std::println("t: {}", to_string(r.t, style));
+}
+
 /// `discriminant`: the discriminant of a polynomial (degree 2–4), symbolic
 /// coefficients kept symbolic; the variable is inferred like diff when omitted.
 void run_discriminant(const std::string& input, const std::string& explicit_var,
@@ -1613,7 +1629,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
            s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
            s == "polydiv" || s == "polygcd" || s == "polylcm" ||
-           s == "resultant" || s == "logexpand" || s == "logcombine";
+           s == "resultant" || s == "bezout" || s == "logexpand" || s == "logcombine";
 }
 
 int run_one_shot(const std::vector<std::string>& args) {
@@ -1894,6 +1910,12 @@ int run_one_shot(const std::vector<std::string>& args) {
             }
             run_resultant(positionals[0], positionals[1],
                           positionals.size() > 2 ? positionals[2] : "", style);
+        } else if (sub == "bezout") {
+            if (positionals.size() < 2 || positionals.size() > 3) {
+                throw UsageError{"usage: mathsolver bezout \"<a>\" \"<b>\" [var]"};
+            }
+            run_bezout(positionals[0], positionals[1],
+                       positionals.size() > 2 ? positionals[2] : "", style);
         } else if (sub == "discriminant") {
             if (positionals.size() > 2) {
                 throw UsageError{std::format(
@@ -1992,6 +2014,7 @@ void print_repl_help() {
         "  polydiv <dividend>, <divisor>[, <var>] quotient + remainder\n"
         "  polygcd <a>, <b>[, <var>]   polylcm <a>, <b>[, <var>]   monic gcd/lcm\n"
         "  resultant <a>, <b>[, <var>]            0 iff a shared root\n"
+        "  bezout <a>, <b>[, <var>]               gcd + cofactors s·a + t·b = gcd\n"
         "  fit <x,y; x,y; ...> [| <model> [<degree>]]  least-squares regression\n"
         "  interp <x,y; x,y; ...>                 exact polynomial through the points\n"
         "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
@@ -2891,6 +2914,22 @@ void repl_command(const std::string& command, const std::string& rest,
         const std::string eb =
             to_string(resolve_expr(parse_expression_diag(parts[1]), env, excluded), PrintStyle::Plain);
         run_resultant(ea, eb, var, PrintStyle::Plain);
+        warn_assigned_variable(var, env);
+    } else if (command == "bezout") {
+        // bezout <a>, <b>[, <var>]
+        if (parts.size() < 2 || parts.size() > 3) {
+            throw UsageError{"usage: bezout <a>, <b>[, <variable>]"};
+        }
+        const std::string var = parts.size() > 2 ? parts[2] : "";
+        std::set<std::string> excluded;
+        if (!var.empty()) {
+            excluded.insert(var);
+        }
+        const std::string ea =
+            to_string(resolve_expr(parse_expression_diag(parts[0]), env, excluded), PrintStyle::Plain);
+        const std::string eb =
+            to_string(resolve_expr(parse_expression_diag(parts[1]), env, excluded), PrintStyle::Plain);
+        run_bezout(ea, eb, var, PrintStyle::Plain);
         warn_assigned_variable(var, env);
     } else if (command == "laplace" || command == "ilaplace") {
         if (parts.size() > 2) {
