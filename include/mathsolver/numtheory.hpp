@@ -86,6 +86,11 @@ long long derangement_count(long long n);
 /// throws OverflowError past the 64-bit range (around n = 91).
 long long lucas_number(long long n);
 
+/// The primorial n# for n >= 0: the product of all primes p <= n. 0# = 1# = 1
+/// (empty product). Exact; throws OverflowError past the 64-bit range (52# is
+/// the largest that fits, 53# overflows).
+long long primorial(long long n);
+
 /// Euclidean remainder: the r with 0 <= r < |m| and a == r (mod m). m = 0
 /// throws DivisionByZeroError.
 long long int_mod(long long a, long long m);

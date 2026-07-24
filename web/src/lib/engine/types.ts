@@ -328,6 +328,7 @@ export interface EngineApi {
   bell: [[n: string], TransformResult];
   derangement: [[n: string], TransformResult];
   lucas: [[n: string], TransformResult];
+  primorial: [[n: string], TransformResult];
   cfrac: [[value: string], TransformResult];
   discriminant: [[poly: string, variable: string], TransformResult];
   polydiv: [[dividend: string, divisor: string, variable: string], TransformResult];

@@ -30,6 +30,11 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Console — `primorial` n#.** `primorial n` is the product of all primes
+  ≤ *n* (`primorial 7` → 210, `primorial 13` → 30030), built by folding the
+  existing deterministic primality test. Exact over the 64-bit range (52# is
+  the largest that fits) and errors cleanly past it. CLI too.
+
 - **Console — export the session transcript.** An **Export** button in the
   console header downloads the whole session as a Markdown file — one
   `In[k]` / `Out[k]` block per cell (`mathsolver-session.md`) — so a working

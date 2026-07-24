@@ -249,6 +249,24 @@ TEST_CASE("Lucas numbers") {
     CHECK_THROWS_AS(lucas_number(91), OverflowError);
 }
 
+TEST_CASE("Primorial") {
+    CHECK(primorial(0) == 1);
+    CHECK(primorial(1) == 1);
+    CHECK(primorial(2) == 2);
+    CHECK(primorial(3) == 6);
+    CHECK(primorial(5) == 30);
+    CHECK(primorial(7) == 210);
+    CHECK(primorial(10) == 210);  // no prime in (7, 10]
+    CHECK(primorial(11) == 2310);
+    CHECK(primorial(13) == 30030);
+    // 52# is the largest primorial fitting in a signed 64-bit int (= 47#, since
+    // there is no prime in (47, 52]); 53# overflows.
+    CHECK(primorial(47) == 614889782588491410LL);
+    CHECK(primorial(52) == 614889782588491410LL);
+    CHECK_THROWS_AS(primorial(-1), EvalError);
+    CHECK_THROWS_AS(primorial(53), OverflowError);
+}
+
 TEST_CASE("Catalan numbers") {
     CHECK(catalan_number(0) == 1);
     CHECK(catalan_number(1) == 1);

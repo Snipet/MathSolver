@@ -324,6 +324,19 @@ long long lucas_number(long long n) {
     return prev1;
 }
 
+long long primorial(long long n) {
+    if (n < 0) throw EvalError{"primorial is defined for n >= 0"};
+    // Product of all primes p <= n, overflow-guarded (52# is the largest that
+    // fits int64; 53# overflows).
+    long long acc = 1;
+    for (long long p = 2; p <= n; ++p) {
+        if (!is_prime(p)) continue;
+        if (__builtin_mul_overflow(acc, p, &acc))
+            throw OverflowError{"primorial overflows the 64-bit range"};
+    }
+    return acc;
+}
+
 long long catalan_number(long long n) {
     if (n < 0) throw EvalError{"catalan is defined for n >= 0"};
     // Iterate C(k+1) = C(k)·2(2k+1)/(k+2) — an exact division at every step

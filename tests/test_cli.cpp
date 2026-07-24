@@ -282,6 +282,20 @@ TEST_CASE("cli: lucas numbers") {
     CHECK(run_cli({"lucas", "91"}).exit_code != 0);
 }
 
+TEST_CASE("cli: primorial") {
+    const RunResult p13 = run_cli({"primorial", "13"});
+    CHECK(p13.exit_code == 0);
+    CHECK(contains(p13.output, "30030"));
+
+    const RunResult p10 = run_cli({"primorial", "10"});
+    CHECK(p10.exit_code == 0);
+    CHECK(contains(p10.output, "210"));
+
+    // Negative arg is a usage error; 53# overflows the 64-bit range (nonzero).
+    CHECK(run_cli({"primorial", "-1"}).exit_code == 2);
+    CHECK(run_cli({"primorial", "53"}).exit_code != 0);
+}
+
 TEST_CASE("cli: trigexpand of sums and multiples") {
     const RunResult sum = run_cli({"trigexpand", "sin(a + b)"});
     INFO(sum.output);
