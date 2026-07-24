@@ -664,12 +664,13 @@ async function runVerb(
       if (!r.ok) return err(env.text, r);
       const noun = r.count === 1 ? "root" : "roots";
       const where =
-        r.lo !== undefined && r.hi !== undefined ? ` in (${r.lo}, ${r.hi}]` : "";
+        r.lo !== undefined && r.hi !== undefined ? [`in the interval (${r.lo}, ${r.hi}]`] : [];
+      // Lead with the answer (the count), not the verb name.
       return {
         kind: "message",
         tone: "info",
-        title: "rootcount",
-        lines: [`${r.count} distinct real ${noun}${where}`],
+        title: `${r.count} distinct real ${noun}`,
+        lines: where,
       };
     }
     case "isolate": {

@@ -14,6 +14,18 @@ per-feature specs are under docs/proposals/.
   by their (non-unique) command text. They're now keyed by position, so
   repeated commands render fine.
 
+- **Console — no more false "unknown name" while typing a verb.** The live
+  typeset preview only knew a subset of verbs, so typing any other real verb
+  (`gcd`, `rootcount`, `bezout`, `crt`, `interp`, `chebyshev`, the number-theory
+  verbs, …) flashed a red "unknown name 'gcd'…" banner because the preview
+  mis-read the verb head as a variable product. The preview now recognizes the
+  full verb registry and simply shows no math preview for verbs it doesn't
+  typeset, instead of a spurious error.
+
+- **Console — `rootcount` leads with the answer.** Its result cell showed the
+  literal word "rootcount" as the output; it now shows the count summary
+  (e.g. "3 distinct real roots"), with the search interval as a note.
+
 - **Grapher — no more vertical lines through asymptotes.** A curve like `tan(x)`, `1/x`, or `sec(x)` no longer draws a spurious near-vertical connector straight through each pole: the sampler now breaks the polyline where two consecutive samples straddle zero, both sit well off-screen, and the jump dwarfs the visible span — the pen lifts at the asymptote instead. Applies to `y=f(x)` and `x=f(y)`.
 
 ### Added
