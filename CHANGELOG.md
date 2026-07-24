@@ -34,10 +34,12 @@ per-feature specs are under docs/proposals/.
   the graph and press **T** to start a trace: the **left/right arrows** walk a
   `y = f(x)` curve and each coordinate is announced through an `aria-live`
   region, so screen-reader and keyboard-only users can read a curve's values
-  without a mouse. **Up/down** switch between curves, **Escape** (or T again)
-  ends the trace, and the view scrolls to keep the traced point on screen.
-  Tracing rides world-x, so it stays put as the plot resamples on pan/zoom;
-  outside the trace, the arrows pan as before.
+  without a mouse. **N / P** jump the trace to the next / previous point of
+  interest — roots, extrema, and intercepts — announced with their exact
+  labels (e.g. *"point of interest, (√2, 0)"*). **Up/down** switch between
+  curves, **Escape** (or T again) ends the trace, and the view scrolls to keep
+  the traced point on screen. Tracing rides world-x, so it stays put as the
+  plot resamples on pan/zoom; outside the trace, the arrows pan as before.
 
 - **Console — `vandermonde` matrix of a node list.** `vandermonde x1, x2, …`
   builds the square Vandermonde matrix whose row *i* is `(1, xᵢ, xᵢ², …)` —
