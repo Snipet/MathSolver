@@ -30,6 +30,10 @@ per-feature specs are under docs/proposals/.
 
 ### Added
 
+- **Grapher — reorder expressions.** Each row now has small **▲ / ▼** controls
+  to move it up or down the list (disabled at the ends), so you can group or
+  re-rank curves after the fact. The new order persists with the document.
+
 - **Grapher — duplicate an expression.** Each row now has a **⧉ duplicate**
   button next to its delete control: it drops an identical copy — same
   expression, style, and (for tables) data — directly below the original,

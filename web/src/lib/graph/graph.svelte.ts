@@ -215,6 +215,18 @@ class GraphStore {
     this.persist();
   }
 
+  /** Move a row one slot up (dir = -1) or down (dir = +1). No-op at the ends. */
+  moveRow(id: number, dir: -1 | 1): void {
+    const i = this.rows.findIndex((r) => r.id === id);
+    if (i < 0) return;
+    const j = i + dir;
+    if (j < 0 || j >= this.rows.length) return;
+    const next = [...this.rows];
+    [next[i], next[j]] = [next[j], next[i]];
+    this.rows = next;
+    this.persist();
+  }
+
   /** Insert a copy of a row (new id, fresh colour, deep-copied points) right
    *  after it. Returns the new row's id, or -1 if it's missing or at the cap. */
   duplicateRow(id: number): number {
