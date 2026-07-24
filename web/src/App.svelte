@@ -28,6 +28,7 @@
   import ResultCard from "./lib/components/ResultCard.svelte";
   import WaveField from "./lib/components/WaveField.svelte";
   import GraphCalculator from "./lib/components/GraphCalculator.svelte";
+  import GraphReference from "./lib/components/GraphReference.svelte";
   import History from "./lib/components/History.svelte";
   import VariablesPanel from "./lib/components/VariablesPanel.svelte";
   import VarChips, { type Chip } from "./lib/components/VarChips.svelte";
@@ -890,37 +891,7 @@
         <NotebooksPanel />
         <ConsoleReference />
       {:else if mode === "graph"}
-        <p class="graph-tip">
-          Type functions, points, or relations on the left. Undefined
-          variables (like <code>a</code>) become sliders here and in the app.
-          Define a function with <code>f(x) = x^2</code>, then use it anywhere:
-          <code>y = f(x) + 1</code>, its derivative <code>f'(x)</code>,
-          a value <code>f(3)</code>, or a composition <code>g(f(x))</code>.
-          Hit <span aria-hidden="true">▶</span> on a slider to animate it (set a
-          <em>step</em> to snap it — e.g. step 1 counts the terms of
-          <code>sum(x^k, k, 0, n)</code> one by one).
-          Define reusable values with <code>f = x^2</code>, and plot
-          <code>diff(f)</code> or <code>integral(f)</code>. Plot a partial sum
-          with <code>sum(x^k, k, 0, 5)</code> (or <code>product(…)</code>) — a
-          slider bound like <code>sum(x^k, k, 0, n)</code> animates the number of
-          terms. Split a curve into
-          cases with a piecewise <code>{"{"}x &lt; 0: -x, x{"}"}</code>. Shade the signed area
-          under a curve with <code>integral(f, a, b)</code> — the exact ∫ value
-          is labelled from the CAS. Restrict a curve's
-          domain with a trailing clause, e.g. <code>{"{"}0 &lt;= t &lt;= 6pi{"}"}</code>.
-          Drag a point to move it — a point like <code>(a, b)</code> moves its
-          variables everywhere. Click a row's colored dot to restyle it — color,
-          line style (solid/dashed/dotted), and weight. Make a list with <code>L = [1, 2, 3]</code> or a
-          range <code>[1...10]</code>, then plot it as points:
-          <code>(L, L^2)</code> scatters a parabola (scalars broadcast, two lists
-          zip). Build lists with a comprehension <code>[k^2 for k = L]</code>,
-          reduce them with <code>mean(L)</code>/<code>total(L)</code>/<code>max(L)</code>,
-          or index with <code>L[3]</code> (1-based). Plot a list as lines with
-          <code>y = [1, 2, 3]</code> or <code>y = L</code> (and <code>x = [ … ]</code>
-          for vertical lines). Transform lists with <code>sort(L)</code>,
-          <code>unique(L)</code>, <code>join(A, B)</code>, or a slice
-          <code>L[2...4]</code>.
-        </p>
+        <GraphReference />
       {:else}
         <History onrestore={restore} />
       {/if}
@@ -1180,21 +1151,6 @@
       scrollbar-width: thin;
     }
   }
-  .graph-tip {
-    margin: 0;
-    font-size: 0.8rem;
-    line-height: 1.5;
-    color: var(--fg-muted);
-  }
-  .graph-tip code {
-    font-family: var(--font-mono);
-    font-size: 0.9em;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 0.02em 0.3em;
-  }
-
   .loading-note {
     margin: -0.35rem 0 0;
     font-size: 0.82rem;
