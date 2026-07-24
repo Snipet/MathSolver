@@ -51,12 +51,12 @@
       {#if open[section.id]}
         <p class="cb-blurb">{section.blurb}</p>
         <ul class="cb-recipes">
-          {#each section.recipes as r (r.title)}
+          {#each section.recipes as r, ri (ri)}
             <li class="cb-recipe">
               <h4 class="cb-recipe-title">{r.title}</h4>
               <p class="cb-why">{r.why}</p>
               <ol class="cb-steps" class:single={r.steps.length === 1}>
-                {#each r.steps as step (step.code)}
+                {#each r.steps as step, i (i)}
                   <li>
                     <button
                       class="cb-step"
