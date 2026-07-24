@@ -297,6 +297,25 @@ TEST_CASE("cli: vandermonde matrix of a node list") {
     CHECK(contains(tex.output, "pmatrix"));
 }
 
+TEST_CASE("cli: newton and lagrange interpolation forms") {
+    // Data through x^2 → both forms stay factored (a product of (x - …) terms)
+    // and list their constant coefficients.
+    const RunResult nw = run_cli({"newton", "1,1; 2,4; 3,9"});
+    INFO(nw.output);
+    CHECK(nw.exit_code == 0);
+    CHECK(contains(nw.output, "(x - 1)")); // a factored binomial, not the bare x^2
+    CHECK(contains(nw.output, "c0 = 1"));
+
+    const RunResult lg = run_cli({"lagrange", "1,1; 2,4; 3,9"});
+    CHECK(lg.exit_code == 0);
+    CHECK(contains(lg.output, "(x - 3)"));
+    CHECK(contains(lg.output, "w1 = -4"));
+
+    // Duplicate x is a usage error, exit 2.
+    const RunResult bad = run_cli({"newton", "1,1; 1,2"});
+    CHECK(bad.exit_code == 2);
+}
+
 TEST_CASE("cli: solve inequalities into interval solution sets") {
     const RunResult quad = run_cli({"solve", "x^2 < 4"});
     INFO(quad.output);

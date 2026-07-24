@@ -84,6 +84,8 @@ export const MATH_VERBS = new Set([
   "bezout",
   "companion",
   "vandermonde",
+  "newton",
+  "lagrange",
   "sum",
   "product",
   "rsolve",
@@ -518,6 +520,15 @@ async function runVerb(
         result: { ok: true, plain: r.plain, latex: r.latex, notes },
         computedFrom: null,
       };
+    }
+    case "newton":
+    case "lagrange": {
+      // The whole input is the point list; show the interpolant in its
+      // factored Newton or Lagrange construction. newton 1,1; 2,4; 3,9
+      if (!rest.trim()) return usage(`usage: ${verb} <x,y; x,y; ...>`);
+      const r = await call("interpForm", [rest, verb]);
+      if (!r.ok) return err(rest, r);
+      return { kind: "transform", result: r, computedFrom: null };
     }
     case "chebyshev":
     case "chebyu":

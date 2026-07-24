@@ -331,6 +331,12 @@ export const BUILTIN_GROUPS: RefGroup[] = [
         example: "interp 1,1; 2,4; 3,9",
       },
       {
+        insert: "newton",
+        usage: "newton <x,y; x,y; …>",
+        hint: "Interpolant in Newton divided-difference form (kept factored); also lagrange",
+        example: "newton 1,1; 2,4; 3,9",
+      },
+      {
         insert: "chebyshev",
         usage: "chebyshev <n> [, <var>]",
         hint: "Exact Chebyshev T_n (first kind); also chebyu, legendre, hermite, laguerre",

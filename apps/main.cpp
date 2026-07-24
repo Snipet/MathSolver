@@ -479,6 +479,16 @@ void run_interp(const std::string& input, PrintStyle style) {
     std::println("degree: {}{}", r.degree, r.exact ? " (exact)" : "");
 }
 
+/// `newton`/`lagrange`: the interpolating polynomial through the points, kept
+/// in its factored construction form rather than expanded.
+void run_interp_form(const std::string& input, InterpForm form, PrintStyle style) {
+    auto [xs, ys] = parse_point_data(input);
+    const InterpFormResult r = interp_form(xs, ys, "x", form);
+    if (r.status != InterpFormResult::Status::Ok) throw UsageError{r.message};
+    std::println("{}", to_string(r.expr, style));
+    for (const std::string& note : r.notes) std::println("  {}", note);
+}
+
 /// `chebyshev`/`legendre`/`hermite`/`laguerre`: the exact degree-n orthogonal
 /// polynomial of the family in the given variable (default `x`).
 void run_orthopoly(OrthoFamily fam, const std::string& n_text,
@@ -1657,6 +1667,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "hessian" || s == "limit" || s == "sum" || s == "product" ||
            s == "rsolve" || s == "mlimit" || s == "stirling" ||
            s == "seq" || s == "fit" || s == "regress" || s == "interp" ||
+           s == "newton" || s == "lagrange" ||
            s == "vandermonde" || s == "stats" ||
            s == "chebyshev" || s == "chebyu" || s == "legendre" ||
            s == "hermite" || s == "laguerre" ||
@@ -1858,6 +1869,15 @@ int run_one_shot(const std::vector<std::string>& args) {
                     positionals[1])};
             }
             run_interp(input, style);
+        } else if (sub == "newton" || sub == "lagrange") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (put the data in one quoted "
+                    "\"x,y; x,y; ...\" list)",
+                    positionals[1])};
+            }
+            run_interp_form(input, sub == "newton" ? InterpForm::Newton : InterpForm::Lagrange,
+                            style);
         } else if (sub == "vandermonde") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -2072,6 +2092,8 @@ void print_repl_help() {
         "  companion <polynomial>[, <var>]        companion matrix (roots = eigenvalues)\n"
         "  fit <x,y; x,y; ...> [| <model> [<degree>]]  least-squares regression\n"
         "  interp <x,y; x,y; ...>                 exact polynomial through the points\n"
+        "  newton <x,y; x,y; ...>                 interpolant in Newton divided-difference form\n"
+        "  lagrange <x,y; x,y; ...>               interpolant in Lagrange basis form\n"
         "  vandermonde <x1, x2, x3, ...>          Vandermonde matrix of the nodes\n"
         "         (models: linear, quadratic, cubic, poly, exp, power, log)\n"
         "  stats <v1, v2, v3, ...>                exact summary statistics\n"

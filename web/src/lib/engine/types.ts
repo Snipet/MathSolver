@@ -283,6 +283,7 @@ export interface EngineApi {
   apart: [[input: string, variable: string], TransformResult];
   fit: [[data: string, model: string, degree: string], FitResult];
   interp: [[data: string], InterpResult];
+  interpForm: [[data: string, form: string], TransformResult];
   orthopoly: [[family: string, n: number, variable: string], OrthoPolyResult];
   stats: [[data: string], StatsResult];
   dsolve: [[ode: string, conditionsCsv: string], DsolveResult];

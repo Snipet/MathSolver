@@ -103,6 +103,11 @@ check("interp collinear collapses", ms.interp("0,1; 1,3; 2,5"), (r) => r.ok && r
 check("interp exact fractions", ms.interp("0,0; 1,1; 2,1"), (r) => r.ok && r.exact === true && r.degree === 2, "rational coefficients");
 check("interp single point", ms.interp("5,7"), (r) => r.ok && r.plain === "7" && r.degree === 0 && r.n === 1, "constant polynomial");
 check("interp error dup x", ms.interp("1,2; 1,3"), (r) => !r.ok && r.error.includes("distinct"), "duplicate x rejected");
+// newton / lagrange interpolation forms (factored construction, not expanded)
+check("newton form factored", ms.interpForm("1,1; 2,4; 3,9", "newton"), (r) => r.ok && r.plain.includes("(x - 1)") && r.notes.includes("c0 = 1"), "Newton form + c0=1");
+check("lagrange form factored", ms.interpForm("1,1; 2,4; 3,9", "lagrange"), (r) => r.ok && r.plain.includes("(x - 3)") && r.notes.some((n) => n === "w1 = -4"), "Lagrange form + w1=-4");
+check("interpForm error dup x", ms.interpForm("1,1; 1,2", "newton"), (r) => !r.ok && r.error.includes("distinct"), "duplicate x rejected");
+check("interpForm error bad form", ms.interpForm("1,1; 2,4", "cubic"), (r) => !r.ok && r.error.includes("newton"), "unknown form rejected");
 // orthopoly — exact orthogonal polynomials
 check("orthopoly chebyshev T5", ms.orthopoly("chebyshev", 5, "x"), (r) => r.ok && r.plain === "16*x^5 - 20*x^3 + 5*x" && r.family === "Chebyshev T" && r.degree === 5, "T_5");
 check("orthopoly chebyshev U (second kind)", ms.orthopoly("chebyshevu", 3, "x"), (r) => r.ok && r.plain === "8*x^3 - 4*x" && r.family === "Chebyshev U", "U_3");

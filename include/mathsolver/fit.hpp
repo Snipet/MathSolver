@@ -71,6 +71,28 @@ struct InterpResult {
 InterpResult interp(const std::vector<std::string>& xs, const std::vector<std::string>& ys,
                     std::string_view variable = "x");
 
+/// A structured presentation of the same interpolating polynomial `interp`
+/// builds — kept factored (never expanded) so the construction is visible.
+///   Newton:   c₀ + c₁(x−x₀) + c₂(x−x₀)(x−x₁) + …   (cₖ = divided differences)
+///   Lagrange: Σ wᵢ · Π_{j≠i}(x − xⱼ)               (wᵢ = yᵢ / Π_{j≠i}(xᵢ − xⱼ))
+/// Exact over the rationals when the data are rational (falls back to double).
+enum class InterpForm { Newton, Lagrange };
+
+struct InterpFormResult {
+    enum class Status { Ok, Error };
+    Status status = Status::Error;
+    Expr expr;                       ///< the factored form (valid iff Ok)
+    std::string variable = "x";
+    bool exact = false;              ///< solved exactly over the rationals
+    int n = 0;                       ///< number of data points
+    std::vector<std::string> notes;  ///< the constants (divided differences / weights)
+    std::string message;
+};
+
+InterpFormResult interp_form(const std::vector<std::string>& xs,
+                             const std::vector<std::string>& ys,
+                             std::string_view variable, InterpForm form);
+
 /// Parse a model name to (family, default degree). Poly aliases fix a degree;
 /// the generic "poly"/"polynomial" returns degree -1 (caller supplies one).
 /// Returns nullopt for an unknown name.
