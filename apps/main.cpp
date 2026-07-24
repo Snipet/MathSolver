@@ -873,6 +873,14 @@ void run_catalan(const std::string& input) {
     std::println("{}", catalan_number(v[0]));
 }
 
+/// `bernoulli`: the n-th Bernoulli number B_n (exact rational, 0 <= n <= 20).
+void run_bernoulli(const std::string& input, PrintStyle style) {
+    const std::vector<long long> v = parse_integer_list(input, "bernoulli");
+    if (v.size() != 1) throw UsageError{"bernoulli takes a single integer"};
+    if (v[0] < 0 || v[0] > 20) throw UsageError{"bernoulli: the index must be in [0, 20]"};
+    std::println("{}", to_string(make_num(bernoulli_number(static_cast<int>(v[0]))), style));
+}
+
 /// `divisors`: all positive divisors of a single non-zero integer, ascending.
 void run_divisors(const std::string& input) {
     const std::vector<long long> v = parse_integer_list(input, "divisors");
@@ -1708,7 +1716,7 @@ bool is_known_subcommand(std::string_view s) {
            s == "hermite" || s == "laguerre" ||
            s == "gcd" || s == "lcm" || s == "isprime" || s == "nextprime" ||
            s == "divisors" || s == "totient" || s == "sigma" || s == "mobius" ||
-           s == "partitions" || s == "catalan" ||
+           s == "partitions" || s == "catalan" || s == "bernoulli" ||
            s == "cfrac" ||
            s == "mod" || s == "powmod" || s == "modinv" || s == "crt" ||
            s == "discriminant" || s == "trigexpand" || s == "trigreduce" ||
@@ -1967,6 +1975,13 @@ int run_one_shot(const std::vector<std::string>& args) {
             else run_totient(input);
         } else if (sub == "sigma") {
             run_sigma(input);
+        } else if (sub == "bernoulli") {
+            if (positionals.size() > 1) {
+                throw UsageError{std::format(
+                    "unexpected argument '{}' (usage: mathsolver bernoulli <n>)",
+                    positionals[1])};
+            }
+            run_bernoulli(input, style);
         } else if (sub == "cfrac") {
             if (positionals.size() > 1) {
                 throw UsageError{std::format(
@@ -2149,6 +2164,7 @@ void print_repl_help() {
         "  isprime <n>   nextprime <n>   divisors <n>   totient <n>\n"
         "  sigma <n>[, k]   mobius <n>            divisor sum σ_k and Möbius μ\n"
         "  partitions <n>   catalan <n>           partition count p(n) and Catalan C(n)\n"
+        "  bernoulli <n>                          the n-th Bernoulli number B_n (exact)\n"
         "  cfrac <rational | sqrt(n) | real>      continued fraction + convergents\n"
         "  mod <a, m>   powmod <b, e, m>   modinv <a, m>   modular arithmetic\n"
         "  crt <r1, r2, …; m1, m2, …>             Chinese remainder theorem\n"
@@ -2203,7 +2219,7 @@ bool is_repl_command(std::string_view word) {
            word == "lcm" || word == "isprime" || word == "nextprime" ||
            word == "divisors" || word == "totient" || word == "sigma" ||
            word == "mobius" || word == "partitions" || word == "catalan" ||
-           word == "cfrac" ||
+           word == "bernoulli" || word == "cfrac" ||
            word == "mod" || word == "powmod" || word == "modinv" ||
            word == "crt" || word == "discriminant" || word == "polydiv" ||
            word == "polygcd" || word == "polylcm" || word == "resultant" ||
@@ -2809,6 +2825,11 @@ void repl_command(const std::string& command, const std::string& rest,
         else if (command == "partitions") run_partitions(rest);
         else if (command == "catalan") run_catalan(rest);
         else run_totient(rest);
+        return;
+    }
+    if (command == "bernoulli") {
+        if (trim(rest).empty()) throw UsageError{"usage: bernoulli <n>  (0 <= n <= 20)"};
+        run_bernoulli(rest, PrintStyle::Plain);
         return;
     }
     if (command == "cfrac") {

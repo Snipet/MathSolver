@@ -51,6 +51,11 @@ per-feature specs are under docs/proposals/.
   more clicking each colour dot in turn. The label flips to "Show all"
   whenever anything is hidden, and the state persists with the document.
 
+- **Console — `bernoulli` numbers.** `bernoulli n` returns the n-th Bernoulli
+  number Bₙ as an exact rational (`bernoulli 12` → `-691/2730`), using the
+  B₁ = −1/2 convention — the same exact rationals that already drive the
+  Stirling/gamma asymptotics, now available directly (0 ≤ n ≤ 20). CLI too.
+
 - **Console — `partitions` and `catalan` combinatorial counts.** `partitions n`
   is the integer partition function p(n) — the number of ways to write *n* as
   a sum of positive integers (`partitions 10` → 42), computed exactly via

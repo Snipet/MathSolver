@@ -225,6 +225,11 @@ std::vector<Rational> bernoulli_numbers(int m) {
     return b;
 }
 
+Rational bernoulli_number(int n) {
+    // bernoulli_numbers validates the range and returns B_0 .. B_n.
+    return bernoulli_numbers(n).at(static_cast<std::size_t>(n));
+}
+
 StirlingResult stirling_series(std::string_view var, int terms) {
     if (terms < 0 || terms > 8) {
         throw Error("stirling: the number of correction terms must be in "

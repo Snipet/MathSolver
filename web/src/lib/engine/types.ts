@@ -323,6 +323,7 @@ export interface EngineApi {
   mobius: [[n: string], TransformResult];
   partitions: [[n: string], TransformResult];
   catalan: [[n: string], TransformResult];
+  bernoulli: [[n: string], TransformResult];
   cfrac: [[value: string], TransformResult];
   discriminant: [[poly: string, variable: string], TransformResult];
   polydiv: [[dividend: string, divisor: string, variable: string], TransformResult];
