@@ -113,6 +113,49 @@ export function breakDiscontinuities(
   return out;
 }
 
+/** True when the finite x samples are monotonically non-decreasing — the order
+ *  a `y=f(x)` curve is sampled in, so tracing it continuously by x is
+ *  meaningful. `x=f(y)`, parametric, and polar curves fail this and fall back
+ *  to nearest-vertex snapping. */
+export function isXMonotonic(xs: (number | null)[]): boolean {
+  let prev = -Infinity;
+  let seen = false;
+  for (const x of xs) {
+    if (x === null || !Number.isFinite(x)) continue;
+    if (x < prev) return false;
+    prev = x;
+    seen = true;
+  }
+  return seen;
+}
+
+/**
+ * Linear-interpolated y on a sampled `y=f(x)` polyline at world x `tx`. `xs`
+ * must be non-decreasing across finite samples (the sampling order). Returns
+ * null when `tx` is outside the sampled range or lands in a gap — a segment
+ * whose endpoints aren't both finite (e.g. an asymptote break), so the trace
+ * lifts across discontinuities exactly like the drawn curve.
+ */
+export function interpolateAtX(
+  xs: (number | null)[],
+  ys: (number | null)[],
+  tx: number,
+): number | null {
+  for (let i = 0; i + 1 < xs.length; i++) {
+    const x0 = xs[i];
+    const x1 = xs[i + 1];
+    const y0 = ys[i];
+    const y1 = ys[i + 1];
+    if (x0 === null || x1 === null || y0 === null || y1 === null) continue;
+    if (!Number.isFinite(x0) || !Number.isFinite(x1) || !Number.isFinite(y0) || !Number.isFinite(y1)) continue;
+    if (x1 > x0 && tx >= x0 && tx <= x1) {
+      const t = (tx - x0) / (x1 - x0);
+      return y0 + t * (y1 - y0);
+    }
+  }
+  return null;
+}
+
 // Deep zoom is allowed, but bounded so float precision stays usable.
 export const MIN_SCALE = 1e-6;
 export const MAX_SCALE = 1e9;

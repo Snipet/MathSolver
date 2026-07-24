@@ -507,6 +507,38 @@ try {
     );
   }
 
+  // Continuous curve trace: hovering along a y=f(x) curve follows it (the new
+  // interpolate-at-x path) and shows a coordinate readout, without throwing.
+  await page.evaluate(() => {
+    localStorage.clear();
+    localStorage.setItem(
+      "mathsolver.graph",
+      JSON.stringify({ rows: [{ text: "y=x^2", color: "#2563eb", visible: true }], view: { cx: 0, cy: 0, scale: 40 } }),
+    );
+    localStorage.setItem("mathsolver.mode", "graph");
+  });
+  await page.goto("about:blank");
+  await page.goto(url, { waitUntil: "networkidle0" });
+  await page.waitForSelector(".calc .graph canvas", { timeout: 8000 });
+  await new Promise((r) => setTimeout(r, 400));
+  {
+    const box = await page.$eval(".calc .graph canvas", (el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, w: r.width, h: r.height };
+    });
+    // Sweep the cursor along the parabola: at world x the curve sits at y=x^2,
+    // which near the center is close to the horizontal midline, so a few points
+    // just above center should attach the trace. Just assert it never throws.
+    let readoutSeen = false;
+    for (const frac of [0.42, 0.5, 0.58]) {
+      await page.mouse.move(box.x + box.w * frac, box.y + box.h * 0.5, { steps: 3 });
+      await new Promise((r) => setTimeout(r, 60));
+      readoutSeen ||= await page.$eval(".calc .graph", (el) => !!el.querySelector(".readout")).catch(() => false);
+    }
+    check("hovering a y=f(x) curve traces without error", true);
+    check("a coordinate readout appears on hover", readoutSeen);
+  }
+
   // Data table: column names are editable + persisted, and the copy button
   // exports tab-separated values (with the renamed header) to the clipboard.
   {

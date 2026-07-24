@@ -18,6 +18,8 @@
     panned,
     zoomedAt,
     viewForKey,
+    isXMonotonic,
+    interpolateAtX,
     niceStep,
     ticks,
     tickDecimals,
@@ -505,8 +507,10 @@
     ctx.globalAlpha = 1;
   }
 
-  /** Snap a marker + coordinate label to the sampled curve point nearest the
-   *  cursor (hover trace). */
+  /** Hover trace: follow a `y=f(x)` curve continuously at the cursor's x, snap
+   *  to points-of-interest markers (which carry an exact CAS label), and fall
+   *  back to the nearest sampled vertex for non-monotonic curves (x=f(y),
+   *  parametric, polar). */
   function drawTrace(
     ctx: CanvasRenderingContext2D,
     v: View,
@@ -516,32 +520,67 @@
     bg: string,
   ): void {
     if (!cursor || dragging || pointDrag) return;
-    let best: {
-      px: number;
-      py: number;
-      x: number;
-      y: number;
-      color: string;
-      label?: string;
-    } | null = null;
-    let bestD = 24 * 24;
+    type Hit = { px: number; py: number; x: number; y: number; color: string; label?: string };
+
+    // 1) Points of interest snap to the nearest marker (exact coordinate label).
+    let poi: Hit | null = null;
+    let poiD = 24 * 24;
     for (const s of series) {
-      // Snap to sampled curve vertices and to points-of-interest markers; the
-      // latter carry an exact coordinate label from the CAS.
-      if (!s.visible || (s.kind !== "line" && s.kind !== "poi")) continue;
+      if (!s.visible || s.kind !== "poi") continue;
       for (let i = 0; i < s.xs.length; i++) {
-        const y = s.ys[i];
         const x = s.xs[i];
+        const y = s.ys[i];
         if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
         const px = xToPx(x, v, w);
         const py = yToPx(y, v, h);
         const d = (px - cursor.x) ** 2 + (py - cursor.y) ** 2;
-        if (d < bestD) {
-          bestD = d;
-          best = { px, py, x, y, color: s.color, label: s.kind === "poi" ? s.labels?.[i] ?? undefined : undefined };
+        if (d < poiD) {
+          poiD = d;
+          poi = { px, py, x, y, color: s.color, label: s.labels?.[i] ?? undefined };
         }
       }
     }
+
+    // 2) Continuous trace: the y=f(x) curve nearest the cursor at its x.
+    let curve: Hit | null = null;
+    if (!poi) {
+      const wx = pxToX(cursor.x, v, w);
+      let bestDy = 30; // px — how close vertically the cursor must be to attach
+      for (const s of series) {
+        if (!s.visible || s.kind !== "line" || !isXMonotonic(s.xs)) continue;
+        const wy = interpolateAtX(s.xs, s.ys, wx);
+        if (wy === null || !Number.isFinite(wy)) continue;
+        const py = yToPx(wy, v, h);
+        const dy = Math.abs(py - cursor.y);
+        if (dy < bestDy) {
+          bestDy = dy;
+          curve = { px: cursor.x, py, x: wx, y: wy, color: s.color };
+        }
+      }
+    }
+
+    // 3) Fallback: nearest sampled vertex on any remaining curve.
+    let vertex: Hit | null = null;
+    if (!poi && !curve) {
+      let vD = 24 * 24;
+      for (const s of series) {
+        if (!s.visible || s.kind !== "line") continue;
+        for (let i = 0; i < s.xs.length; i++) {
+          const x = s.xs[i];
+          const y = s.ys[i];
+          if (x === null || y === null || !Number.isFinite(x) || !Number.isFinite(y)) continue;
+          const px = xToPx(x, v, w);
+          const py = yToPx(y, v, h);
+          const d = (px - cursor.x) ** 2 + (py - cursor.y) ** 2;
+          if (d < vD) {
+            vD = d;
+            vertex = { px, py, x, y, color: s.color };
+          }
+        }
+      }
+    }
+
+    const best = poi ?? curve ?? vertex;
     if (!best) return;
     ctx.beginPath();
     ctx.arc(best.px, best.py, 4.5, 0, 2 * Math.PI);
