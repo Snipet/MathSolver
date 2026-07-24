@@ -142,6 +142,17 @@ function splitHead(line: string): { head: string; rest: string } {
 }
 
 /**
+ * Split an optional leading operation word off a `steps` argument, mirroring
+ * the CLI's `steps [diff|integrate] <expr>`: `steps integrate x^2` works the
+ * integral, everything else is a derivative.
+ */
+function splitStepsOp(expr: string): ["diff" | "integrate", string] {
+  const m = /^(diff|integrate)\s+([\s\S]+)$/.exec(expr);
+  if (!m) return ["diff", expr];
+  return [m[1] as "diff" | "integrate", m[2].trim()];
+}
+
+/**
  * Pick a default variable when the verb was given none: prefer the
  * conventional `x`, else the first free symbol (alphabetical, as `analyze`
  * reports), else `x`.
@@ -474,11 +485,17 @@ async function runVerb(
       return { kind: "transform", result: r, computedFrom: env.computedFrom };
     }
     case "steps": {
-      const v = args[1] ?? (await inferVar(expr));
-      const env = await applyEnv(expr, [v], "expr", ov, scope);
-      const r = await call("explainDerivative", [env.text, v]);
+      // `steps` may carry a leading operation word: `steps integrate x^2`.
+      const [op, body] = splitStepsOp(expr);
+      if (!body) return usage("steps needs an expression");
+      const v = args[1] ?? (await inferVar(body));
+      const env = await applyEnv(body, [v], "expr", ov, scope);
+      const r = await call(op === "integrate" ? "explainIntegral" : "explainDerivative", [
+        env.text,
+        v,
+      ]);
       if (!r.ok) return err(env.text, r);
-      return { kind: "steps", variable: v, result: r, computedFrom: env.computedFrom };
+      return { kind: "steps", op, variable: v, result: r, computedFrom: env.computedFrom };
     }
     case "collect": {
       const v = args[1] ?? (await inferVar(expr));

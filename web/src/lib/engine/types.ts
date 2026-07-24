@@ -32,9 +32,11 @@ export interface ExplainStep {
 }
 
 /** A worked, rule-by-rule solution: the ordered steps plus the final result
- *  (`plain`/`latex` from Rendered), which always equals the plain verb. */
+ *  (`plain`/`latex` from Rendered), which always equals the plain verb.
+ *  `solved` is false only for an integral with no elementary antiderivative —
+ *  an answer, not an error, exactly as the plain `integrate` verb reports it. */
 export type ExplainResult =
-  | ({ ok: true; steps: ExplainStep[] } & Rendered)
+  | ({ ok: true; solved: boolean; steps: ExplainStep[] } & Rendered)
   | EngineError;
 
 /** Summary statistics: an ordered list of labelled values (exact where the
@@ -397,6 +399,7 @@ export interface EngineApi {
   ];
   derivative: [[input: string, variable: string], TransformResult];
   explainDerivative: [[input: string, variable: string], ExplainResult];
+  explainIntegral: [[input: string, variable: string], ExplainResult];
   laplace: [[input: string, timeVar: string], TransformResult];
   ilaplace: [[input: string, freqVar: string], TransformResult];
   integrate: [[input: string, variable: string], IntegrateResult];

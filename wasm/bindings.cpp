@@ -1405,6 +1405,22 @@ std::string ms_isolate(std::string input, std::string variable) {
     });
 }
 
+/// A worked explanation as JSON: the ordered steps plus the final result in
+/// both renderings. `solved` is false only when there is nothing to show.
+std::string explanation_json(const Explanation& ex) {
+    std::string arr = "[";
+    for (std::size_t i = 0; i < ex.steps.size(); ++i) {
+        const ExplainStep& s = ex.steps[i];
+        if (i) arr += ",";
+        arr += std::format("{{\"rule\":{},\"plain\":{},\"latex\":{}}}", jstr(s.rule),
+                           jstr(s.plain), jstr(s.latex));
+    }
+    arr += "]";
+    return std::format(
+        "{{\"ok\":true,\"solved\":true,\"steps\":{},\"plain\":{},\"latex\":{}}}", arr,
+        jstr(ex.result_plain), jstr(ex.result_latex));
+}
+
 /// explainDerivative(input, variable): the worked, rule-by-rule derivative.
 /// Returns the step list (each {rule, plain, latex}) and the final result in
 /// both renderings. The variable is inferred when it's the only free symbol.
@@ -1415,17 +1431,28 @@ std::string ms_explainDerivative(std::string input, std::string variable) {
         const std::string var = infer_var(
             e, variable, err, "give the variable explicitly: steps <expr>, <var>");
         if (var.empty()) return err;
-        const Explanation ex = explain_derivative(e, var);
-        std::string arr = "[";
-        for (std::size_t i = 0; i < ex.steps.size(); ++i) {
-            const ExplainStep& s = ex.steps[i];
-            if (i) arr += ",";
-            arr += std::format("{{\"rule\":{},\"plain\":{},\"latex\":{}}}", jstr(s.rule),
-                               jstr(s.plain), jstr(s.latex));
+        return explanation_json(explain_derivative(e, var));
+    });
+}
+
+/// explainIntegral(input, variable): the worked indefinite integral — one step
+/// per structural decision (linearity, constant multiple) with each leaf tagged
+/// by the technique the integrator used. The result equals the plain
+/// `integrate` antiderivative (the implicit "+ C" is not included). An integral
+/// with no elementary form is an honest answer (`solved:false`), not an error,
+/// exactly as the plain verb reports it.
+std::string ms_explainIntegral(std::string input, std::string variable) {
+    return guarded([&]() -> std::string {
+        const Expr e = parse_expression(input);
+        std::string err;
+        const std::string var = infer_var(
+            e, variable, err, "give the variable explicitly: steps integrate <expr>, <var>");
+        if (var.empty()) return err;
+        if (integrate(e, var).status != IntegrateResult::Status::Integrated) {
+            return std::string(
+                "{\"ok\":true,\"solved\":false,\"steps\":[],\"plain\":\"\",\"latex\":\"\"}");
         }
-        arr += "]";
-        return std::format("{{\"ok\":true,\"steps\":{},\"plain\":{},\"latex\":{}}}", arr,
-                           jstr(ex.result_plain), jstr(ex.result_latex));
+        return explanation_json(explain_integral(e, var));
     });
 }
 
@@ -1845,6 +1872,7 @@ EMSCRIPTEN_BINDINGS(mathsolver) {
     emscripten::function("collect", &ms_collect);
     emscripten::function("derivative", &ms_derivative);
     emscripten::function("explainDerivative", &ms_explainDerivative);
+    emscripten::function("explainIntegral", &ms_explainIntegral);
     emscripten::function("apart", &ms_apart);
     emscripten::function("fit", &ms_fit);
     emscripten::function("interp", &ms_interp);

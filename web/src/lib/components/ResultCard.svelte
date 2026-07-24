@@ -45,7 +45,7 @@
       {:else if outcome.kind === "integral"}
         <ResultIntegral result={outcome.result} />
       {:else if outcome.kind === "steps"}
-        <ResultSteps result={outcome.result} variable={outcome.variable} />
+        <ResultSteps result={outcome.result} op={outcome.op} variable={outcome.variable} />
       {:else if outcome.kind === "definite"}
         <ResultDefinite from={outcome.from} to={outcome.to} result={outcome.result} />
       {:else if outcome.kind === "evaluate"}

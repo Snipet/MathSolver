@@ -32,7 +32,14 @@ export type Outcome =
   | ({ kind: "solve"; variable: string; result: Ok<SolveResult> } & EnvApplied)
   | ({ kind: "system"; result: Ok<SystemResult> } & EnvApplied)
   | ({ kind: "integral"; variable: string; result: Ok<IntegrateResult> } & EnvApplied)
-  | ({ kind: "steps"; variable: string; result: Ok<ExplainResult> } & EnvApplied)
+  | ({
+      kind: "steps";
+      /** Which operation was worked out — the `steps` verb takes an optional
+       *  leading `diff`/`integrate` word and defaults to the derivative. */
+      op: "diff" | "integrate";
+      variable: string;
+      result: Ok<ExplainResult>;
+    } & EnvApplied)
   | ({ kind: "definite"; from: string; to: string; result: Ok<DefiniteResult> } & EnvApplied)
   | ({ kind: "evaluate"; result: Ok<EvaluateResult> } & EnvApplied)
   | { kind: "plugin"; plugin: string; command: string; result: Ok<PluginCallResult> }

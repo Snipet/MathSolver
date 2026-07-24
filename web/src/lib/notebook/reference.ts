@@ -278,9 +278,15 @@ export const BUILTIN_GROUPS: RefGroup[] = [
       },
       {
         insert: "steps",
-        usage: "steps <expr>[, <var>]",
+        usage: "steps [diff|integrate] <expr>[, <var>]",
         hint: "Worked, rule-by-rule derivative (power/product/chain/…)",
         example: "steps sin(x^2), x",
+      },
+      {
+        insert: "steps integrate",
+        usage: "steps integrate <expr>[, <var>]",
+        hint: "Worked integral (linearity, u-substitution, parts, …)",
+        example: "steps integrate x*sin(x), x",
       },
       {
         insert: "integrate",

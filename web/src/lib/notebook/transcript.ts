@@ -31,11 +31,17 @@ export function cellOutputLines(result: CellResult | null): string[] {
       return result.result.solved
         ? [result.result.plain]
         : ["(no closed form)"];
-    case "steps":
+    case "steps": {
+      if (!result.result.solved) return ["(no closed form)"];
+      const label =
+        result.op === "integrate"
+          ? `∫ … d${result.variable} = ${result.result.plain} + C`
+          : `d/d${result.variable} = ${result.result.plain}`;
       return [
         ...result.result.steps.map((s, i) => `${i + 1}. [${s.rule}] ${s.plain}`),
-        `d/d${result.variable} = ${result.result.plain}`,
+        label,
       ];
+    }
     case "definite":
       return result.result.status === "unsolved"
         ? ["(unsolved)"]
